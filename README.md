@@ -1,17 +1,24 @@
-# my_first_app
+# 🏦 Loan & Banking App
 
-A new Flutter project.
+កម្មវិធីធនាគារខ្មែរពេញលេញជាមួយ **25+ Features**
 
-## Getting Started
+## ✨ Features
+- 💳 ៣ កាត, ផ្ទេរប្រាក់, បង់វិក្កយបត្រ
+- 📊 Charts, Insights, Analytics
+- 💰 Budgets, Reminders, Recurring
+- 🎮 Achievements, Streak, Cashback
+- 🌐 ៣ ភាសា (ខ្មែរ/English/中文)
+- 🎨 ១០ Themes
+- 📄 PDF + CSV Export
+- 💬 Support Chat
 
-This project is a starting point for a Flutter application.
+## 🛠️ Tech Stack
+- **Frontend**: Flutter + Neumorphism
+- **Backend**: Node.js + Express + SQLite
+- **Auth**: JWT + bcrypt
 
-A few resources to get you started if this is your first Flutter project:
+## 📸 Screenshots
+(នឹងបន្ថែម)
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 🚀 Demo
+(នឹងបន្ថែម URL បន្ទាប់ពី Deploy)
