@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const baseUrl = 'http://localhost:3000';
+ static const baseUrl = 'https://bank-backend-f6ay.onrender.com';
 
   static String? _token;
   static bool get hasToken => _token != null;
