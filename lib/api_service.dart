@@ -1,29 +1,39 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+
+// pubspec.yaml ត្រូវបន្ថែម៖
+//   flutter_secure_storage: ^9.2.2
+//   uuid: ^4.4.0
 
 class ApiService {
- static const baseUrl = 'https://bank-backend-f6ay.onrender.com';
+  static const baseUrl = String.fromEnvironment('API_BASE_URL',
+      defaultValue: 'https://bank-backend-f6ay.onrender.com');
+  static const _timeout = Duration(seconds: 30); // Render free tier ដេកយូរ
+  static final _secure = FlutterSecureStorage();
+  static final _uuid = Uuid();
 
   static String? _token;
   static bool get hasToken => _token != null;
 
-  // ============ TOKEN ============
+  // ============ TOKEN (រក្សាក្នុង Keystore/Keychain) ============
   static Future<void> loadToken() async {
-    final sp = await SharedPreferences.getInstance();
-    _token = sp.getString('token');
+    _token = await _secure.read(key: 'token');
   }
 
   static Future<void> _saveToken(String t) async {
     _token = t;
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString('token', t);
+    await _secure.write(key: 'token', value: t);
   }
 
   static Future<void> logout() async {
     _token = null;
+    await _secure.delete(key: 'token');
+    await _secure.delete(key: 'saved_pin');
     final sp = await SharedPreferences.getInstance();
-    await sp.remove('token');
     await sp.remove('email');
   }
 
@@ -37,37 +47,64 @@ class ApiService {
     await sp.setString('email', e);
   }
 
+  /// PIN ដែល Backend បង្កើតឲ្យ Google User (រក្សាក្នុង secure storage)
+  static Future<String?> getSavedPin() => _secure.read(key: 'saved_pin');
+  static Future<void> clearSavedPin() => _secure.delete(key: 'saved_pin');
+
   // ============ HTTP ============
-  static Map<String, String> get _headers => {
+  static Map<String, String> _headers({String? idempotencyKey}) => {
         'Content-Type': 'application/json',
         if (_token != null) 'Authorization': 'Bearer $_token',
+        if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
       };
 
   static Future<dynamic> _handle(http.Response r) async {
-    final body = r.body.isEmpty ? {} : jsonDecode(r.body);
+    dynamic body = {};
+    if (r.body.isNotEmpty) {
+      try {
+        body = jsonDecode(r.body);
+      } catch (_) {
+        // Render/proxy ត្រឡប់ HTML (502/503) ពេល Backend ដេក ឬគាំង → បង្ហាញលេខកូដឲ្យដឹង
+        throw ApiException('Server error (${r.statusCode})',
+            statusCode: r.statusCode, code: 'BAD_RESPONSE');
+      }
+    }
     if (r.statusCode >= 400) {
       throw ApiException(
         body is Map ? (body['error'] as String? ?? 'Error') : 'Server error',
         statusCode: r.statusCode,
+        code: body is Map ? body['code'] as String? : null,
       );
     }
     if (body is Map && body['success'] == true) return body['data'];
     return body;
   }
 
-  static Future<dynamic> _get(String p) async =>
-      _handle(await http.get(Uri.parse('$baseUrl$p'), headers: _headers));
+  static Future<dynamic> _send(Future<http.Response> req) async {
+    try {
+      return _handle(await req.timeout(_timeout));
+    } on TimeoutException {
+      throw ApiException('ការតភ្ជាប់យឺតពេក សូមព្យាយាមម្ដងទៀត', code: 'TIMEOUT');
+    } on http.ClientException {
+      throw ApiException('មិនមានអ៊ីនធឺណិត', code: 'NETWORK');
+    }
+  }
 
-  static Future<dynamic> _post(String p, Map<String, dynamic> b) async =>
-      _handle(await http.post(Uri.parse('$baseUrl$p'),
-          headers: _headers, body: jsonEncode(b)));
+  static Future<dynamic> _get(String p) =>
+      _send(http.get(Uri.parse('$baseUrl$p'), headers: _headers()));
 
-  static Future<dynamic> _patch(String p, Map<String, dynamic> b) async =>
-      _handle(await http.patch(Uri.parse('$baseUrl$p'),
-          headers: _headers, body: jsonEncode(b)));
+  static Future<dynamic> _post(String p, Map<String, dynamic> b,
+          {String? idempotencyKey}) =>
+      _send(http.post(Uri.parse('$baseUrl$p'),
+          headers: _headers(idempotencyKey: idempotencyKey),
+          body: jsonEncode(b)));
 
-  static Future<dynamic> _delete(String p) async => _handle(
-      await http.delete(Uri.parse('$baseUrl$p'), headers: _headers));
+  static Future<dynamic> _patch(String p, Map<String, dynamic> b) =>
+      _send(http.patch(Uri.parse('$baseUrl$p'),
+          headers: _headers(), body: jsonEncode(b)));
+
+  static Future<dynamic> _delete(String p) =>
+      _send(http.delete(Uri.parse('$baseUrl$p'), headers: _headers()));
 
   // ============ AUTH ============
   static Future<Map<String, dynamic>> register({
@@ -94,8 +131,106 @@ class ApiService {
     return Map<String, dynamic>.from(data['user']);
   }
 
+  static Future<Map<String, dynamic>> googleLogin(String idToken) async {
+    final data = await _post('/auth/google', {'id_token': idToken});
+    await _saveToken(data['token']);
+
+    final email = data['user']['email'] as String? ?? '';
+    if (email.isNotEmpty) await _saveEmail(email);
+
+    if (data['generatedPin'] != null) {
+      await _secure.write(key: 'saved_pin', value: data['generatedPin']);
+    }
+    return Map<String, dynamic>.from(data['user']);
+  }
+
   static Future<Map<String, dynamic>> getMe() async =>
       Map<String, dynamic>.from(await _get('/me') as Map);
+
+  /// រក្សាទុករូប Profile (data URL) ឬលុបដោយផ្ញើ null
+  static Future<void> updateAvatar(String? dataUrl) =>
+      _post('/me/avatar', {'avatar': dataUrl});
+
+  // ============ TRANSFERS (ថ្មី) ============
+
+  /// ស្វែងរកអ្នកទទួល (លេខទូរស័ព្ទ / អ៊ីមែល / uid)
+  /// Server ត្រឡប់៖ {recipient_id, name, masked_account}
+  static Future<Map<String, dynamic>> lookupRecipient(String query) async =>
+      Map<String, dynamic>.from(await _get(
+              '/recipients/lookup?q=${Uri.encodeQueryComponent(query)}')
+          as Map);
+
+  /// បញ្ជីអ្នកទទួលដែលបានចុះឈ្មោះ (Server បិទបាំងលេខទូរស័ព្ទ/អ៊ីមែល)
+  static Future<List<dynamic>> getRecipients({String? q, int limit = 50}) async =>
+      await _get('/recipients?q=${Uri.encodeQueryComponent(q ?? '')}&limit=$limit')
+          as List<dynamic>;
+
+  /// ផ្ទេរលុយពិតប្រាកដ។ Server ជាអ្នកកាត់/បូកលុយ និងបង្កើតប្រតិបត្តិការទាំងពីរភាគី។
+  /// [idempotencyKey] ត្រូវបង្កើតម្ដងក្នុងមួយការបញ្ជាក់ ហើយប្រើដដែលពេល retry
+  static Future<Map<String, dynamic>> transfer({
+    required String recipientId,
+    required double amount,
+    required String pin,
+    required int cardId,
+    String? note,
+    String? idempotencyKey,
+  }) async =>
+      Map<String, dynamic>.from(await _post(
+        '/transfers',
+        {
+          'recipient_id': recipientId,
+          'amount': amount,
+          'pin': pin,
+          'card_id': cardId,
+          if (note != null && note.isNotEmpty) 'note': note,
+        },
+        idempotencyKey: idempotencyKey ?? _uuid.v4(),
+      ) as Map);
+
+  static String newIdempotencyKey() => _uuid.v4();
+
+  /// បង្កើត QR token ដែលមានអាយុខ្លី (សម្រាប់អ្នកទទួលបង្ហាញ)
+  static Future<Map<String, dynamic>> createQr({double? amount}) async =>
+      Map<String, dynamic>.from(await _post('/qr/create', {
+        if (amount != null) 'amount': amount,
+      }) as Map);
+
+  /// បន្ទាប់ពីស្កេន QR ផ្ញើ token ទៅ Server ដើម្បីបានអ្នកទទួលពិតប្រាកដ
+  static Future<Map<String, dynamic>> resolveQr(String qrToken) async =>
+      Map<String, dynamic>.from(
+          await _post('/qr/resolve', {'qr_token': qrToken}) as Map);
+
+  /// ផ្ទេរចេញក្រៅ (ធនាគារ/MFIs/វ៉លឡេត)។ Server កាត់លុយ + fee ហើយកត់ត្រាតែម្ខាង។
+  static Future<Map<String, dynamic>> transferExternal({
+    required String bankCode,
+    required String recipientName,
+    required String recipientAccount,
+    required double amount,
+    required String pin,
+    required int cardId,
+    String? note,
+    String? idempotencyKey,
+  }) async =>
+      Map<String, dynamic>.from(await _post(
+        '/transfers/external',
+        {
+          'bank_code': bankCode,
+          'recipient_name': recipientName,
+          'recipient_account': recipientAccount,
+          'amount': amount,
+          'pin': pin,
+          'card_id': cardId,
+          if (note != null && note.isNotEmpty) 'note': note,
+        },
+        idempotencyKey: idempotencyKey ?? _uuid.v4(),
+      ) as Map);
+
+  /// បញ្ជី rails ដែល Backend គាំទ្រ (fee, min/max)
+  static Future<List<dynamic>> getBanks() async =>
+      await _get('/banks') as List<dynamic>;
+
+  static Future<List<dynamic>> getExternalTransfers() async =>
+      await _get('/transfers/external') as List<dynamic>;
 
   // ============ CARDS ============
   static Future<List<dynamic>> getCards() async =>
@@ -144,8 +279,9 @@ class ApiService {
     if (minAmount != null) p['min_amount'] = minAmount.toString();
     if (maxAmount != null) p['max_amount'] = maxAmount.toString();
     if (isExpense != null) p['is_expense'] = isExpense.toString();
-    final qs = p.entries.map((e) =>
-        '${e.key}=${Uri.encodeComponent(e.value)}').join('&');
+    final qs = p.entries
+        .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
+        .join('&');
     return await _get('/transactions/search${qs.isNotEmpty ? '?$qs' : ''}')
         as List<dynamic>;
   }
@@ -186,9 +322,15 @@ class ApiService {
     required double principal,
     required int months,
     required double annualRate,
+    required String province,
+    required String district,
+    required String commune,
+    required String village,
   }) =>
       _post('/loan', {
         'principal': principal, 'months': months, 'annual_rate': annualRate,
+        'province': province, 'district': district, 'commune': commune,
+        'village': village,
       });
 
   static Future<Map<String, dynamic>> payLoan() async =>
@@ -328,7 +470,8 @@ class ApiService {
 class ApiException implements Exception {
   final String message;
   final int statusCode;
-  ApiException(this.message, {this.statusCode = 0});
+  final String? code; // ឧ. WRONG_PIN, INSUFFICIENT_FUNDS, PIN_LOCKED
+  ApiException(this.message, {this.statusCode = 0, this.code});
   @override
   String toString() => message;
 }
