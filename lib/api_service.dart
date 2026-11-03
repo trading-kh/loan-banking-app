@@ -148,8 +148,12 @@ class ApiService {
       Map<String, dynamic>.from(await _get('/me') as Map);
 
   /// រក្សាទុករូប Profile (data URL) ឬលុបដោយផ្ញើ null
-  static Future<void> updateAvatar(String? dataUrl) =>
-      _post('/me/avatar', {'avatar': dataUrl});
+  /// [thumb] = thumbnail 96px (data URL) សម្រាប់បង្ហាញក្នុងបញ្ជីអ្នកទទួល
+  static Future<void> updateAvatar(String? dataUrl, {String? thumb}) =>
+      _post('/me/avatar', {
+        'avatar': dataUrl,
+        if (thumb != null) 'thumb': thumb,
+      });
 
   // ============ TRANSFERS (ថ្មី) ============
 

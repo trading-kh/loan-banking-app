@@ -46,3 +46,18 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Firebase (local config + cache)
+/.firebase/
+/lib/firebase_options.dart
+/android/app/google-services.json
+
+# Build output
+/android/build/
+
+# Stray files from mistyped shell commands
+/Get
+/Keystore
+/Run
+/flutter
+/assets/icon/app_icon_foreground.png.png

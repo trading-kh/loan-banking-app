@@ -706,8 +706,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> updateAvatar(String? dataUrl) async {
-    await ApiService.updateAvatar(dataUrl);
+  Future<void> updateAvatar(String? dataUrl, {String? thumb}) async {
+    await ApiService.updateAvatar(dataUrl, thumb: thumb);
     _applyAvatar(dataUrl);
     notifyListeners();
   }
@@ -3364,14 +3364,60 @@ class BankRail {
 class RecipientContact {
   final String id, name, maskedAccount;
   final bool recent;
+  final Uint8List? thumb;
   const RecipientContact({required this.id, required this.name,
-      required this.maskedAccount, this.recent = false});
+      required this.maskedAccount, this.recent = false, this.thumb});
 
-  factory RecipientContact.fromJson(Map<String, dynamic> j) => RecipientContact(
+  factory RecipientContact.fromJson(Map<String, dynamic> j) {
+    Uint8List? thumb;
+    final t = j['avatar_thumb'];
+    if (t is String && t.isNotEmpty) {
+      try {
+        thumb = base64Decode(t);
+      } catch (_) {
+        thumb = null;
+      }
+    }
+    return RecipientContact(
       id: j['recipient_id'].toString(),
       name: (j['name'] ?? '').toString(),
       maskedAccount: (j['masked_account'] ?? '').toString(),
-      recent: j['recent'] == true);
+      recent: j['recent'] == true,
+      thumb: thumb,
+    );
+  }
+}
+
+/// រូបភាពអ្នកទទួល (thumbnail) — បង្ហាញប្រុង្បាប់ឈ្មោះស្របជាមួយរូបភាព
+class RecipientThumb extends StatelessWidget {
+  const RecipientThumb({super.key, this.bytes, this.name = '', this.size = 40});
+
+  final Uint8List? bytes;
+  final String name;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    if (bytes != null) {
+      return ClipOval(
+        child: Image.memory(bytes!, width: size, height: size, fit: BoxFit.cover),
+      );
+    }
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+          color: C.accent.withValues(alpha: 0.14), shape: BoxShape.circle),
+      child: Text(
+        name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
+        style: TextStyle(
+            color: C.accent,
+            fontWeight: FontWeight.w800,
+            fontSize: size * 0.4),
+      ),
+    );
+  }
 }
 
 class TransferScreen extends StatefulWidget {
@@ -3471,6 +3517,7 @@ class _TransferScreenState extends State<TransferScreen> {
         'recipient_id': r.id,
         'name': r.name,
         'masked_account': r.maskedAccount,
+        'avatar_thumb': r.thumb == null ? null : base64Encode(r.thumb!),
       };
     });
   }
@@ -3584,6 +3631,12 @@ class _TransferScreenState extends State<TransferScreen> {
               fontSize: 12)),
           const SizedBox(height: 6),
           Row(children: [
+            RecipientThumb(
+              bytes: _thumbBytes(found!['avatar_thumb']),
+              name: found!['name'].toString(),
+              size: 40,
+            ),
+            const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(found!['name'].toString(),
@@ -3810,16 +3863,7 @@ class _RecipientPickerSheetState extends State<_RecipientPickerSheet> {
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 4),
             child: Row(children: [
-              Container(
-                  width: 40, height: 40,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                      color: C.accent.withValues(alpha: 0.14),
-                      shape: BoxShape.circle),
-                  child: Text(
-                      r.name.isEmpty ? '?' : r.name.substring(0, 1).toUpperCase(),
-                      style: const TextStyle(color: C.accent,
-                          fontWeight: FontWeight.w800, fontSize: 16))),
+              RecipientThumb(bytes: r.thumb, name: r.name),
               const SizedBox(width: 14),
               Expanded(
                   child: Column(
@@ -4522,6 +4566,30 @@ Uint8List? _compressAvatar(Uint8List bytes) {
   return Uint8List.fromList(img.encodeJpg(resized, quality: 82));
 }
 
+/// Thumbnail 96px (កាត់ square ពីកណ្តាល) — បង្ហាញក្នុងបញ្ជីអ្នកទទួល
+String? _avatarThumb(Uint8List bytes) {
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) return null;
+  final side = decoded.width < decoded.height ? decoded.width : decoded.height;
+  final cropped = img.copyCrop(decoded,
+      x: (decoded.width - side) ~/ 2,
+      y: (decoded.height - side) ~/ 2,
+      width: side, height: side);
+  final resized = img.copyResize(cropped,
+      width: 96, height: 96, interpolation: img.Interpolation.average);
+  return base64Encode(img.encodeJpg(resized, quality: 60));
+}
+
+/// បម្លែង base64 (thumbnail) ទៅទិន្នន័យរូប — null បើមិនមាន
+Uint8List? _thumbBytes(Object? v) {
+  if (v is! String || v.isEmpty) return null;
+  try {
+    return base64Decode(v);
+  } catch (_) {
+    return null;
+  }
+}
+
 /// រូប Profile — បង្ហាញរូបដែលរក្សាទុក ឬ icon បើមិនទាន់មាន
 class UserAvatar extends StatelessWidget {
   const UserAvatar({super.key, this.radius = 46,
@@ -4616,8 +4684,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       setState(() => _uploading = true);
+      final thumb = await compute(_avatarThumb, Uint8List.fromList(bytes));
       await bank.updateAvatar(
-          'data:image/jpeg;base64,${base64Encode(compressed)}');
+          'data:image/jpeg;base64,${base64Encode(compressed)}',
+          thumb: thumb == null ? null : 'data:image/jpeg;base64,$thumb');
       if (mounted) toast(context, 'បានរក្សាទុករូបភាព');
     } catch (e) {
       if (mounted) toast(context, 'មិនអាចរក្សាទុករូបភាព', error: true);
@@ -4968,8 +5038,9 @@ class _QrAmountSheet extends StatefulWidget {
   final String name;
   final String masked;
   final double? initialAmount;
+  final Uint8List? thumb;
   const _QrAmountSheet({
-    required this.name, required this.masked, this.initialAmount,
+    required this.name, required this.masked, this.initialAmount, this.thumb,
   });
   @override
   State<_QrAmountSheet> createState() => _QrAmountSheetState();
@@ -4995,14 +5066,24 @@ class _QrAmountSheetState extends State<_QrAmountSheet> {
               crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('ផ្ញើប្រាក់ទៅ',
                 style: TextStyle(fontSize: 12.5, color: context.muted)),
-            Text(widget.name, style: TextStyle(fontSize: 20,
-                fontWeight: FontWeight.w800, color: context.ink)),
-            if (widget.masked.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(widget.masked,
-                    style: TextStyle(fontSize: 12.5, color: context.muted)),
+            Row(children: [
+              RecipientThumb(bytes: widget.thumb, name: widget.name, size: 44),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(widget.name, style: TextStyle(fontSize: 20,
+                          fontWeight: FontWeight.w800, color: context.ink)),
+                      if (widget.masked.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(widget.masked,
+                              style: TextStyle(
+                                  fontSize: 12.5, color: context.muted)),
+                        ),
+                    ]),
               ),
+            ]),
             const SizedBox(height: 16),
             NeuField(controller: _amt, label: 'ទឹកប្រាក់ (\$)',
                 icon: Icons.attach_money,
@@ -5194,7 +5275,8 @@ class _QrScreenState extends State<QrScreen> {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => _QrAmountSheet(
-          name: name, masked: masked, initialAmount: preAmt),
+          name: name, masked: masked, initialAmount: preAmt,
+          thumb: _thumbBytes(recipient['avatar_thumb'])),
     );
     if (r == null || !mounted) return;
 

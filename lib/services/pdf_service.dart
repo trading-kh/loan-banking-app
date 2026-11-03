@@ -5,12 +5,28 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import '../main.dart';
 
 class PdfService {
+  // Helvetica (PDF default) has no Khmer glyphs, so transaction titles would
+  // come out blank. Load the app's Khmer font into the document theme.
+  static Future<pw.ThemeData> _khmerTheme() async {
+    final regular =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/NotoSansKhmer-Regular.ttf'));
+    final bold =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/NotoSansKhmer-Bold.ttf'));
+    return pw.ThemeData.withFont(
+      base: regular,
+      bold: bold,
+      italic: regular,
+      boldItalic: bold,
+    );
+  }
+
   static Future<void> exportStatement() async {
-    final doc = pw.Document();
+    final doc = pw.Document(theme: await _khmerTheme());
     final dateFmt = DateFormat('dd/MM/yyyy HH:mm');
     final shortFmt = DateFormat('dd/MM/yyyy');
 
