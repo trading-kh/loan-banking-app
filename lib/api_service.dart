@@ -80,31 +80,43 @@ class ApiService {
     return body;
   }
 
-  static Future<dynamic> _send(Future<http.Response> req) async {
-    try {
-      return _handle(await req.timeout(_timeout));
-    } on TimeoutException {
-      throw ApiException('ការតភ្ជាប់យឺតពេក សូមព្យាយាមម្ដងទៀត', code: 'TIMEOUT');
-    } on http.ClientException {
-      throw ApiException('មិនមានអ៊ីនធឺណិត', code: 'NETWORK');
+  /// ព្យាយាមម្ដងទៀតពេល server កំពុងចាប់ផ្ដើមឡើងវិញ (dev reload) — កុំឱ្យកម្មវិធីបង្ហាញ "កំពុងផ្ទុក"
+  /// មានតែការស្នើសម្រាប់ GET (មិនមានប្តូរទិន្នន័យ) — កុំព្យាយាមម្ដងទៀតប្រតិបត្តិការប៉ះ
+  static Future<dynamic> _send(Future<http.Response> Function() req,
+      {bool retryOnNetwork = false}) async {
+    final maxAttempts = retryOnNetwork ? 4 : 1;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        return await _handle(await req().timeout(_timeout));
+      } on TimeoutException {
+        throw ApiException('ការតភ្ជាប់យឺតពេក សូមព្យាយាមម្ដងទៀត',
+            code: 'TIMEOUT');
+      } on http.ClientException {
+        if (attempt == maxAttempts - 1) {
+          throw ApiException('មិនមានអ៊ីនធឺណិត', code: 'NETWORK');
+        }
+        await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+      }
     }
+    throw ApiException('មិនមានអ៊ីនធឺណិត', code: 'NETWORK');
   }
 
-  static Future<dynamic> _get(String p) =>
-      _send(http.get(Uri.parse('$baseUrl$p'), headers: _headers()));
+  static Future<dynamic> _get(String p) => _send(
+      () => http.get(Uri.parse('$baseUrl$p'), headers: _headers()),
+      retryOnNetwork: true);
 
   static Future<dynamic> _post(String p, Map<String, dynamic> b,
           {String? idempotencyKey}) =>
-      _send(http.post(Uri.parse('$baseUrl$p'),
+      _send(() => http.post(Uri.parse('$baseUrl$p'),
           headers: _headers(idempotencyKey: idempotencyKey),
           body: jsonEncode(b)));
 
   static Future<dynamic> _patch(String p, Map<String, dynamic> b) =>
-      _send(http.patch(Uri.parse('$baseUrl$p'),
+      _send(() => http.patch(Uri.parse('$baseUrl$p'),
           headers: _headers(), body: jsonEncode(b)));
 
   static Future<dynamic> _delete(String p) =>
-      _send(http.delete(Uri.parse('$baseUrl$p'), headers: _headers()));
+      _send(() => http.delete(Uri.parse('$baseUrl$p'), headers: _headers()));
 
   // ============ AUTH ============
   static Future<Map<String, dynamic>> register({
@@ -314,7 +326,8 @@ class ApiService {
 
   static Future<void> markAllRead() => _post('/notifications/read-all', {});
 
-  // ============ LOANS ============
+  // ============ LOANS (ម៉ាស៊ីនកម្ចី) ============
+  /// កម្ចីដែលកំពុងដំណើរការ (អាច null បើអត់អានកម្ចីស្រាប់បាន)
   static Future<Map<String, dynamic>?> getLoan() async {
     final r = await _get('/loan');
     if (r == null) return null;
@@ -322,7 +335,48 @@ class ApiService {
     return Map<String, dynamic>.from(r as Map);
   }
 
-  static Future<void> takeLoan({
+  /// បញ្ជីកម្ចីទាំងអស់ (បុព្វបទ + កំពុងដំណើរការ)
+  static Future<List<dynamic>> getLoans() async {
+    final r = await _get('/loans');
+    if (r is Map) return (r['rows'] as List<dynamic>?) ?? [];
+    return (r as List<dynamic>?) ?? [];
+  }
+
+  /// ព័ត៌មាន KYC របស់អ្នកប្រើ (null បើមិនទាន់បានបំពេញ)
+  static Future<Map<String, dynamic>?> getLoanKyc() async {
+    final r = await _get('/loan/kyc');
+    if (r == null) return null;
+    if (r is Map && r.isEmpty) return null;
+    return Map<String, dynamic>.from(r as Map);
+  }
+
+  /// រក្សាទុក KYC — submit=true ដាក់ស្នើទៅការវាយតម្លៃ
+  static Future<Map<String, dynamic>> saveLoanKyc(
+      Map<String, dynamic> data, {bool submit = false}) async {
+    final r = await _post('/loan/kyc', {...data, 'submit': submit});
+    return Map<String, dynamic>.from(r as Map);
+  }
+
+  /// គណនាតារាងសងប្រាក់មុនស្នើ (មិនរក្សាទុក)
+  static Future<Map<String, dynamic>> loanQuote({
+    required double principal,
+    required int months,
+    required double annualRate,
+    String interestMethod = 'annuity',
+    double feePercent = 0,
+  }) async {
+    final r = await _post('/loan/quote', {
+      'principal': principal,
+      'months': months,
+      'annual_rate': annualRate,
+      'interest_method': interestMethod,
+      'fee_percent': feePercent,
+    });
+    return Map<String, dynamic>.from(r as Map);
+  }
+
+  /// ដាក់ស្នើសាកលកម្មកម្ចី (រង់ចាំការវាយតម្លៃ + អនុមត្ត)
+  static Future<Map<String, dynamic>> applyLoan({
     required double principal,
     required int months,
     required double annualRate,
@@ -330,15 +384,47 @@ class ApiService {
     required String district,
     required String commune,
     required String village,
-  }) =>
-      _post('/loan', {
-        'principal': principal, 'months': months, 'annual_rate': annualRate,
-        'province': province, 'district': district, 'commune': commune,
-        'village': village,
-      });
+    String interestMethod = 'annuity',
+    String purpose = '',
+  }) async {
+    final r = await _post('/loan/apply', {
+      'principal': principal,
+      'months': months,
+      'annual_rate': annualRate,
+      'interest_method': interestMethod,
+      'province': province,
+      'district': district,
+      'commune': commune,
+      'village': village,
+      'purpose': purpose,
+    });
+    return Map<String, dynamic>.from(r as Map);
+  }
 
-  static Future<Map<String, dynamic>> payLoan() async =>
-      Map<String, dynamic>.from(await _post('/loan/pay', {}) as Map);
+  /// តារាងសងប្រាក់តាមខែ + កំណត់ចំនាំការបង់ (អានប្រាក់ដោយគ្មាន)
+  static Future<Map<String, dynamic>> getLoanSchedule() async {
+    final r = await _get('/loan/schedule');
+    return Map<String, dynamic>.from(r as Map);
+  }
+
+  /// បង់វីនុបទ — amount=null បង់វីនុបទបន្ទាប់ទាំងអស់
+  static Future<Map<String, dynamic>> payLoanInstallment(
+      {double? amount, int? cardId}) async {
+    final r = await _post('/loan/pay', {
+      if (amount != null) 'amount': amount,
+      if (cardId != null) 'card_id': cardId,
+    });
+    return Map<String, dynamic>.from(r as Map);
+  }
+
+  /// ធ្វើការចុជ្ជាប្រាក់ផុតកំណត់ (បង្កើតកាតក្រង់ប្រមូល)
+  static Future<void> syncLoanArrears() async => _post('/loan/sync', {});
+
+  /// បើក/បិទបង់ស្វត្តកម្ម — ដកចំនួនពេលវីនុបទដល់កាលពីកាត
+  static Future<Map<String, dynamic>> setLoanAutoDebit({required bool enabled}) async {
+    final r = await _post('/loan/auto-debit', {'enabled': enabled});
+    return Map<String, dynamic>.from(r as Map);
+  }
 
   // ============ ANALYTICS ============
   static Future<Map<String, dynamic>> getAnalytics() async =>

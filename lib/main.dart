@@ -35,6 +35,7 @@ import 'extra_features.dart';
 import 'premium_features.dart';
 import 'onboarding.dart';
 import 'ui_extras.dart';
+import 'loan_module.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -500,38 +501,6 @@ class Goal {
       );
 }
 
-class Loan {
-  final int id;
-  final double principal;
-  final int months;
-  final double annualRate;
-  final String province, district, commune, village;
-  int paid;
-  bool active;
-  Loan({required this.id, required this.principal, required this.months,
-      required this.annualRate, required this.paid, required this.active,
-      this.province = '', this.district = '', this.commune = '',
-      this.village = ''});
-  factory Loan.fromJson(Map<String, dynamic> j) => Loan(
-        id: j['id'] as int,
-        principal: (j['principal'] as num).toDouble(),
-        months: j['months'] as int,
-        annualRate: (j['annual_rate'] as num).toDouble(),
-        paid: j['paid'] as int, active: j['active'] == 1,
-        province: (j['province'] as String?) ?? '',
-        district: (j['district'] as String?) ?? '',
-        commune: (j['commune'] as String?) ?? '',
-        village: (j['village'] as String?) ?? '',
-      );
-  String get address => [village, commune, district, province]
-      .where((s) => s.isNotEmpty).join(' · ');
-  double get monthly {
-    final r = annualRate / 12 / 100;
-    if (r == 0) return principal / months;
-    return principal * r / (1 - math.pow(1 + r, -months));
-  }
-}
-
 class AppNotif {
   final int id;
   final String title, body;
@@ -648,7 +617,6 @@ class AppState extends ChangeNotifier {
   List<Tx> txs = [];
   List<Goal> goals = [];
   List<AppNotif> notifs = [];
-  Loan? loan;
   bool loading = false;
 
   List<Budget> budgets = [];
@@ -833,7 +801,6 @@ class AppState extends ChangeNotifier {
     txs = [];
     goals = [];
     notifs = [];
-    loan = null;
     _lastPin = null;
     _isGoogleUser = false;
     budgets = [];
@@ -864,14 +831,11 @@ class AppState extends ChangeNotifier {
         ApiService.getTransactions(),
         ApiService.getGoals(),
         ApiService.getNotifications(),
-        ApiService.getLoan(),
       ]);
-      cards = (r[0] as List).map((e) => BankCard.fromJson(e)).toList();
-      txs = (r[1] as List).map((e) => Tx.fromJson(e)).toList();
-      goals = (r[2] as List).map((e) => Goal.fromJson(e)).toList();
-      notifs = (r[3] as List).map((e) => AppNotif.fromJson(e)).toList();
-      final l = r[4] as Map<String, dynamic>?;
-      loan = l != null ? Loan.fromJson(l) : null;
+      cards = r[0].map((e) => BankCard.fromJson(e)).toList();
+      txs = r[1].map((e) => Tx.fromJson(e)).toList();
+      goals = r[2].map((e) => Goal.fromJson(e)).toList();
+      notifs = r[3].map((e) => AppNotif.fromJson(e)).toList();
     } on ApiException catch (e) {
       if (e.statusCode == 401) await logout();
     } catch (_) {} finally {
@@ -979,20 +943,6 @@ class AppState extends ChangeNotifier {
   }
   Future<void> depositGoal(Goal g, double amount) async {
     await ApiService.depositGoal(g.id, amount);
-    await loadAll();
-  }
-
-  Future<void> takeLoan({required double principal, required int months,
-      required double rate, required String province, required String district,
-      required String commune, required String village}) async {
-    await ApiService.takeLoan(
-        principal: principal, months: months, annualRate: rate,
-        province: province, district: district, commune: commune,
-        village: village);
-    await loadAll();
-  }
-  Future<void> payLoan() async {
-    await ApiService.payLoan();
     await loadAll();
   }
 
@@ -2590,7 +2540,7 @@ class _Nav {
   const _Nav(this.icon, this.active, this.label);
 }
 
-void push(BuildContext c, Widget w) =>
+Future<Object?> push(BuildContext c, Widget w) =>
     Navigator.of(c).push(MaterialPageRoute(builder: (_) => w));
 
 // ============================================================================
@@ -2634,7 +2584,7 @@ class HomeScreen extends StatelessWidget {
                     AbaCell(Icons.savings_outlined, 'សន្សំ',
                         () => push(context, const SavingsScreen())),
                     AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
-                        () => push(context, const LoanScreen())),
+                        () => push(context, const LoanModuleScreen())),
                     AbaCell(Icons.pie_chart_outline, 'ថវិកា',
                         () => push(context, const BudgetsScreen())),
                     AbaCell(Icons.notifications_active_outlined, 'រំលឹក',
@@ -4197,453 +4147,6 @@ class SavingsScreen extends StatelessWidget {
                         ]))),
             ]),
       ));
-}
-
-// ============================================================================
-//  LOAN
-// ============================================================================
-class LoanScreen extends StatefulWidget {
-  const LoanScreen({super.key});
-  @override
-  State<LoanScreen> createState() => _LoanScreenState();
-}
-
-class _LoanScreenState extends State<LoanScreen> {
-  double amount = 5000, months = 24, rate = 12;
-  @override
-  Widget build(BuildContext context) => sb(() {
-        final r = rate / 12 / 100;
-        final monthly = r == 0 ? amount / months
-            : amount * r / (1 - math.pow(1 + r, -months.round()));
-        final loan = bank.loan;
-        return Scaffold(
-          appBar: AppBar(title: const Text('កម្ចី')),
-          body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-              children: [
-                if (loan != null) ...[
-                  NeuBox(radius: 18, padding: const EdgeInsets.all(20),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min, children: [
-                        Text('កម្ចីកំពុងដំណើរការ',
-                            style: TextStyle(color: context.muted, fontSize: 12)),
-                        Text(money(loan.principal), style: TextStyle(
-                            color: context.ink, fontSize: 28,
-                            fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 14),
-                        ClipRRect(borderRadius: BorderRadius.circular(8),
-                            child: LinearProgressIndicator(
-                                value: loan.paid / loan.months, minHeight: 10,
-                                backgroundColor:
-                                    Colors.white.withValues(alpha: 0.10),
-                                valueColor: const AlwaysStoppedAnimation(
-                                    C.accent))),
-                        const SizedBox(height: 10),
-                        Text('បង់ ${loan.paid}/${loan.months} ខែ',
-                            style: TextStyle(color: context.muted,
-                                fontSize: 12)),
-                        if (loan.address.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(loan.address,
-                              style: TextStyle(color: context.muted,
-                                  fontSize: 11.5)),
-                        ],
-                        const SizedBox(height: 14),
-                        NeuButton(label: 'បង់រំលោះ', icon: Icons.payment,
-                            accent: C.accentGold, onPressed: () async {
-                          try {
-                            await bank.payLoan();
-                            if (mounted) toast(context, 'បង់ជោគជ័យ');
-                          } on ApiException catch (e) {
-                            if (mounted) toast(context, e.message, error: true);
-                          }
-                        }),
-                      ])),
-                  const SizedBox(height: 8),
-                ],
-                const SectionTitle('ម៉ាស៊ីនគណនា'),
-                NeuBox(child: Column(children: [
-                  _slider(context, 'ចំនួន', money(amount), amount,
-                      500, 50000, 99,
-                      (v) => setState(() => amount = (v / 500).round() * 500.0)),
-                  _slider(context, 'រយៈពេល', '${months.round()} ខែ', months,
-                      6, 60, 54, (v) => setState(() => months = v)),
-                  _slider(context, 'អត្រា', '${rate.toStringAsFixed(1)}%', rate,
-                      6, 24, 36, (v) => setState(() => rate = v)),
-                ])),
-                const SizedBox(height: 14),
-                NeuBox(inset: true, child: Column(children: [
-                  Text('បង់ប្រចាំខែ', style: TextStyle(color: context.muted,
-                      fontSize: 12)),
-                  Text(money(monthly), style: const TextStyle(fontSize: 30,
-                      fontWeight: FontWeight.w800, color: C.accent)),
-                ])),
-                const SizedBox(height: 20),
-                NeuButton(label: loan != null ? 'មានកម្ចីរួច' : 'ស្នើសុំកម្ចី',
-                    icon: Icons.request_quote,
-                    onPressed: loan != null ? null : () => push(context,
-                        LoanApplyScreen(initialAmount: amount,
-                            initialMonths: months.round(),
-                            initialRate: rate))),
-              ]),
-        );
-      });
-
-  Widget _slider(BuildContext context, String l, String v, double val,
-          double min, double max, int div, ValueChanged<double> on) =>
-      Padding(padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(l, style: TextStyle(color: context.muted, fontSize: 12.5)),
-              Text(v, style: TextStyle(fontWeight: FontWeight.w700,
-                  color: context.ink, fontSize: 13)),
-            ]),
-            Slider(value: val, min: min, max: max, divisions: div,
-                activeColor: C.accent, onChanged: on),
-          ]));
-}
-
-// ============================================================================
-//  LOAN APPLICATION — ខេត្ត → ស្រុក → ឃុំ → ភូមិ → ទឹកប្រាក់
-// ============================================================================
-class _AdminProvince {
-  final String code, name;
-  final List<_AdminDistrict> districts;
-  _AdminProvince(this.code, this.name, this.districts);
-  factory _AdminProvince.fromJson(Map<String, dynamic> j) => _AdminProvince(
-        j['c'] as String, j['n'] as String,
-        [for (final d in j['d'] as List)
-          _AdminDistrict.fromJson(Map<String, dynamic>.from(d as Map))]);
-}
-
-class _AdminDistrict {
-  final String code, name;
-  final List<_AdminCommune> communes;
-  _AdminDistrict(this.code, this.name, this.communes);
-  factory _AdminDistrict.fromJson(Map<String, dynamic> j) => _AdminDistrict(
-        j['c'] as String, j['n'] as String,
-        [for (final m in j['m'] as List)
-          _AdminCommune.fromJson(Map<String, dynamic>.from(m as Map))]);
-}
-
-class _AdminCommune {
-  final String code, name;
-  final List<String> villages;
-  _AdminCommune(this.code, this.name, this.villages);
-  factory _AdminCommune.fromJson(Map<String, dynamic> j) => _AdminCommune(
-      j['c'] as String, j['n'] as String,
-      List<String>.from(j['v'] as List));
-}
-
-Future<List<_AdminProvince>> _loadAdminData() async {
-  final raw = await rootBundle.loadString('assets/data/cambodia_admin.json');
-  final j = jsonDecode(raw) as Map<String, dynamic>;
-  return [for (final p in j['p'] as List)
-    _AdminProvince.fromJson(Map<String, dynamic>.from(p as Map))];
-}
-
-class LoanApplyScreen extends StatefulWidget {
-  const LoanApplyScreen({super.key, this.initialAmount = 5000,
-      this.initialMonths = 24, this.initialRate = 12});
-  final double initialAmount;
-  final int initialMonths;
-  final double initialRate;
-  @override
-  State<LoanApplyScreen> createState() => _LoanApplyScreenState();
-}
-
-class _LoanApplyScreenState extends State<LoanApplyScreen> {
-  late Future<List<_AdminProvince>> _regions = _loadAdminData();
-  int _step = 0;
-  _AdminProvince? _province;
-  _AdminDistrict? _district;
-  _AdminCommune? _commune;
-  String? _village;
-  String _query = '';
-  late double _amount = widget.initialAmount;
-  late double _months = widget.initialMonths.toDouble();
-  late double _rate = widget.initialRate;
-  bool _submitting = false;
-
-  static const _labels = ['ខេត្ត', 'ស្រុក', 'ឃុំ', 'ភូមិ', 'ទឹកប្រាក់'];
-
-  void _back() {
-    if (_step == 0) {
-      Navigator.pop(context);
-      return;
-    }
-    setState(() {
-      _query = '';
-      if (_step == 4) {
-        _step = 3;
-        _village = null;
-      } else if (_step == 3) {
-        _step = 2;
-        _commune = null;
-        _village = null;
-      } else if (_step == 2) {
-        _step = 1;
-        _district = null;
-        _commune = null;
-        _village = null;
-      } else {
-        _step = 0;
-        _province = null;
-        _district = null;
-        _commune = null;
-        _village = null;
-      }
-    });
-  }
-
-  Future<void> _submit() async {
-    setState(() => _submitting = true);
-    try {
-      await bank.takeLoan(
-          principal: _amount, months: _months.round(), rate: _rate,
-          province: _province!.name, district: _district!.name,
-          commune: _commune!.name, village: _village!);
-      if (!mounted) return;
-      toast(context, 'អនុម័ត!');
-      Navigator.pop(context);
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => sb(() => PopScope(
-        canPop: _step == 0,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _back();
-        },
-        child: Scaffold(
-          appBar: AppBar(
-              leading: IconButton(icon: const Icon(Icons.arrow_back),
-                  onPressed: _back),
-              title: const Text('ស្នើសុំកម្ចី')),
-          body: FutureBuilder<List<_AdminProvince>>(
-            future: _regions,
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text('មិនអាចអានទិន្នន័យទីតាំង',
-                      style: TextStyle(color: context.muted)),
-                  const SizedBox(height: 12),
-                  TextButton(
-                      onPressed: () => setState(
-                          () => _regions = _loadAdminData()),
-                      child: const Text('ព្យាយាមម្តងទៀត',
-                          style: TextStyle(color: C.accent))),
-                ]));
-              }
-              if (!snap.hasData) {
-                return const Center(
-                    child: CircularProgressIndicator(color: C.accent));
-              }
-              return Column(children: [
-                _progress(context),
-                Expanded(child: _step < 4
-                    ? _currentStep(snap.data!)
-                    : _amountStep(context)),
-              ]);
-            },
-          ),
-        ),
-      ));
-
-  Widget _progress(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-        child: Column(children: [
-          ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                  value: (_step + 1) / 5,
-                  minHeight: 6,
-                  backgroundColor: Colors.white.withValues(alpha: 0.10),
-                  valueColor: const AlwaysStoppedAnimation(C.accent))),
-          const SizedBox(height: 10),
-          Row(children: [
-            for (var i = 0; i < _labels.length; i++)
-              Expanded(
-                  child: Column(children: [
-                Container(
-                    width: 22, height: 22,
-                    decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: i <= _step ? C.accent : Colors.transparent,
-                        border: Border.all(
-                            color: i <= _step ? C.accent : context.border)),
-                    child: i < _step
-                        ? const Icon(Icons.check, size: 13,
-                            color: Colors.white)
-                        : Center(
-                            child: Text('${i + 1}',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: i == _step
-                                        ? Colors.white : context.muted)))),
-                const SizedBox(height: 4),
-                Text(_labels[i],
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight:
-                            i == _step ? FontWeight.w700 : FontWeight.w400,
-                        color: i <= _step ? context.ink : context.muted)),
-              ])),
-          ]),
-        ]),
-      );
-
-  String get _path => [_province?.name, _district?.name, _commune?.name]
-      .whereType<String>().join(' › ');
-
-  Widget _currentStep(List<_AdminProvince> data) {
-    switch (_step) {
-      case 0:
-        return _stepList(context, 'ជ្រើសរើសខេត្ត/ក្រុង',
-            [for (final p in data) p.name],
-            (i) => setState(() {
-                  _province = data[i];
-                  _step = 1;
-                  _query = '';
-                }));
-      case 1:
-        final list = _province!.districts;
-        return _stepList(context, 'ជ្រើសរើសស្រុក/ខណ្ឌ',
-            [for (final d in list) d.name],
-            (i) => setState(() {
-                  _district = list[i];
-                  _step = 2;
-                  _query = '';
-                }));
-      case 2:
-        final list = _district!.communes;
-        return _stepList(context, 'ជ្រើសរើសឃុំ/សង្កាត់',
-            [for (final c in list) c.name],
-            (i) => setState(() {
-                  _commune = list[i];
-                  _step = 3;
-                  _query = '';
-                }));
-      default:
-        final list = _commune!.villages;
-        return _stepList(context, 'ជ្រើសរើសភូមិ', list,
-            (i) => setState(() {
-                  _village = list[i];
-                  _step = 4;
-                  _query = '';
-                }));
-    }
-  }
-
-  Widget _stepList(BuildContext context, String title, List<String> names,
-      ValueChanged<int> onPick) {
-    final q = _query.trim();
-    final hits = [for (var i = 0; i < names.length; i++)
-      if (q.isEmpty || names[i].contains(q)) i];
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: TextStyle(fontSize: 17,
-              fontWeight: FontWeight.w800, color: context.ink)),
-          const SizedBox(height: 3),
-          Text(
-              _path.isEmpty
-                  ? 'ជំហាន ${_step + 1} ក្នុង 5'
-                  : 'ជំហាន ${_step + 1} ក្នុង 5 · $_path',
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: context.muted, fontSize: 11.5)),
-          if (names.length > 4) ...[
-            const SizedBox(height: 12),
-            NeuField(key: ValueKey('search-$_step'), label: 'ស្វែងរក',
-                icon: Icons.search, onChanged: (v) => setState(() => _query = v)),
-          ],
-        ]),
-      ),
-      Expanded(
-          child: hits.isEmpty
-              ? Center(child: Text('រកមិនឃើញ',
-                  style: TextStyle(color: context.muted)))
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                  itemCount: hits.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (c, k) {
-                    final name = names[hits[k]];
-                    return NeuBox(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 14),
-                        onTap: () => onPick(hits[k]),
-                        child: Row(children: [
-                          Expanded(
-                              child: Text(name,
-                                  style: TextStyle(color: context.ink,
-                                      fontSize: 14.5,
-                                      fontWeight: FontWeight.w500))),
-                          Icon(Icons.chevron_right, size: 18,
-                              color: context.muted),
-                        ]));
-                  })),
-    ]);
-  }
-
-  Widget _amountStep(BuildContext context) {
-    final r = _rate / 12 / 100;
-    final monthly = r == 0 ? _amount / _months
-        : _amount * r / (1 - math.pow(1 + r, -_months.round()));
-    return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        children: [
-          const SectionTitle('ទីតាំងរបស់អ្នក'),
-          NeuBox(inset: true, child: Column(children: [
-            InfoRow('ខេត្ត/ក្រុង', _province!.name),
-            InfoRow('ស្រុក/ខណ្ឌ', _district!.name),
-            InfoRow('ឃុំ/សង្កាត់', _commune!.name),
-            InfoRow('ភូមិ', _village!),
-          ])),
-          const SectionTitle('ចំនួនទឹកប្រាក់'),
-          NeuBox(child: Column(children: [
-            _slider(context, 'ចំនួន', money(_amount), _amount, 500, 50000, 99,
-                (v) => setState(() => _amount = (v / 500).round() * 500.0)),
-            _slider(context, 'រយៈពេល', '${_months.round()} ខែ', _months,
-                6, 60, 54, (v) => setState(() => _months = v)),
-            _slider(context, 'អត្រា', '${_rate.toStringAsFixed(1)}%', _rate,
-                6, 24, 36, (v) => setState(() => _rate = v)),
-          ])),
-          const SizedBox(height: 14),
-          NeuBox(inset: true, child: Column(children: [
-            Text('បង់ប្រចាំខែ',
-                style: TextStyle(color: context.muted, fontSize: 12)),
-            Text(money(monthly), style: const TextStyle(fontSize: 30,
-                fontWeight: FontWeight.w800, color: C.accent)),
-          ])),
-          const SizedBox(height: 20),
-          NeuButton(
-              label: _submitting ? 'កំពុងផ្ញើ...' : 'ផ្ញើសំណើ',
-              icon: Icons.request_quote,
-              onPressed: _submitting ? null : _submit),
-        ]);
-  }
-
-  Widget _slider(BuildContext context, String l, String v, double val,
-          double min, double max, int div, ValueChanged<double> on) =>
-      Padding(padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(l, style: TextStyle(color: context.muted, fontSize: 12.5)),
-              Text(v, style: TextStyle(fontWeight: FontWeight.w700,
-                  color: context.ink, fontSize: 13)),
-            ]),
-            Slider(value: val, min: min, max: max, divisions: div,
-                activeColor: C.accent, onChanged: on),
-          ]));
 }
 
 // ============================================================================
