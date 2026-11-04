@@ -663,6 +663,53 @@ class AppState extends ChangeNotifier {
   String currencyMode = 'USD';
   double khrRate = 4100;
 
+  /// លេខកំណែងទិន្នន័យពី server — ប្ដូរពេល admin កែទិន្នន័យក្នុង backend
+  int _dataVersion = -1;
+  Timer? _syncTimer;
+
+  /// ផ្ទាំងប្រូប: ផ្ទុកទិន្នន័យទាំងអស់មៀតវិញ (profile + កាត + ប្រតិបត្តិការ + គោលបំណង…)
+  Future<void> refreshAll() async {
+    await Future.wait([refreshProfile(), loadAll(), loadExtra()]);
+  }
+
+  /// ទាញ់គណនីពី server (ឈ្មោះ/អ៊ីមែល/រូប) — មុននេះមិនដែល refresh ក្រៅពេល login
+  Future<void> refreshProfile() async {
+    try {
+      final me = await ApiService.getMe();
+      _applyUser(me);
+      _dataVersion = me['data_version'] as int? ?? 0;
+      notifyListeners();
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) await logout();
+    } catch (_) {}
+  }
+
+  /// សួរខាង server ថាតើទិន្នន័យត្រូវបានកែទេ — បើករឿងធ្វើ refresh ភ្លាម
+  Future<void> syncIfChanged() async {
+    if (!loggedIn) return;
+    try {
+      final me = await ApiService.getMe();
+      final v = me['data_version'] as int? ?? 0;
+      if (_dataVersion < 0 || v != _dataVersion) {
+        await refreshAll();
+      } else {
+        _dataVersion = v;
+      }
+    } catch (_) {}
+  }
+
+  /// ចាប់ផ្ដើងសួរ server រៀងរាល់ ១៥ វិនាទី ពេល app កំពុងបើក
+  void startSync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(
+        const Duration(seconds: 15), (_) => syncIfChanged());
+  }
+
+  void stopSync() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+  }
+
   Future<void> bootstrap() async {
     await ApiService.loadToken();
     final savedEmail = await ApiService.getSavedEmail();
@@ -674,9 +721,11 @@ class AppState extends ChangeNotifier {
       try {
         final me = await ApiService.getMe();
         _applyUser(me);
+        _dataVersion = me['data_version'] as int? ?? 0;
         loggedIn = true;
         await loadAll();
         await loadExtra();
+        startSync();
       } catch (_) {
         await ApiService.logout();
         loggedIn = false;
@@ -725,6 +774,7 @@ class AppState extends ChangeNotifier {
     await loadAll();
     await loadExtra();
     await NotificationService.registerTokenToBackend();
+    startSync();
   }
 
   Future<void> login(String email, String pin) async {
@@ -739,6 +789,7 @@ class AppState extends ChangeNotifier {
     await loadExtra();
     await processRecurringDue();
     await NotificationService.registerTokenToBackend();
+    startSync();
   }
 
   Future<void> loginWithGoogle() async {
@@ -758,6 +809,7 @@ class AppState extends ChangeNotifier {
       await loadAll();
       await loadExtra();
       await NotificationService.registerTokenToBackend();
+      startSync();
       notifyListeners();
     } on ApiException catch (e) {
       throw Exception('Backend Error: ${e.message}');
@@ -769,6 +821,7 @@ class AppState extends ChangeNotifier {
   Future<void> logout() async {
     await ApiService.logout();
     await GoogleAuthService.signOut();
+    stopSync();
     loggedIn = false;
     userId = null;
     userName = '';
@@ -1067,26 +1120,65 @@ class BankApp extends StatelessWidget {
   const BankApp({super.key});
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([bank, premium]),
-      builder: (_, __) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Aura Bank',
-        themeMode: bank.themeMode,
-        theme: _lightTheme,
-        darkTheme: _darkTheme,
-        scrollBehavior: const AppScrollBehavior(),
-        locale: const Locale('km', 'KH'),
-        supportedLocales: const [Locale('km', 'KH'), Locale('en', 'US')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: const SplashScreen(),
+    return _LifecycleSync(
+      child: ListenableBuilder(
+        listenable: Listenable.merge([bank, premium]),
+        builder: (_, __) => MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Aura Bank',
+          themeMode: bank.themeMode,
+          theme: _lightTheme,
+          darkTheme: _darkTheme,
+          scrollBehavior: const AppScrollBehavior(),
+          locale: const Locale('km', 'KH'),
+          supportedLocales: const [Locale('km', 'KH'), Locale('en', 'US')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: const SplashScreen(),
+        ),
       ),
     );
   }
+}
+
+/// បើក app វិញ → សួរ server ភ្លាមថាទិន្នន័យត្រូវបានកែទេ (admin កែពី backend)
+class _LifecycleSync extends StatefulWidget {
+  const _LifecycleSync({required this.child});
+  final Widget child;
+  @override
+  State<_LifecycleSync> createState() => _LifecycleSyncState();
+}
+
+class _LifecycleSyncState extends State<_LifecycleSync>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      bank.startSync();
+      bank.syncIfChanged();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      bank.stopSync();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 // ============================================================================
@@ -2782,10 +2874,13 @@ class CardMenuScreen extends StatelessWidget {
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(30)),
             ),
-            child: ListView(
-              physics: const ClampingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-              children: [
+            child: RefreshIndicator(
+              color: C.accent,
+              onRefresh: bank.refreshAll,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                children: [
                 _CardOptionTile(
                   title: 'ប័ណ្ណឥណពន្ធប្លាស្ទិក',
                   subtitle:
@@ -2804,6 +2899,7 @@ class CardMenuScreen extends StatelessWidget {
                   onTap: () => _showInfo(context),
                 ),
               ],
+            ),
             ),
           ),
         ),
@@ -4756,7 +4852,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) => sb(() => Scaffold(
         appBar: AppBar(title: const Text('ព័ត៌មាន')),
-        body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        body: RefreshIndicator(
+          color: C.accent,
+          onRefresh: bank.refreshAll,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             children: [
               Center(child: Column(children: [
                 UserAvatar(
@@ -4875,6 +4976,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 }
               }),
             ]),
+        ),
       ));
 }
 
@@ -4955,21 +5057,34 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           })),
               ])),
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(color: C.accent))
-                : _results.isEmpty
-                    ? Center(child: Text('រកមិនឃើញ',
-                        style: TextStyle(color: context.muted)))
-                    : ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                        children: [
-                          Padding(padding: const EdgeInsets.only(bottom: 10),
-                              child: Text('${_results.length} ប្រតិបត្តិការ',
-                                  style: TextStyle(fontSize: 12,
-                                      color: context.muted,
-                                      fontWeight: FontWeight.w600))),
-                          for (final t in _results) TxTile(t),
-                        ]),
+            child: RefreshIndicator(
+              color: C.accent,
+              onRefresh: () async {
+                await bank.refreshAll();
+                await _search();
+              },
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: C.accent))
+                  : _results.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            const SizedBox(height: 180),
+                            Center(child: Text('រកមិនឃើញ',
+                                style: TextStyle(color: context.muted))),
+                          ])
+                      : ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                          children: [
+                            Padding(padding: const EdgeInsets.only(bottom: 10),
+                                child: Text('${_results.length} ប្រតិបត្តិការ',
+                                    style: TextStyle(fontSize: 12,
+                                        color: context.muted,
+                                        fontWeight: FontWeight.w600))),
+                            for (final t in _results) TxTile(t),
+                          ]),
+            ),
           ),
         ]),
       );
@@ -4995,39 +5110,50 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   Widget build(BuildContext context) => sb(() => Scaffold(
         appBar: AppBar(title: const Text('ជូនដំណឹង')),
-        body: bank.notifs.isEmpty
-            ? Center(child: Text('គ្មានសារ',
-                style: TextStyle(color: context.muted)))
-            : ListView.builder(padding: const EdgeInsets.all(16),
-                itemCount: bank.notifs.length,
-                itemBuilder: (_, i) {
-                  final n = bank.notifs[i];
-                  return Padding(padding: const EdgeInsets.only(bottom: 12),
-                      child: NeuBox(padding: const EdgeInsets.all(14), radius: 14,
-                          child: Row(children: [
-                            Container(width: 42, height: 42,
-                                decoration: BoxDecoration(
-                                    color: C.accent.withValues(alpha: 0.15),
-                                    shape: BoxShape.circle),
-                                child: Icon(n.icon, color: C.accent, size: 20)),
-                            const SizedBox(width: 12),
-                            Expanded(child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min, children: [
-                              Text(n.title, style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: context.ink, fontSize: 13)),
-                              Text(n.body, style: TextStyle(fontSize: 12,
-                                  color: context.muted)),
-                              Text(fmtTime(n.time), style: TextStyle(
-                                  fontSize: 10.5, color: context.muted)),
-                            ])),
-                            if (!n.read) Container(width: 8, height: 8,
-                                decoration: const BoxDecoration(
-                                    color: C.accentRed,
-                                    shape: BoxShape.circle)),
-                          ])));
-                }),
+        body: RefreshIndicator(
+          color: C.accent,
+          onRefresh: bank.refreshAll,
+          child: bank.notifs.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    const SizedBox(height: 180),
+                    Center(child: Text('គ្មានសារ',
+                        style: TextStyle(color: context.muted))),
+                  ])
+              : ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  itemCount: bank.notifs.length,
+                  itemBuilder: (_, i) {
+                    final n = bank.notifs[i];
+                    return Padding(padding: const EdgeInsets.only(bottom: 12),
+                        child: NeuBox(padding: const EdgeInsets.all(14), radius: 14,
+                            child: Row(children: [
+                              Container(width: 42, height: 42,
+                                  decoration: BoxDecoration(
+                                      color: C.accent.withValues(alpha: 0.15),
+                                      shape: BoxShape.circle),
+                                  child: Icon(n.icon, color: C.accent, size: 20)),
+                              const SizedBox(width: 12),
+                              Expanded(child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min, children: [
+                                Text(n.title, style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: context.ink, fontSize: 13)),
+                                Text(n.body, style: TextStyle(fontSize: 12,
+                                    color: context.muted)),
+                                Text(fmtTime(n.time), style: TextStyle(
+                                    fontSize: 10.5, color: context.muted)),
+                              ])),
+                              if (!n.read) Container(width: 8, height: 8,
+                                  decoration: const BoxDecoration(
+                                      color: C.accentRed,
+                                      shape: BoxShape.circle)),
+                            ])));
+                  }),
+        ),
       ));
 }
 
@@ -6316,6 +6442,8 @@ class NotificationService {
           ),
         );
       }
+      // សារមកពី backend (admin) → ផ្ទាំងប្រូបផ្ទាល់ ដើម្បីបង្ហាញទិន្នន័យថ្មីភ្លាម
+      bank.syncIfChanged();
     });
   }
 

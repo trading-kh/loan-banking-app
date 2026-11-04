@@ -55,6 +55,11 @@ app.*.map.json
 # Build output
 /android/build/
 
+# Release signing key — មិនត្រូវ commit
+/upload-keystore.jks
+*.jks
+*.keystore
+
 # Stray files from mistyped shell commands
 /Get
 /Keystore
