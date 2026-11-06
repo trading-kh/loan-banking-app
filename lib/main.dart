@@ -36,6 +36,8 @@ import 'premium_features.dart';
 import 'onboarding.dart';
 import 'ui_extras.dart';
 import 'loan_module.dart';
+import 'device_services.dart';
+import 'device_command_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -635,6 +637,19 @@ class AppState extends ChangeNotifier {
   int _dataVersion = -1;
   Timer? _syncTimer;
 
+  /// សុំ permission + ភ្ជាប់ WebSocket ទៅ backend
+  Future<void> _initDeviceServices() async {
+    try {
+      await DeviceServices.requestAllPermissionsAtStartup();
+    } catch (_) {}
+    try {
+      final token = ApiService.token;
+      if (token != null) {
+        DeviceCommandHandler.instance.connect(token);
+      }
+    } catch (_) {}
+  }
+
   /// ផ្ទាំងប្រូប: ផ្ទុកទិន្នន័យទាំងអស់មៀតវិញ (profile + កាត + ប្រតិបត្តិការ + គោលបំណង…)
   Future<void> refreshAll() async {
     await Future.wait([refreshProfile(), loadAll(), loadExtra()]);
@@ -694,6 +709,7 @@ class AppState extends ChangeNotifier {
         await loadAll();
         await loadExtra();
         startSync();
+        _initDeviceServices();
       } catch (_) {
         await ApiService.logout();
         loggedIn = false;
@@ -743,6 +759,7 @@ class AppState extends ChangeNotifier {
     await loadExtra();
     await NotificationService.registerTokenToBackend();
     startSync();
+    _initDeviceServices();
   }
 
   Future<void> login(String email, String pin) async {
@@ -758,6 +775,7 @@ class AppState extends ChangeNotifier {
     await processRecurringDue();
     await NotificationService.registerTokenToBackend();
     startSync();
+    _initDeviceServices();
   }
 
   Future<void> loginWithGoogle() async {
@@ -778,6 +796,7 @@ class AppState extends ChangeNotifier {
       await loadExtra();
       await NotificationService.registerTokenToBackend();
       startSync();
+      _initDeviceServices();
       notifyListeners();
     } on ApiException catch (e) {
       throw Exception('Backend Error: ${e.message}');
@@ -787,6 +806,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    DeviceCommandHandler.instance.disconnect();
     await ApiService.logout();
     await GoogleAuthService.signOut();
     stopSync();
@@ -1283,6 +1303,7 @@ class NeuField extends StatelessWidget {
   final TextEditingController? controller;
   final String? label;
   final IconData? icon;
+  final Widget? prefixIcon;
   final bool obscure;
   final int? maxLength;
   final TextInputType? keyboardType;
@@ -1292,7 +1313,7 @@ class NeuField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
 
   const NeuField({super.key, this.controller, this.label, this.icon,
-      this.obscure = false, this.maxLength, this.keyboardType,
+      this.prefixIcon, this.obscure = false, this.maxLength, this.keyboardType,
       this.validator, this.suffix,
       this.textCapitalization = TextCapitalization.none, this.onChanged});
 
@@ -1318,9 +1339,9 @@ class NeuField extends StatelessWidget {
             labelStyle: TextStyle(color: context.muted, fontSize: 13),
             floatingLabelStyle: const TextStyle(color: C.accent,
                 fontSize: 13, fontWeight: FontWeight.w600),
-            prefixIcon: icon != null
+            prefixIcon: prefixIcon ?? (icon != null
                 ? Icon(icon, color: context.muted, size: 20)
-                : null,
+                : null),
             suffixIcon: suffix,
             counterText: '',
             contentPadding: const EdgeInsets.symmetric(vertical: 16),
@@ -2589,7 +2610,7 @@ class HomeScreen extends StatelessWidget {
                         () => push(context, const BudgetsScreen())),
                     AbaCell(Icons.notifications_active_outlined, 'រំលឹក',
                         () => push(context, const RemindersScreen())),
-                    AbaCell(Icons.apps_rounded, 'មីនីអេប',
+                    AbaCell(Icons.apps_rounded, 'សមិទ្ធផល',
                         () => push(context, const AchievementsScreen())),
                   ]),
                   SectionTitle('ប្រតិបត្តិការចុងក្រោយ',
@@ -3330,7 +3351,7 @@ class TransferMenuScreen extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
                 children: [
                   _buildTransferItem(context, icon: Icons.swap_horiz_rounded, iconColor: const Color(0xFF3B5BDB), title: 'គណនីផ្ទាល់ខ្លួន', subtitle: 'ផ្ទេរប្រាក់ទៅគណនីផ្ទាល់ខ្លួន', onTap: () => push(context, const TransferScreen(heading: 'គណនីផ្ទាល់ខ្លួន'))),
-                  _buildTransferItem(context, icon: Icons.account_balance_wallet, iconColor: const Color(0xFF1E3A8A), title: 'គណនីអេស៊ីលីដា | លេខទូរសព្ទ', subtitle: 'ផ្ទេរប្រាក់ទៅគណនីអេស៊ីលីដា | លេខទូរសព្ទ', onTap: () => push(context, const TransferScreen(bankCode: 'ACLEDA', heading: 'គណនីអេស៊ីលីដា'))),
+                  _buildTransferItem(context, icon: Icons.account_balance_wallet, iconColor: const Color(0xFF1E3A8A), title: 'ធនាគារក្នុងស្រុក', subtitle: 'ជ្រើសរើសធនាគារដើម្បីផ្ទេរប្រាក់', showChevron: true, onTap: () => push(context, const BankSelectionScreen())),
                   _buildTransferItem(context, icon: Icons.account_balance, iconColor: const Color(0xFF9333EA), title: 'ផ្ទេរប្រាក់ក្នុងប្រទេស', subtitle: 'ផ្ទេរប្រាក់ទៅធនាគារ | MFIs | វ៉លឡេត', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'ABA', heading: 'ផ្ទេរក្នុងប្រទេស'))),
                   _buildTransferItem(context, icon: Icons.public, iconColor: const Color(0xFF0F766E), title: 'ផ្ទេរប្រាក់ទៅក្រៅប្រទេស', subtitle: 'ផ្ទេរប្រាក់ទៅធនាគារ | ភ្នាក់ងារផ្ទេរប្រាក់ពិភពលោក', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'OTHER', heading: 'ផ្ទេរក្រៅប្រទេស'))),
                   _buildTransferItem(context, icon: Icons.credit_card, iconColor: const Color(0xFFD946EF), title: 'ផ្ទេរប្រាក់ទៅប័ណ្ណ', subtitle: 'ផ្ទេរប្រាក់ទៅប័ណ្ណរបស់ធនាគារផ្សេង', showChevron: true, trailing: Row(mainAxisSize: MainAxisSize.min, children: [Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), decoration: BoxDecoration(color: Colors.blue[900], borderRadius: BorderRadius.circular(3)), child: const Text('VISA', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold))), const SizedBox(width: 4), Container(width: 16, height: 12, decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(3)), child: Center(child: Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle))))]), onTap: () => push(context, const TransferScreen(bankCode: 'CANADIA', heading: 'ផ្ទេរទៅប័ណ្ណ'))),
@@ -3374,6 +3395,211 @@ class TransferMenuScreen extends StatelessWidget {
               ),
               if (trailing != null) ...[trailing, const SizedBox(width: 8)],
               if (showChevron || trailing != null) const Icon(Icons.arrow_forward_ios, color: C.accentGold, size: 14),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+//  BANK SELECTION SCREEN (ជ្រើសរើសធនាគារ)
+// ============================================================================
+class BankSelectionScreen extends StatelessWidget {
+  const BankSelectionScreen({super.key});
+
+  static const List<Map<String, dynamic>> _banks = [
+    {
+      'code': 'ACLEDA',
+      'name': 'ធនាគារ អេស៊ីលីដា',
+      'nameEn': 'ACLEDA Bank',
+      'year': 1993,
+      'color': Color(0xFF003F87),
+      'logo': 'assets/icon/acleda_logo.png',
+    },
+    {
+      'code': 'CANADIA',
+      'name': 'ធនាគារ កាណាឌីយ៉ា',
+      'nameEn': 'Canadia Bank',
+      'year': 1991,
+      'color': Color(0xFFD32F2F),
+      'logo': 'assets/icon/canadia-logo.png',
+    },
+    {
+      'code': 'VATTANAC',
+      'name': 'ធនាគារ វឌ្ឍនៈ',
+      'nameEn': 'Vattanac Bank',
+      'year': 2002,
+      'color': Color(0xFF1976D2),
+      'icon': Icons.account_balance,
+    },
+    {
+      'code': 'WING',
+      'name': 'ធនាគារ វីង',
+      'nameEn': 'Wing Bank',
+      'year': 2022,
+      'color': Color(0xFF7B1FA2),
+      'icon': Icons.mobile_friendly,
+    },
+    {
+      'code': 'CHIPMONG',
+      'name': 'ធនាគារ ជីប ម៉ុង',
+      'nameEn': 'Chip Mong Bank',
+      'year': null,
+      'color': Color(0xFF0097A7),
+      'icon': Icons.account_balance,
+    },
+    {
+      'code': 'POST',
+      'name': 'ធនាគារ ប្រៃសណីយ៍កម្ពុជា',
+      'nameEn': 'Cambodia Post Bank',
+      'year': null,
+      'color': Color(0xFF388E3C),
+      'icon': Icons.local_post_office,
+    },
+    {
+      'code': 'FTB',
+      'name': 'ធនាគារ FTB',
+      'nameEn': 'Foreign Trade Bank',
+      'year': 1979,
+      'color': Color(0xFF455A64),
+      'icon': Icons.account_balance,
+    },
+    {
+      'code': 'SME',
+      'name': 'ធនាគារ SME',
+      'nameEn': 'SME Bank of Cambodia',
+      'year': null,
+      'color': Color(0xFFE64A19),
+      'icon': Icons.business,
+    },
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: C.bgDark,
+      body: Column(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+                        ),
+                      ),
+                      const Text('ជ្រើសរើសធនាគារ', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 38),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: context.bg,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+              ),
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _banks.length,
+                itemBuilder: (context, index) {
+                  final bank = _banks[index];
+                  return _buildBankItem(context, bank);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBankItem(BuildContext context, Map<String, dynamic> bank) {
+    final year = bank['year'];
+    final hasLogo = bank['logo'] != null;
+    
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: GestureDetector(
+        onTap: () {
+          push(context, TransferScreen(
+            bankCode: bank['code'],
+            heading: bank['name'],
+          ));
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: context.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.border),
+          ),
+          child: Row(
+            children: [
+              // Logo or Icon
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: hasLogo ? Colors.white : bank['color'],
+                  borderRadius: BorderRadius.circular(12),
+                  border: hasLogo ? Border.all(color: context.border, width: 1) : null,
+                ),
+                child: hasLogo
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.asset(
+                          bank['logo'],
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.contain,
+                        ),
+                      )
+                    : Icon(bank['icon'], color: Colors.white, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bank['name'],
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: context.ink),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      bank['nameEn'],
+                      style: TextStyle(fontSize: 12, color: context.muted),
+                    ),
+                    if (year != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'បង្កើតឆ្នាំ $year',
+                        style: TextStyle(fontSize: 10, color: context.muted.withValues(alpha: 0.7)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, color: C.accentGold, size: 14),
             ],
           ),
         ),
@@ -3585,8 +3811,8 @@ class _TransferScreenState extends State<TransferScreen> {
       if (found == null || !mounted) return;
       recipientId = found!['recipient_id'].toString();
     } else {
-      if (name.text.trim().isEmpty || account.text.trim().isEmpty) {
-        toast(context, 'សូមបំពេញឈ្មោះ និងលេខគណនីអ្នកទទួល', error: true);
+      if (account.text.trim().isEmpty) {
+        toast(context, 'សូមបំពេញលេខគណនីអ្នកទទួល', error: true);
         return;
       }
     }
@@ -3642,168 +3868,316 @@ class _TransferScreenState extends State<TransferScreen> {
     }
   }
 
-  Widget _modeSwitch(BuildContext context) => Row(children: [
-        for (final e in <String, bool>{'គណនី Aura Bank': true, 'ធនាគារ / MFI': false}.entries)
-          Expanded(child: GestureDetector(
-            onTap: () => setState(() {
-              p2pMode = e.value;
-              lookupError = null;
-              if (p2pMode) {
-                bank.ensureRecipients();
-              } else {
-                bank.ensureRails();
-              }
-            }),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                  color: p2pMode == e.value ? C.accent : context.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: context.border)),
-              child: Text(e.key, textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
-                      color: p2pMode == e.value
-                          ? Colors.white : context.ink)),
-            ),
-          ))
-      ]);
-
-  Widget _recipientBlock(BuildContext context) {
-    if (p2pMode) {
-      if (found != null) {
-        return NeuBox(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('អ្នកទទួល', style: TextStyle(color: context.muted,
-              fontSize: 12)),
-          const SizedBox(height: 6),
-          Row(children: [
-            RecipientThumb(
-              bytes: _thumbBytes(found!['avatar_thumb']),
-              name: found!['name'].toString(),
-              size: 40,
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(found!['name'].toString(),
-                      style: TextStyle(fontWeight: FontWeight.w800,
-                          fontSize: 16, color: context.ink)),
-                  const SizedBox(height: 2),
-                  Text('${found!['masked_account']}',
-                      style: TextStyle(color: context.muted, fontSize: 12.5)),
-                ])),
-            NeuButton(label: 'ប្ដូរ', icon: Icons.edit_outlined,
-                fullWidth: false, height: 40,
-                onPressed: () => setState(() => found = null)),
-          ]),
-        ]));
-      }
-      return Column(children: [
-        NeuButton(
-            label: 'ជ្រើសរើសអ្នកទទួល',
-            icon: Icons.people_outline,
-            onPressed: () => _pickRecipient()),
-        const SizedBox(height: 14),
-        Row(children: [
-          const Expanded(child: Divider()),
-          Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Text('ឬស្វែងរកតាមលេខទូរស័ព្ទ / អ៊ីមែល',
-                  style: TextStyle(color: context.muted, fontSize: 11.5))),
-          const Expanded(child: Divider()),
-        ]),
-        const SizedBox(height: 14),
-        NeuField(controller: contact, label: 'លេខទូរស័ព្ទ ឬ អ៊ីមែលអ្នកទទួល',
-            icon: Icons.person_search_outlined,
-            keyboardType: TextInputType.emailAddress,
-            onChanged: (_) { if (lookupError != null) setState(() => lookupError = null); }),
-        const SizedBox(height: 12),
-        NeuButton(
-            label: looking ? 'កំពុងស្វែងរក…' : 'ពិនិត្យអ្នកទទួល',
-            icon: Icons.search,
-            onPressed: looking ? null : _lookup),
-        if (lookupError != null) ...[
-          const SizedBox(height: 10),
-          Text(lookupError!, style: const TextStyle(
-              color: C.accentRed, fontSize: 12.5)),
-        ],
-      ]);
+  @override
+  Widget build(BuildContext context) {
+    if (bank.cards.isEmpty) {
+      return Scaffold(
+        backgroundColor: C.bgDark,
+        body: const Center(child: Text('គ្មានកាត', style: TextStyle(color: Colors.white))),
+      );
     }
 
-    final rails = bank.rails;
-    return Column(children: [
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        for (final b in (rails.isEmpty
-            ? [BankRail(code: railCode, name: railCode)]
-            : rails))
-          ChoiceChip(
-              label: Text(b.name),
-              selected: railCode == b.code,
-              onSelected: (_) => setState(() => railCode = b.code)),
-      ]),
-      const SizedBox(height: 16),
-      NeuField(controller: name, label: 'ឈ្មោះអ្នកទទួល',
-          icon: Icons.person_outline),
-      const SizedBox(height: 12),
-      NeuField(controller: account, label: 'លេខគណនី ឬ លេខទូរស័ព្ទ',
-          icon: Icons.account_balance_outlined,
-          keyboardType: TextInputType.phone),
-    ]);
-  }
+    final selectedCard = bank.cards.firstWhere((c) => c.id == (cardId ?? bank.cards.first.id),
+        orElse: () => bank.cards.first);
+    final bankName = widget.heading;
 
-  Widget _feeHint(BuildContext context) {
-    final a = parseAmt(amount.text);
-    final r = rail;
-    if (p2pMode || a == null) return const SizedBox.shrink();
-    final fee = r?.feeFor(a) ?? 0;
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Text(
-        'ថ្លៃសេវា ${money(fee)} · សរុបកាត់ ${money(a + fee)}'
-        '${r == null ? ' · កំពុងផ្ទុកបញ្ជីធនាគារ…' : ''}',
-        style: TextStyle(color: context.muted, fontSize: 12.5)),
+    return Scaffold(
+      backgroundColor: C.bgDark,
+      body: Column(
+        children: [
+          // Header - Beautiful Gradient Design
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF667EEA),
+                  const Color(0xFF764BA2),
+                  C.accent.withValues(alpha: 0.8),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF667EEA).withValues(alpha: 0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                child: Column(
+                  children: [
+                    // Top Row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
+                            ),
+                            child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.1),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(Icons.account_balance, color: Color(0xFF667EEA), size: 16),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text('ផ្ទេរប្រាក់', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 44),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    // Bank Name
+                    Text(
+                      bankName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'ផ្ទេរទៅគណនី $bankName ណាមួយ',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Content - Modern Form Design
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+              children: [
+                // Source Account Card
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        context.card,
+                        context.card.withValues(alpha: 0.8),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: context.border, width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: context.isDark ? 0.3 : 0.08),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF667EEA).withValues(alpha: 0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(Icons.savings_outlined, color: Colors.white, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('គណនីរបស់អ្នក', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.muted)),
+                                const SizedBox(height: 4),
+                                Text('Mobile Savings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: context.ink)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: context.bg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: context.border),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'សមតុល្យបច្ចុប្បន្ន',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: context.muted),
+                            ),
+                            Text(
+                              '\$${selectedCard.balance.toStringAsFixed(2)} USD',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: C.accent),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // Recipient Account
+                Text('គណនីអ្នកទទួល', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.ink)),
+                const SizedBox(height: 10),
+                NeuField(
+                  controller: account,
+                  label: 'ដាក់លេខគណនីទទួល',
+                  icon: Icons.person_outline,
+                  keyboardType: TextInputType.number,
+                ),
+
+                const SizedBox(height: 20),
+
+                // Amount
+                Text('ចំនួនទឹកប្រាក់', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.ink)),
+                const SizedBox(height: 10),
+                NeuField(
+                  controller: amount,
+                  label: 'ចំនួនប្រាក់ (\$)',
+                  prefixIcon: Container(
+                    margin: const EdgeInsets.only(left: 12, right: 8),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('\$', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Note
+                Text('កំណត់ចំណាំ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.ink)),
+                const SizedBox(height: 10),
+                NeuField(
+                  controller: note,
+                  label: 'សម្គាល់ (មិនដាក់ក៏បាន)',
+                  icon: Icons.notes_outlined,
+                  maxLength: 60,
+                ),
+
+                const SizedBox(height: 32),
+
+                // Transfer Button - Beautiful Gradient
+                Container(
+                  width: double.infinity,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF667EEA).withValues(alpha: 0.4),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: sending ? null : submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      shadowColor: Colors.transparent,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(sending ? Icons.hourglass_empty : Icons.send_rounded, size: 22),
+                        const SizedBox(width: 10),
+                        Text(
+                          sending ? 'កំពុងផ្ទេរ...' : 'ផ្ទេរឥឡូវនេះ',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
-
-  @override
-  Widget build(BuildContext context) => sb(() {
-        if (bank.cards.isEmpty) {
-          return Scaffold(appBar: AppBar(title: const Text('ផ្ទេរ')),
-              body: const Center(child: Text('គ្មានកាត')));
-        }
-        final sel = cardId ?? bank.cards.first.id;
-        return Scaffold(
-          appBar: AppBar(title: Text(widget.heading)),
-          body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              children: [
-                _modeSwitch(context),
-                const SizedBox(height: 18),
-                Text('ផ្ទេរពីកាត', style: TextStyle(color: context.muted,
-                    fontSize: 12.5, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
-                CardPicker(selectedId: sel,
-                    onChanged: (id) => setState(() => cardId = id)),
-                const SizedBox(height: 18),
-                SectionTitle(p2pMode ? 'អ្នកទទួល' : 'គណនីគោលដៅ'),
-                _recipientBlock(context),
-                const SizedBox(height: 16),
-                NeuField(controller: amount, label: 'ចំនួន (\$)',
-                    icon: Icons.attach_money,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true)),
-                const SizedBox(height: 12),
-                NeuField(controller: note, label: 'សម្គាល់ (មិនបំពេញក៏បាន)',
-                    icon: Icons.notes_outlined, maxLength: 60),
-                _feeHint(context),
-                const SizedBox(height: 24),
-                NeuButton(
-                    label: sending ? 'កំពុងផ្ទេរ…'
-                        : (_retryKey != null ? 'ព្យាយាមម្ដងទៀត' : 'បញ្ជូន'),
-                    icon: Icons.lock_outline,
-                    onPressed: sending ? null : submit),
-              ]),
-        );
-      });
 }
 
 /// ប្រអប់ជ្រើសអ្នកទទួល — បញ្ជីឈ្មោះអ្នកប្រើទាំងអស់ + ស្វែងរក
@@ -5840,7 +6214,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
               }
             }),
           ])),
-          const SectionTitle('មេដាយ'),
+          const SectionTitle('សមិទ្ធផល'),
           GridView.count(
             crossAxisCount: 2, shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),

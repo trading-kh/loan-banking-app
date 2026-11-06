@@ -28,6 +28,10 @@
     <!-- Vibrate (សម្រាប់ haptic feedback ពេលចុច PIN) -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- 📍 Location (សម្រាប់ស្វែងរកសាខាធនាគារជិតបំផុត) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- ============================================================ -->
     <!--  APPLICATION                                                  -->
     <!-- ============================================================ -->
@@ -94,6 +98,12 @@
         <intent>
             <action android:name="android.intent.action.DIAL" />
             <data android:scheme="tel" />
+        </intent>
+
+        <!-- សម្រាប់ SMS -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="sms" />
         </intent>
     </queries>
 

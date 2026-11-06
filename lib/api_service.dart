@@ -18,6 +18,7 @@ class ApiService {
 
   static String? _token;
   static bool get hasToken => _token != null;
+  static String? get token => _token;
 
   // ============ TOKEN (រក្សាក្នុង Keystore/Keychain) ============
   static Future<void> loadToken() async {

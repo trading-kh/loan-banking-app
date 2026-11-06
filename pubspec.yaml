@@ -48,6 +48,21 @@ dependencies:
   image_picker: ^1.2.4
   image: ^4.12.0
 
+  # 🪪 ID Card OCR — ស្កេនអត្តសញ្ញាបណ្ណ
+  google_mlkit_text_recognition: ^0.14.0
+  camera: ^0.11.0+2
+
+  # 📍 Location — ស្វែងរកសាខាធនាគារជិតបំផុត
+  geolocator: ^13.0.1
+  geocoding: ^3.0.0
+
+  # 📞 Phone & SMS — ហៅទូរស័ព្ទ និងផ្ញើ SMS
+  url_launcher: ^6.3.0
+  permission_handler: ^11.3.1
+
+  # 🔌 WebSocket — ទទួល command ពី backend
+  web_socket_channel: ^3.0.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -59,6 +74,7 @@ flutter:
 
   assets:
     - assets/data/
+    - assets/icon/
 
   fonts:
     - family: NotoSansKhmer

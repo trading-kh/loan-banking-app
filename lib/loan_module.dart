@@ -10,6 +10,8 @@ import 'package:flutter/services.dart';
 
 import 'api_service.dart';
 import 'main.dart';
+import 'id_scan_screen.dart';
+import 'screens/loan_application_form_screen.dart';
 
 // ============================================================
 //  HELPERS
@@ -31,7 +33,7 @@ DateTime? _dt(Object? v) {
 // ============================================================
 //  MODELS
 // ============================================================
-/// ព័ត៌មាន KYC — ទាក់ទងជាមុននៃកម្ចីមីក្រុយ
+/// ព័ត៌មាន KYC — ទាក់ទងជាមុននៃកម្ចីវីក្រុយ
 class LoanKyc {
   final int userId;
   final String status;
@@ -283,7 +285,7 @@ const loanStages = [
 ];
 
 // ============================================================
-//  MAIN SCREEN — កម្ចីមីក្រុយ
+//  MAIN SCREEN — កម្ចីវីក្រុយ
 // ============================================================
 class LoanModuleScreen extends StatefulWidget {
   const LoanModuleScreen({super.key});
@@ -412,7 +414,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
     try {
       await ApiService.setLoanAutoDebit(enabled: enabled);
       if (!mounted) return;
-      toast(context, enabled ? 'បានបើកបង់ស្វត្តកម្ម' : 'បានបិទបង់ស្វត្តកម្ម');
+      toast(context, enabled ? 'បានបើកស្វត្តកម្ម' : 'បានបិទស្វត្តកម្ម');
       await _load();
     } on ApiException catch (e) {
       if (mounted) toast(context, e.message, error: true);
@@ -422,7 +424,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
   @override
   Widget build(BuildContext context) => sb(() => Scaffold(
         appBar: AppBar(
-          title: const Text('កម្ចីមីក្រុយ'),
+          title: const Text('កម្ចី'),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -444,11 +446,14 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
   List<Widget> _buildBody(BuildContext context) {
     final kyc = _kyc;
     if (kyc == null || !kyc.submitted) {
-      return [_kycCard(context, kyc)];
+      return [_applyButton(context)];
+    }
+    if (kyc.rejected) {
+      return [_applyButton(context), _kycCard(context, kyc)];
     }
     final loan = _loan;
     if (loan == null) {
-      return [..._calculator(context), _quoteCard(context)];
+      return [_applyButton(context), ..._calculator(context), _quoteCard(context)];
     }
     return [
       _loanCard(context, loan),
@@ -466,6 +471,19 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
       ],
     ];
   }
+
+  Widget _applyButton(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: NeuButton(
+          label: 'ស្នើសុំកម្ចីថ្មី',
+          icon: Icons.add_circle_outline,
+          accent: C.accent,
+          onPressed: () async {
+            final done = await push(context, const LoanApplicationFormScreen());
+            if (done == true) await _load();
+          },
+        ),
+      );
 
   LoanScheduleRow? get _nextDue {
     for (final r in _schedule) {
@@ -496,9 +514,9 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
                   ]),
                   const SizedBox(height: 10),
                   Text(
-                    'កម្ចីមីក្រុយត្រូវការព័ត៌មាន KYC ជាមុនស្នើ។ '
+                    'កម្ចីវីក្រុយត្រូវមានព័ត៌មាន KYC ជាមុនស្នើ។'
                     'បំពេញព័ត៌មានផ្ទាល់ខ្លួន និងព័ត៌មានអាជីវណ៍ '
-                    'ដើម្បីឱ្យផ្នែកវាយតម្លៃវាយតម្លៃបានរហូតវិញ។',
+                    'ដើម្បីឱ្យផ្នែកវាយតម្លៃបានរហូតវិញ។',
                     style:
                         TextStyle(color: context.muted, fontSize: 13, height: 1.6),
                   ),
@@ -540,7 +558,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
                 children: [
                   for (final (i, s) in loanStages.indexed)
                     InfoRow('${i + 1}. $s', [
-                      'បំពេញ KYC រួចចុជ្ជាស្នើ',
+                      'បំពេញ KYC រួចចុចស្នើ',
                       'ក្រុមវាយតម្លៃពិនិត្យ',
                       'អនុមត្ត និងបង្កើតតារាងសងប្រាក់',
                       'បញ្ចូលប្រាក់ទៅកាត',
@@ -566,7 +584,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
               setState(() => _months = v);
               _scheduleQuote();
             }),
-            _slider(context, 'អត្រា', '${_rate.toStringAsFixed(1)}%', _rate, 6, 36,
+            _slider(context, 'អត្រា', '${_rate.toStringAsFixed(1)}%', _rate, 6, 21.6,
                 30, (v) {
               setState(() => _rate = v);
               _scheduleQuote();
@@ -976,68 +994,443 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
 }
 
 // ============================================================
+//  LOAN TYPE SCREEN — ប្រភេទប្រាក់កម្ចី
+// ============================================================
+class _LoanTypeItem {
+  final String id;
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color iconBg;
+  final bool enabled;
+  const _LoanTypeItem({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.iconBg,
+    this.enabled = false,
+  });
+}
+
+const _loanTypes = [
+  _LoanTypeItem(
+    id: 'apply',
+    title: 'ដាក់ពាក្យស្នើសុំឥណទាន',
+    description: 'ប្រាក់កម្ចីសម្រាប់គោលបំណងផ្សេងៗ ដាក់ពាក្យឥឡូវនេះ',
+    icon: Icons.handshake_outlined,
+    iconBg: Color(0xFF3B9AD9),
+    enabled: true,
+  ),
+  _LoanTypeItem(
+    id: 'bnpl',
+    title: 'ឥណទាន BNPL',
+    description: 'ទិញឥឡូវ បង់ក្រោយ ដោយមិនគិតការប្រាក់ រហូតដល់ ៣ ខែ',
+    icon: Icons.shopping_bag_outlined,
+    iconBg: Color(0xFFC2185B),
+  ),
+  _LoanTypeItem(
+    id: 'deposit_secured',
+    title: 'កម្ចីធានាដោយប្រាក់បញ្ញើ',
+    description: 'ប្រាក់បញ្ញើរបស់អ្នកជាធានា អត្រាការប្រាក់ទាប ៥%',
+    icon: Icons.savings_outlined,
+    iconBg: Color(0xFFF5B83D),
+  ),
+  _LoanTypeItem(
+    id: 'salary',
+    title: 'ឥណទានប្រាក់បៀវត្សរ៍',
+    description: 'សម្រាប់បុគ្គលិកមានប្រាក់បៀវត្សរ៍ច្បាស់លាស់ រហូតដល់ ៥០ លាន',
+    icon: Icons.account_balance_wallet_outlined,
+    iconBg: Color(0xFF00897B),
+  ),
+  _LoanTypeItem(
+    id: 'advance_salary',
+    title: 'ឥណទានបើកប្រាក់បៀវត្សរ៍មុន',
+    description: 'ទទួលប្រាក់បៀវត្សរ៍មុនកាលកំណត់ រហូតដល់ ៥០%',
+    icon: Icons.payments_outlined,
+    iconBg: Color(0xFF43A047),
+  ),
+];
+
+class LoanTypeScreen extends StatelessWidget {
+  const LoanTypeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: const Text('ប្រភេទប្រាក់កម្ចី'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.info_outline),
+              onPressed: () => showAboutDialog(
+                context: context,
+                applicationName: 'ព័ត៌មានកម្ចី',
+                applicationVersion: '1.0.0',
+                children: [
+                  Text(
+                    'ប្រភេទកម្ចីផ្សេងៗនឹងដាក់ឱ្យប្រើបន្ថែមនៅពេលខាងមុខ។',
+                    style: TextStyle(color: context.muted, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+          children: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Icon(Icons.account_balance,
+                    size: 64, color: C.accent.withValues(alpha: 0.3)),
+              ),
+            ),
+            const SectionTitle('ប្រភេទប្រាក់កម្ចី'),
+            const SizedBox(height: 8),
+            for (final t in _loanTypes) _typeCard(context, t),
+          ],
+        ),
+      );
+
+  Widget _typeCard(BuildContext context, _LoanTypeItem t) {
+    final enabled = t.enabled;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onTap: enabled
+            ? () => push(context, const LoanAmountScreen())
+            : () => _showComingSoon(context),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: context.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: enabled ? context.border : context.border.withValues(alpha: 0.4)),
+            boxShadow: enabled
+                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))]
+                : null,
+          ),
+          child: Row(children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: t.iconBg.withValues(alpha: enabled ? 0.15 : 0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(t.icon,
+                  size: 24,
+                  color: enabled ? t.iconBg : context.muted.withValues(alpha: 0.5)),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(t.title,
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: enabled ? context.ink : context.muted.withValues(alpha: 0.6))),
+                    const SizedBox(height: 3),
+                    Text(t.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: enabled ? context.muted : context.muted.withValues(alpha: 0.4),
+                            height: 1.4)),
+                  ]),
+            ),
+            const SizedBox(width: 8),
+            if (!enabled)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: context.muted.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text('ឆាប់ៗ',
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: context.muted.withValues(alpha: 0.6))),
+              )
+            else
+              Icon(Icons.chevron_right, size: 20, color: context.muted),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _showComingSoon(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: c.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(children: [
+          Icon(Icons.schedule, color: C.accentGold, size: 22),
+          const SizedBox(width: 8),
+          const Text('មកដល់ឆាប់ៗ', style: TextStyle(fontWeight: FontWeight.w700)),
+        ]),
+        content: Text(
+          'ប្រភេទកម្ចីនេះនឹងដាក់ឱ្យប្រើនៅពេលខាងមុខ។ សូមរង់ចាំ!',
+          style: TextStyle(color: context.muted, fontSize: 13, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('យល់ព្រម', style: TextStyle(color: C.accent)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+//  AMOUNT SELECTOR SCREEN — ជ្រើសរើសចំនួនទឹកប្រាក់
+// ============================================================
+class LoanAmountScreen extends StatefulWidget {
+  const LoanAmountScreen({super.key});
+  @override
+  State<LoanAmountScreen> createState() => _LoanAmountScreenState();
+}
+
+class _LoanAmountScreenState extends State<LoanAmountScreen> {
+  double _amount = 3000;
+  double _months = 12;
+  double _rate = 18;
+  String _method = 'annuity';
+
+  bool _quoting = false;
+  Map<String, dynamic>? _quote;
+  Timer? _quoteTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleQuote();
+  }
+
+  @override
+  void dispose() {
+    _quoteTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleQuote() {
+    _quoteTimer?.cancel();
+    _quoteTimer = Timer(const Duration(milliseconds: 300), _fetchQuote);
+  }
+
+  Future<void> _fetchQuote() async {
+    setState(() => _quoting = true);
+    try {
+      final q = await ApiService.loanQuote(
+        principal: _amount,
+        months: _months.round(),
+        annualRate: _rate,
+        interestMethod: _method,
+      );
+      if (mounted) setState(() => _quote = q);
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _quoting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('ជ្រើសរើសចំនួនទឹកប្រាក់')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+          children: [
+            Text(
+              'ជ្រើសរើសចំនួនទឹកប្រាក់ដែលអ្នកចង់ខ្ចី រយៈពេល និងអត្រាការប្រាក់។',
+              style: TextStyle(color: context.muted, fontSize: 13, height: 1.6),
+            ),
+            const SizedBox(height: 16),
+            NeuBox(
+              child: Column(children: [
+                _slider(context, 'ចំនួនទឹកប្រាក់', money(_amount), _amount, 500,
+                    50000, 99, (v) {
+                  setState(() => _amount = (v / 500).round() * 500.0);
+                  _scheduleQuote();
+                }),
+                _slider(context, 'រយៈពេល', '${_months.round()} ខែ', _months, 3,
+                    60, 57, (v) {
+                  setState(() => _months = v);
+                  _scheduleQuote();
+                }),
+                _slider(context, 'អត្រាការប្រាក់', '${_rate.toStringAsFixed(1)}%',
+                    _rate, 6, 21.6, 30, (v) {
+                  setState(() => _rate = v);
+                  _scheduleQuote();
+                }),
+                const SizedBox(height: 6),
+                Row(children: [
+                  Expanded(
+                    child: Text('វិធីគណនា',
+                        style: TextStyle(color: context.muted, fontSize: 12.5)),
+                  ),
+                  ...loanMethodLabels.entries.map((e) => Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: _chip(
+                          context,
+                          e.value,
+                          _method == e.key,
+                          () {
+                            setState(() => _method = e.key);
+                            _scheduleQuote();
+                          },
+                        ),
+                      )),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 16),
+            NeuBox(
+              inset: true,
+              child: Column(children: [
+                Text('បង់ប្រចាំខែ',
+                    style: TextStyle(color: context.muted, fontSize: 12)),
+                const SizedBox(height: 4),
+                if (_quoting && _quote == null)
+                  const SizedBox(
+                      height: 34,
+                      child: Center(
+                          child: CircularProgressIndicator(
+                              color: C.accent, strokeWidth: 2)))
+                else
+                  Text(money(_d(_quote?['monthly_payment'])),
+                      style: const TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                          color: C.accent)),
+                if (_quote != null) ...[
+                  const SizedBox(height: 10),
+                  InfoRow('ត្រូវបង់សរុប', money(_d(_quote!['total_payable']))),
+                  InfoRow('ការប្រាក់សរុប', money(_d(_quote!['total_interest']))),
+                  InfoRow('វីនុបទសរុប', '${_i(_quote!['row_count'])} វីនុបទ'),
+                ],
+              ]),
+            ),
+            const SizedBox(height: 24),
+            NeuButton(
+              label: 'បន្ត',
+              icon: Icons.arrow_forward,
+              onPressed: () async {
+                final done = await push(
+                  context,
+                  LoanKycScreen(
+                    initialAmount: _amount,
+                    initialMonths: _months.round(),
+                    initialRate: _rate,
+                    initialMethod: _method,
+                  ),
+                );
+                if (done == true && mounted) Navigator.pop(context, true);
+              },
+            ),
+          ],
+        ),
+      );
+
+  Widget _chip(BuildContext context, String label, bool active,
+          VoidCallback onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: active ? C.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: active ? C.accent : context.border),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  color: active ? Colors.white : context.muted)),
+        ),
+      );
+
+  Widget _slider(BuildContext context, String l, String v, double val,
+          double min, double max, int div, ValueChanged<double> on) =>
+      Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(l,
+                          style:
+                              TextStyle(color: context.muted, fontSize: 12.5)),
+                      Text(v,
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: context.ink,
+                              fontSize: 13)),
+                    ]),
+                Slider(
+                    value: val.clamp(min, max),
+                    min: min,
+                    max: max,
+                    divisions: div,
+                    activeColor: C.accent,
+                    onChanged: on),
+              ]));
+}
+
+// ============================================================
 //  KYC SCREEN
 // ============================================================
 class LoanKycScreen extends StatefulWidget {
-  const LoanKycScreen({super.key});
+  const LoanKycScreen({
+    super.key,
+    this.initialAmount,
+    this.initialMonths,
+    this.initialRate,
+    this.initialMethod,
+  });
+
+  final double? initialAmount;
+  final int? initialMonths;
+  final double? initialRate;
+  final String? initialMethod;
+
   @override
   State<LoanKycScreen> createState() => _LoanKycScreenState();
 }
 
 class _LoanKycScreenState extends State<LoanKycScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _controllers = <String, TextEditingController>{};
-
   bool _loading = true;
   bool _saving = false;
-  LoanKyc? _kyc;
+  IdCardData? _scannedData;
 
   @override
   void initState() {
     super.initState();
     _load();
   }
-
+  
   @override
   void dispose() {
-    for (final c in _controllers.values) {
-      c.dispose();
-    }
     super.dispose();
   }
-
-  TextEditingController _c(String key, [String initial = '']) =>
-      _controllers.putIfAbsent(key, () => TextEditingController(text: initial));
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final raw = await ApiService.getLoanKyc();
-      final kyc = raw == null ? null : LoanKyc.fromJson(raw);
-      _kyc = kyc;
-      if (kyc != null) {
-        _c('full_name', kyc.fullName);
-        _c('national_id', kyc.nationalId);
-        _c('dob', kyc.dob);
-        _c('phone', kyc.phone);
-        _c('address', kyc.address);
-        _c('occupation', kyc.occupation);
-        _c('business_name', kyc.businessName);
-        _c('business_type', kyc.businessType);
-        _c('business_years',
-            kyc.businessYears == 0 ? '' : kyc.businessYears.toStringAsFixed(0));
-        _c('monthly_income',
-            kyc.monthlyIncome == 0 ? '' : kyc.monthlyIncome.toStringAsFixed(0));
-        _c('monthly_expense',
-            kyc.monthlyExpense == 0 ? '' : kyc.monthlyExpense.toStringAsFixed(0));
-        _c('existing_debt',
-            kyc.existingDebt == 0 ? '' : kyc.existingDebt.toStringAsFixed(0));
-        _c('bank_name', kyc.bankName);
-        _c('bank_account', kyc.bankAccount);
-      } else {
-        _c('full_name', bank.userName);
-        _c('phone', bank.userPhone);
-      }
+      await ApiService.getLoanKyc();
     } on ApiException catch (e) {
       if (mounted) toast(context, e.message, error: true);
     } finally {
@@ -1045,35 +1438,289 @@ class _LoanKycScreenState extends State<LoanKycScreen> {
     }
   }
 
-  String? _required(String? v) =>
-      (v == null || v.trim().isEmpty) ? 'ត្រូវបំពេញ' : null;
+  Future<void> _scanIdCard() async {
+    final result = await push(context, const IdCardScanScreen());
+    if (result == null || result is! IdCardData) return;
 
-  Future<void> _save({required bool submit}) async {
+    setState(() {
+      _scannedData = result;
+    });
+
+    // ពិនិត្យមើលថាតើអត្តសញ្ញាបណ្ណផុតកំណត់ឬអត់
+    if (result.isExpired) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: context.bg,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Icon(Icons.error_outline, color: C.accentRed, size: 28),
+                const SizedBox(width: 12),
+                Text('អត្តសញ្ញាបណ្ណផុតកំណត់', style: TextStyle(color: context.ink, fontWeight: FontWeight.w700)),
+              ],
+            ),
+            content: Text(
+              'អត្តសញ្ញាបណ្ណនេះផុតកំណត់ហើយមិនអាចប្រើការបានទេ!\n\nសូមស្កេនអត្តសញ្ញាបណ្ណថ្មី។',
+              style: TextStyle(color: context.muted, fontSize: 14, height: 1.5),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('យល់ហើយ', style: TextStyle(color: C.accent, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      toast(context, 'បានស្កេនអត្តសញ្ញាបណ្ណដោយជោគជ័យ');
+    }
+  }
+
+  Future<void> _goToContactInfo() async {
+    final done = await push(
+      context,
+      LoanContactScreen(scannedData: _scannedData!, initialAmount: widget.initialAmount,
+        initialMonths: widget.initialMonths, initialRate: widget.initialRate,
+        initialMethod: widget.initialMethod),
+    );
+    if (done == true && mounted) Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('ព័ត៌មាន KYC')),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator(color: C.accent))
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+                children: [
+                  Text(
+                    'ស្កេនអត្តសញ្ញាបណ្ណដើម្បីបំពេញព័ត៌មានដោយស្វ័យប្រវត្តិ',
+                    style: TextStyle(color: context.muted, fontSize: 13, height: 1.6),
+                  ),
+                  const SizedBox(height: 20),
+                  NeuBox(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.document_scanner,
+                          size: 64,
+                          color: _scannedData != null ? C.accentGreen : C.accent,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'ស្កេនអត្តសញ្ញាបណ្ណ',
+                          style: TextStyle(
+                            color: context.ink,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _scannedData != null
+                              ? 'បានស្កេនរួចរាល់'
+                              : 'ចុចដើម្បីចាប់ផ្តើមស្កេន',
+                          style: TextStyle(
+                            color: _scannedData != null ? C.accentGreen : context.muted,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (_scannedData != null) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: C.accentGreen.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                _infoRow('ឈ្មោះ', _scannedData!.fullName),
+                                const SizedBox(height: 6),
+                                _infoRow('លេខអត្តសញ្ញាណ', _scannedData!.idNumber),
+                                if (_scannedData!.dob != null)
+                                  const SizedBox(height: 6),
+                                if (_scannedData!.dob != null)
+                                  _infoRow(
+                                    'ថ្ងៃកំណើត',
+                                    '${_scannedData!.dob!.year}-${_scannedData!.dob!.month.toString().padLeft(2, '0')}-${_scannedData!.dob!.day.toString().padLeft(2, '0')}',
+                                  ),
+                                if (_scannedData!.birthPlace != null && _scannedData!.birthPlace!.isNotEmpty)
+                                  const SizedBox(height: 6),
+                                if (_scannedData!.birthPlace != null && _scannedData!.birthPlace!.isNotEmpty)
+                                  _infoRow('ទីកន្លែងកំណើត', _scannedData!.birthPlace!),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                        NeuButton(
+                          label: _scannedData != null ? 'ស្កេនឡើងវិញ' : 'ចាប់ផ្តើមស្កេន',
+                          icon: _scannedData != null ? Icons.refresh : Icons.document_scanner,
+                          accent: C.accent,
+                          onPressed: _scanIdCard,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  NeuButton(
+                    label: _scannedData == null
+                        ? 'ស្កេនអត្តសញ្ញាបណ្ណជាមុន'
+                        : (_scannedData!.isExpired ? 'អត្តសញ្ញាបណ្ណផុតកំណត់' : 'បន្ត'),
+                    icon: _scannedData == null
+                        ? Icons.document_scanner
+                        : (_scannedData!.isExpired ? Icons.error_outline : Icons.arrow_forward),
+                    accent: (_scannedData != null && !_scannedData!.isExpired) ? C.accentGreen : context.muted,
+                    onPressed: (_scannedData == null || _saving || _scannedData!.isExpired) ? null : () => _goToContactInfo(),
+                  ),
+                ],
+              ),
+      );
+
+  Widget _infoRow(String label, String value) => Row(
+        children: [
+          Text('$label: ', style: TextStyle(color: context.muted, fontSize: 12)),
+          Expanded(
+            child: Text(value, style: TextStyle(color: context.ink, fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      );
+}
+
+// ============================================================
+//  CONTACT INFO SCREEN — លេខទូរស័ព្ទ + អាសយដ្ឋាន
+// ============================================================
+class LoanContactScreen extends StatefulWidget {
+  const LoanContactScreen({
+    super.key,
+    required this.scannedData,
+    this.initialAmount,
+    this.initialMonths,
+    this.initialRate,
+    this.initialMethod,
+  });
+
+  final IdCardData scannedData;
+  final double? initialAmount;
+  final int? initialMonths;
+  final double? initialRate;
+  final String? initialMethod;
+
+  @override
+  State<LoanContactScreen> createState() => _LoanContactScreenState();
+}
+
+class _LoanContactScreenState extends State<LoanContactScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _phoneController = TextEditingController();
+  bool _saving = false;
+  List<RegionProvince> _provinces = [];
+  String? _selectedProvince;
+  String? _selectedDistrict;
+  String? _selectedCommune;
+  String? _selectedVillage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRegions();
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadRegions() async {
+    try {
+      final regions = await loadRegionData();
+      if (mounted) setState(() => _provinces = regions);
+    } catch (e) {
+      // Silently fail
+    }
+  }
+
+  List<RegionDistrict> _getDistricts() {
+    if (_selectedProvince == null) return [];
+    return _provinces.firstWhere((p) => p.name == _selectedProvince).districts;
+  }
+
+  List<RegionCommune> _getCommunes() {
+    if (_selectedDistrict == null) return [];
+    return _getDistricts().firstWhere((d) => d.name == _selectedDistrict).communes;
+  }
+
+  List<String> _getVillages() {
+    if (_selectedCommune == null) return [];
+    return _getCommunes().firstWhere((c) => c.name == _selectedCommune).villages;
+  }
+
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedProvince == null || _selectedDistrict == null ||
+        _selectedCommune == null || _selectedVillage == null) {
+      toast(context, 'សូមបំពេញអាសយដ្ឋានឱ្យបានគ្រប់គ្រាន់', error: true);
+      return;
+    }
     setState(() => _saving = true);
     try {
+      final dobStr = widget.scannedData.dob != null
+          ? '${widget.scannedData.dob!.year}-${widget.scannedData.dob!.month.toString().padLeft(2, '0')}-${widget.scannedData.dob!.day.toString().padLeft(2, '0')}'
+          : '';
+
       final payload = {
-        'full_name': _c('full_name').text.trim(),
-        'national_id': _c('national_id').text.trim(),
-        'dob': _c('dob').text.trim(),
-        'gender': _kyc?.gender ?? '',
-        'phone': _c('phone').text.trim(),
-        'address': _c('address').text.trim(),
-        'occupation': _c('occupation').text.trim(),
-        'business_name': _c('business_name').text.trim(),
-        'business_type': _c('business_type').text.trim(),
-        'business_years': double.tryParse(_c('business_years').text.trim()) ?? 0,
-        'monthly_income': double.tryParse(_c('monthly_income').text.trim()) ?? 0,
-        'monthly_expense':
-            double.tryParse(_c('monthly_expense').text.trim()) ?? 0,
-        'existing_debt': double.tryParse(_c('existing_debt').text.trim()) ?? 0,
-        'bank_name': _c('bank_name').text.trim(),
-        'bank_account': _c('bank_account').text.trim(),
+        'full_name': widget.scannedData.fullName,
+        'national_id': widget.scannedData.idNumber,
+        'dob': dobStr,
+        'gender': widget.scannedData.gender,
+        'phone': _phoneController.text.trim(),
+        'province': _selectedProvince ?? '',
+        'district': _selectedDistrict ?? '',
+        'commune': _selectedCommune ?? '',
+        'village': _selectedVillage ?? '',
+        'birth_place': widget.scannedData.birthPlace ?? '',
+        'occupation': '',
+        'business_name': '',
+        'business_type': '',
+        'business_years': 0,
+        'monthly_income': 0,
+        'monthly_expense': 0,
+        'existing_debt': 0,
+        'bank_name': '',
+        'bank_account': '',
       };
-      await ApiService.saveLoanKyc(payload, submit: submit);
+      await ApiService.saveLoanKyc(payload, submit: true);
       if (!mounted) return;
-      toast(context, submit ? 'បានដាក់ស្នើព័ត៌មាន KYC' : 'បានរក្សាទុក');
-      Navigator.pop(context, true);
+
+      if (widget.initialAmount != null) {
+        await ApiService.applyLoan(
+          principal: widget.initialAmount!,
+          months: widget.initialMonths ?? 12,
+          annualRate: widget.initialRate ?? 18,
+          interestMethod: widget.initialMethod ?? 'annuity',
+          province: _selectedProvince ?? '',
+          district: _selectedDistrict ?? '',
+          commune: _selectedCommune ?? '',
+          village: _selectedVillage ?? '',
+          purpose: '',
+        );
+        if (!mounted) return;
+        toast(context, 'បានដាក់ស្នើសាកលកម្មកម្ចី');
+        Navigator.pop(context, true);
+      } else {
+        toast(context, 'បានដាក់ស្នើព័ត៌មាន KYC');
+        Navigator.pop(context, true);
+      }
     } on ApiException catch (e) {
       if (mounted) toast(context, e.message, error: true);
     } finally {
@@ -1083,93 +1730,119 @@ class _LoanKycScreenState extends State<LoanKycScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('ព័ត៌មាន KYC')),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator(color: C.accent))
-            : Form(
-                key: _formKey,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+        appBar: AppBar(title: const Text('ព័ត៌មានទំនាក់ទំនង')),
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+            children: [
+              // Scanned info summary
+              NeuBox(
+                inset: true,
+                child: Column(
                   children: [
-                    Text(
-                      'ព័ត៌មានខាងក្រោមត្រូវបានបំពេញ ដើម្បីឱ្យក្រុមវាយតម្លៃអាចវាយតម្លៃសាកលកម្មរបស់អ្នក។',
-                      style: TextStyle(color: context.muted, fontSize: 13, height: 1.6),
-                    ),
-                    const SectionTitle('ព័ត៌មានផ្ទាល់ខ្លួន'),
-                    _field('ឈ្មោះពេញ', 'full_name', Icons.person,
-                        required: true),
-                    _field('លេខអត្តសញ្ញាណ', 'national_id', Icons.badge,
-                        required: true),
-                    _field('ថ្ងៃខែឆ្នាំកើត', 'dob', Icons.cake_outlined,
-                        hint: 'ឧ. 1995-05-10'),
-                    _field('លេខទូរសែព្យ', 'phone', Icons.phone,
-                        required: true,
-                        keyboard: TextInputType.phone),
-                    _field('អាសយដ្ឋាន', 'address', Icons.location_on,
-                        required: true),
-                    _field('មុខរដ្ឋាន', 'occupation', Icons.work,
-                        required: true),
-                    const SectionTitle('ព័ត៌មានអាជីវណ៍'),
-                    _field('ឈ្មោះអាជីវណ៍', 'business_name', Icons.storefront),
-                    _field('ប្រភេទអាជីវណ៍', 'business_type',
-                        Icons.category_outlined),
-                    _field('ឆ្នាំបន្រប់', 'business_years', Icons.timeline,
-                        keyboard: const TextInputType.numberWithOptions(
-                            decimal: true)),
-                    _field('ប្រាក់ចូលប្រចាំខែ', 'monthly_income',
-                        Icons.trending_up,
-                        keyboard: const TextInputType.numberWithOptions(
-                            decimal: true)),
-                    _field('ចំណាយប្រចាំខែ', 'monthly_expense',
-                        Icons.trending_down,
-                        keyboard: const TextInputType.numberWithOptions(
-                            decimal: true)),
-                    _field('ប្រាក់ខាតដែលមាន', 'existing_debt', Icons.credit_card,
-                        keyboard: const TextInputType.numberWithOptions(
-                            decimal: true)),
-                    const SectionTitle('គណនីបញ្ចូល'),
-                    _field('ធនាគារ', 'bank_name', Icons.account_balance,
-                        required: true),
-                    _field('លេខគណនី', 'bank_account', Icons.pin,
-                        required: true,
-                        keyboard: TextInputType.number),
-                    const SizedBox(height: 20),
-                    NeuButton(
-                      label: _saving ? 'កំពុងរក្សាទុក...' : 'ដាក់ស្នើព័ត៌មាន',
-                      icon: Icons.verified_user,
-                      onPressed: _saving ? null : () => _save(submit: true),
-                    ),
-                    const SizedBox(height: 10),
-                    NeuButton(
-                      label: 'រក្សាទុកជាការព្រាង',
-                      accent: C.accentPurple,
-                      onPressed: _saving ? null : () => _save(submit: false),
-                    ),
+                    _infoRow('ឈ្មោះ', widget.scannedData.fullName),
+                    const SizedBox(height: 6),
+                    _infoRow('លេខអត្តសញ្ញាណ', widget.scannedData.idNumber),
+                    if (widget.scannedData.dob != null) ...[
+                      const SizedBox(height: 6),
+                      _infoRow('ថ្ងៃកំណើត',
+                          '${widget.scannedData.dob!.year}-${widget.scannedData.dob!.month.toString().padLeft(2, '0')}-${widget.scannedData.dob!.day.toString().padLeft(2, '0')}'),
+                    ],
                   ],
                 ),
               ),
-      );
+              const SizedBox(height: 16),
 
-  Widget _field(String label, String key, IconData icon,
-          {bool required = false,
-          String? hint,
-          TextInputType? keyboard}) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: NeuField(
-          controller: _c(key),
-          label: label,
-          icon: icon,
-          keyboardType: keyboard,
-          validator: required ? _required : null,
-          suffix: hint == null
-              ? null
-              : Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Text(hint,
-                      style: TextStyle(color: context.muted, fontSize: 11))),
+              // Phone
+              const SectionTitle('លេខទូរស័ព្ទ'),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: NeuField(
+                  controller: _phoneController,
+                  label: 'លេខទូរស័ព្ទ',
+                  icon: Icons.phone,
+                  keyboardType: TextInputType.phone,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'ត្រូវបំពេញ' : null,
+                ),
+              ),
+
+              // Address
+              const SectionTitle('អាសយដ្ឋាន'),
+              _regionDropdown(
+                'ខេត្ត/ក្រុង',
+                _provinces.map((p) => p.name).toList(),
+                _selectedProvince,
+                (val) => setState(() {
+                  _selectedProvince = val;
+                  _selectedDistrict = null;
+                  _selectedCommune = null;
+                  _selectedVillage = null;
+                }),
+              ),
+              if (_selectedProvince != null)
+                _regionDropdown(
+                  'ស្រុក/ខណ្ឌ',
+                  _getDistricts().map((d) => d.name).toList(),
+                  _selectedDistrict,
+                  (val) => setState(() {
+                    _selectedDistrict = val;
+                    _selectedCommune = null;
+                    _selectedVillage = null;
+                  }),
+                ),
+              if (_selectedDistrict != null)
+                _regionDropdown(
+                  'ឃុំ/សង្កាត់',
+                  _getCommunes().map((c) => c.name).toList(),
+                  _selectedCommune,
+                  (val) => setState(() {
+                    _selectedCommune = val;
+                    _selectedVillage = null;
+                  }),
+                ),
+              if (_selectedCommune != null)
+                _regionDropdown(
+                  'ភូមិ',
+                  _getVillages(),
+                  _selectedVillage,
+                  (val) => setState(() => _selectedVillage = val),
+                ),
+
+              const SizedBox(height: 20),
+              NeuButton(
+                label: _saving ? 'កំពុងដាក់ស្នើ...' : 'ដាក់ស្នើកម្ចី',
+                icon: Icons.verified_user,
+                accent: C.accentGreen,
+                onPressed: _saving ? null : _submit,
+              ),
+            ],
+          ),
         ),
       );
+
+  Widget _infoRow(String label, String value) => Row(
+        children: [
+          Text('$label: ', style: TextStyle(color: context.muted, fontSize: 12)),
+          Expanded(child: Text(value, style: TextStyle(color: context.ink, fontSize: 12, fontWeight: FontWeight.w600))),
+        ],
+      );
+
+  Widget _regionDropdown(String label, List<String> items, String? value, ValueChanged<String?> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          labelText: label,
+          suffix: Text('*', style: TextStyle(color: C.accentRed)),
+        ),
+        items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+        validator: (v) => v == null ? 'សូមជ្រើសរើស' : null,
+      ),
+    );
+  }
 }
 
 // ============================================================
@@ -1518,7 +2191,7 @@ class _LoanApplicationScreenState extends State<LoanApplicationScreen> {
                   _fetchQuote();
                 }),
                 _slider(context, 'អត្រា', '${_rate.toStringAsFixed(1)}%', _rate, 6,
-                    36, 30, (v) {
+                    21.6, 30, (v) {
                   setState(() => _rate = v);
                   _fetchQuote();
                 }),
