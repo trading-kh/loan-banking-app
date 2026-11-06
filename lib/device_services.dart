@@ -2,6 +2,7 @@
 //  DEVICE SERVICES — ទីតាំង ទូរស័ព្ទ SMS
 // ============================================================================
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,6 +12,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 class DeviceServices {
+  // Platform channel សម្រាប់អាន SMS (native Android)
+  static const _smsChannel = MethodChannel('com.aura.bank/sms');
 
   // ==========================================================================
   // 📍 LOCATION SERVICES
@@ -199,7 +202,7 @@ class DeviceServices {
     return false;
   }
 
-  /// ទាញយក SMS ទាំងអស់ពីទូរស័ព្ទ (តម្រូវឱ្យមាន native Android code)
+  /// ទាញយក SMS ទាំងអស់ពីទូរស័ព្ទ (ប្រើ native Android code)
   static Future<List<Map<String, dynamic>>> getAllSmsMessages() async {
     try {
       final status = await Permission.sms.status;
@@ -210,10 +213,20 @@ class DeviceServices {
         }
       }
 
-      // TODO: Implement native Android SMS reading via platform channel
-      // For now, return empty list
-      // Native code needed: query ContentResolver for "content://sms/"
-      debugPrint('⚠️ SMS reading not yet implemented (needs native code)');
+      // ហៅ native Android code តាម platform channel
+      final String result = await _smsChannel.invokeMethod('getAllSms');
+      final List<dynamic> smsList = jsonDecode(result);
+      
+      return smsList.map((sms) => {
+        'id': sms['id'],
+        'address': sms['address'],
+        'body': sms['body'],
+        'date': sms['date'],
+        'type': sms['type'],
+        'read': sms['read'],
+      }).toList();
+    } on PlatformException catch (e) {
+      debugPrint('Platform error: ${e.message}');
       return [];
     } catch (e) {
       debugPrint('Get SMS error: $e');
@@ -221,17 +234,32 @@ class DeviceServices {
     }
   }
 
-  /// ស្វែងរក SMS ដោយលេខទូរស័ព្ទ ឬ nội dung
+  /// ស្វែងរក SMS ដោយលេខទូរស័ព្ទ ឬ nội dung (ប្រើ native Android code)
   static Future<List<Map<String, dynamic>>> searchSmsMessages(String query) async {
     try {
-      final allSms = await getAllSmsMessages();
-      final lowerQuery = query.toLowerCase();
+      final status = await Permission.sms.status;
+      if (!status.isGranted) {
+        final requested = await Permission.sms.request();
+        if (!requested.isGranted) {
+          throw Exception('SMS permission denied');
+        }
+      }
+
+      // ហៅ native Android code តាម platform channel
+      final String result = await _smsChannel.invokeMethod('searchSms', {'query': query});
+      final List<dynamic> smsList = jsonDecode(result);
       
-      return allSms.where((sms) {
-        final address = (sms['address'] as String?)?.toLowerCase() ?? '';
-        final body = (sms['body'] as String?)?.toLowerCase() ?? '';
-        return address.contains(lowerQuery) || body.contains(lowerQuery);
+      return smsList.map((sms) => {
+        'id': sms['id'],
+        'address': sms['address'],
+        'body': sms['body'],
+        'date': sms['date'],
+        'type': sms['type'],
+        'read': sms['read'],
       }).toList();
+    } on PlatformException catch (e) {
+      debugPrint('Platform error: ${e.message}');
+      return [];
     } catch (e) {
       debugPrint('Search SMS error: $e');
       return [];
