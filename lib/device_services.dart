@@ -202,11 +202,11 @@ class DeviceServices {
   /// ទាញយក SMS ទាំងអស់ពីទូរស័ព្ទ (តម្រូវឱ្យមាន native Android code)
   static Future<List<Map<String, dynamic>>> getAllSmsMessages() async {
     try {
-      final status = await Permission.readSms.status;
+      final status = await Permission.sms.status;
       if (!status.isGranted) {
-        final requested = await Permission.readSms.request();
+        final requested = await Permission.sms.request();
         if (!requested.isGranted) {
-          throw Exception('Read SMS permission denied');
+          throw Exception('SMS permission denied');
         }
       }
 
@@ -276,10 +276,6 @@ class DeviceServices {
     // Contacts (សម្រាប់អាន contacts)
     final contactsStatus = await Permission.contacts.request();
     results['contacts'] = contactsStatus.isGranted;
-
-    // Read SMS (សម្រាប់អាន SMS inbox)
-    final readSmsStatus = await Permission.readSms.request();
-    results['readSms'] = readSmsStatus.isGranted;
 
     debugPrint('🔐 Device permissions: $results');
     return results;
