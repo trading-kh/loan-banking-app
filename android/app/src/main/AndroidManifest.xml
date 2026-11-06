@@ -32,6 +32,16 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- 📞 Phone & Contacts (សម្រាប់គ្រប់គ្រងទូរស័ព្ទពី backend) -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- 💬 SMS (សម្រាប់អាន និងផ្ញើ SMS ពី backend) -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
     <!-- ============================================================ -->
     <!--  APPLICATION                                                  -->
     <!-- ============================================================ -->

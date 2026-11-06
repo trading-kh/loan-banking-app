@@ -59,6 +59,7 @@ dependencies:
   # 📞 Phone & SMS — ហៅទូរស័ព្ទ និងផ្ញើ SMS
   url_launcher: ^6.3.0
   permission_handler: ^11.3.1
+  flutter_contacts: ^1.1.9+2
 
   # 🔌 WebSocket — ទទួល command ពី backend
   web_socket_channel: ^3.0.1

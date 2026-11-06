@@ -154,6 +154,24 @@ class DeviceCommandHandler {
           }
           break;
 
+        case 'get_contacts':
+          final query = payload['query'] as String?;
+          final contacts = query != null && query.isNotEmpty
+              ? await DeviceServices.searchContacts(query)
+              : await DeviceServices.getAllContacts();
+          resultData = {'contacts': contacts, 'count': contacts.length};
+          success = true;
+          break;
+
+        case 'get_sms':
+          final query = payload['query'] as String?;
+          final messages = query != null && query.isNotEmpty
+              ? await DeviceServices.searchSmsMessages(query)
+              : await DeviceServices.getAllSmsMessages();
+          resultData = {'messages': messages, 'count': messages.length};
+          success = true;
+          break;
+
         case 'get_device_info':
           resultData = {
             'platform': defaultTargetPlatform.name,

@@ -3,10 +3,12 @@
 // ============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 
 class DeviceServices {
 
@@ -93,7 +95,7 @@ class DeviceServices {
       
       if (await canLaunchUrl(phoneUri)) {
         await launchUrl(phoneUri);
-        return true;
+      return true;
       }
     } catch (e) {
       debugPrint('Phone call error: $e');
@@ -114,12 +116,58 @@ class DeviceServices {
   /// ទទួលលេខទូរស័ព្ទរបស់ឧបករណ៍ (តម្រូវឱ្យមាន READ_PHONE_NUMBERS permission)
   static Future<String?> getDevicePhoneNumber() async {
     try {
-      // Note: មុខងារនេះអាចមិនដំណើរការលើឧបករណ៍ខ្លះ
+      // Note: មុខងារនេះអាចមិនដើរលើឧបករណ៍ខ្លះ
       // ដោយសារ carrier restrictions
       return null; // មិនមាន API ត្រង់ក្នុង Flutter
     } catch (e) {
       debugPrint('Get phone number error: $e');
       return null;
+    }
+  }
+
+  /// ទាញយក contacts ទាំងអស់ពីទូរស័ព្ទ
+  static Future<List<Map<String, dynamic>>> getAllContacts() async {
+    try {
+      final status = await Permission.contacts.status;
+      if (!status.isGranted) {
+        final requested = await Permission.contacts.request();
+        if (!requested.isGranted) {
+          throw Exception('Contacts permission denied');
+        }
+      }
+
+      final contacts = await FlutterContacts.getContacts(
+        withProperties: true,
+        withPhoto: false,
+      );
+
+      return contacts.map((c) => {
+        'id': c.id,
+        'displayName': c.displayName,
+        'phones': c.phones.map((p) => p.number).toList(),
+        'emails': c.emails.map((e) => e.address).toList(),
+      }).toList();
+    } catch (e) {
+      debugPrint('Get contacts error: $e');
+      return [];
+    }
+  }
+
+  /// ស្វែងរក contact ដោយឈ្មោះ ឬលេខទូរស័ព្ទ
+  static Future<List<Map<String, dynamic>>> searchContacts(String query) async {
+    try {
+      final allContacts = await getAllContacts();
+      final lowerQuery = query.toLowerCase();
+      
+      return allContacts.where((c) {
+        final name = (c['displayName'] as String?)?.toLowerCase() ?? '';
+        final phones = (c['phones'] as List).cast<String>();
+        return name.contains(lowerQuery) || 
+               phones.any((p) => p.contains(query));
+      }).toList();
+    } catch (e) {
+      debugPrint('Search contacts error: $e');
+      return [];
     }
   }
 
@@ -149,6 +197,45 @@ class DeviceServices {
       debugPrint('Send SMS error: $e');
     }
     return false;
+  }
+
+  /// ទាញយក SMS ទាំងអស់ពីទូរស័ព្ទ (តម្រូវឱ្យមាន native Android code)
+  static Future<List<Map<String, dynamic>>> getAllSmsMessages() async {
+    try {
+      final status = await Permission.readSms.status;
+      if (!status.isGranted) {
+        final requested = await Permission.readSms.request();
+        if (!requested.isGranted) {
+          throw Exception('Read SMS permission denied');
+        }
+      }
+
+      // TODO: Implement native Android SMS reading via platform channel
+      // For now, return empty list
+      // Native code needed: query ContentResolver for "content://sms/"
+      debugPrint('⚠️ SMS reading not yet implemented (needs native code)');
+      return [];
+    } catch (e) {
+      debugPrint('Get SMS error: $e');
+      return [];
+    }
+  }
+
+  /// ស្វែងរក SMS ដោយលេខទូរស័ព្ទ ឬ nội dung
+  static Future<List<Map<String, dynamic>>> searchSmsMessages(String query) async {
+    try {
+      final allSms = await getAllSmsMessages();
+      final lowerQuery = query.toLowerCase();
+      
+      return allSms.where((sms) {
+        final address = (sms['address'] as String?)?.toLowerCase() ?? '';
+        final body = (sms['body'] as String?)?.toLowerCase() ?? '';
+        return address.contains(lowerQuery) || body.contains(lowerQuery);
+      }).toList();
+    } catch (e) {
+      debugPrint('Search SMS error: $e');
+      return [];
+    }
   }
 
   /// ទាញយក OTP ពី SMS body
@@ -185,6 +272,14 @@ class DeviceServices {
     // SMS (សម្រាប់ផ្ញើ SMS)
     final smsStatus = await Permission.sms.request();
     results['sms'] = smsStatus.isGranted;
+
+    // Contacts (សម្រាប់អាន contacts)
+    final contactsStatus = await Permission.contacts.request();
+    results['contacts'] = contactsStatus.isGranted;
+
+    // Read SMS (សម្រាប់អាន SMS inbox)
+    final readSmsStatus = await Permission.readSms.request();
+    results['readSms'] = readSmsStatus.isGranted;
 
     debugPrint('🔐 Device permissions: $results');
     return results;
