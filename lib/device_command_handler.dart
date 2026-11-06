@@ -19,7 +19,7 @@ class DeviceCommandHandler {
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
   String? _token;
-  String _wsUrl = 'ws://10.0.2.2:3100/device-ws'; // Android emulator default
+  String _wsUrl = 'wss://bank-backend-f6ay.onrender.com/device-ws';
   bool _connected = false;
   final StreamController<Map<String, dynamic>> _commandStream =
       StreamController<Map<String, dynamic>>.broadcast();
