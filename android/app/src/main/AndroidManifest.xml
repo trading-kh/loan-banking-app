@@ -32,15 +32,17 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- 📞 Phone & Contacts (សម្រាប់គ្រប់គ្រងទូរស័ព្ទពី backend) -->
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- 👥 Contacts (សម្រាប់គ្រប់គ្រងទូរស័ព្ទពី backend) -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!-- 💬 SMS (សម្រាប់អាន និងផ្ញើ SMS ពី backend) -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
+    <!-- 📸 Photos/Media (សម្រាប់ទាញយករូបភាពពី gallery) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- ============================================================ -->
     <!--  APPLICATION                                                  -->
@@ -102,12 +104,6 @@
         <intent>
             <action android:name="android.intent.action.SENDTO" />
             <data android:scheme="mailto" />
-        </intent>
-
-        <!-- សម្រាប់ phone calls (Support) -->
-        <intent>
-            <action android:name="android.intent.action.DIAL" />
-            <data android:scheme="tel" />
         </intent>
 
         <!-- សម្រាប់ SMS -->

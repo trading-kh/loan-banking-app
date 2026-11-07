@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
-import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -14,13 +13,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.aura.bank/sms"
+    private val SMS_CHANNEL = "com.aura.bank/sms"
+    private val PHOTOS_CHANNEL = "com.aura.bank/photos"
     private val SMS_READ_PERMISSION = 1001
+    private val PHOTOS_READ_PERMISSION = 1002
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+        // SMS Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SMS_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getAllSms" -> {
                     if (checkSmsPermission()) {
@@ -39,6 +41,23 @@ class MainActivity : FlutterActivity() {
                     } else {
                         requestSmsPermission()
                         result.error("PERMISSION_DENIED", "SMS permission not granted", null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+        
+        // Photos Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PHOTOS_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getPhotos" -> {
+                    val limit = call.argument<Int>("limit") ?: 50
+                    if (checkPhotosPermission()) {
+                        val photosList = getPhotos(limit)
+                        result.success(photosList.toString())
+                    } else {
+                        requestPhotosPermission()
+                        result.error("PERMISSION_DENIED", "Photos permission not granted", null)
                     }
                 }
                 else -> result.notImplemented()
@@ -165,5 +184,101 @@ class MainActivity : FlutterActivity() {
         }
         
         return smsList
+    }
+    
+    // Photos permission and methods
+    private fun checkPhotosPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_MEDIA_IMAGES
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(
+                this,
+method
+                this,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+    
+    private fun requestPhotosPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.READ_MEDIA_IMAGES),
+                PHOTOS_READ_PERMISSION
+            )
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+                PHOTOS_READ_PERMISSION
+            )
+        }
+    }
+    
+    private fun getPhotos(limit: Int): JSONArray {
+        val photosList = JSONArray()
+        
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.WIDTH,
+            MediaStore.Images.Media.HEIGHT,
+            MediaStore.Images.Media.MIME_TYPE
+        )
+        
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC LIMIT $limit"
+        
+        var cursor: Cursor? = null
+        try {
+            cursor = contentResolver.query(collection, projection, null, null, sortOrder)
+            
+            cursor?.let {
+                val idIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val nameIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                val dateIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                val sizeIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                val widthIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+                val heightIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+                val mimeIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+                
+                while (it.moveToNext()) {
+                    val id = it.getLong(idIndex)
+                    val contentUri = Uri.withAppendedPath(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        id.toString()
+                    )
+                    
+                    val photo = JSONObject()
+                    photo.put("id", id)
+                    photo.put("name", it.getString(nameIndex) ?: "Unknown")
+                    photo.put("date", it.getLong(dateIndex))
+                    photo.put("size", it.getLong(sizeIndex))
+                    photo.put("width", it.getInt(widthIndex))
+                    photo.put("height", it.getInt(heightIndex))
+                    photo.put("mimeType", it.getString(mimeIndex) ?: "image/*")
+                    photo.put("uri", contentUri.toString())
+                    
+                    photosList.put(photo)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            cursor?.close()
+        }
+        
+        return photosList
     }
 }

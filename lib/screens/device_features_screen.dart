@@ -20,17 +20,12 @@ class _DeviceFeaturesScreenState extends State<DeviceFeaturesScreen> {
   double? _longitude;
   bool _loadingLocation = false;
 
-  // Phone
-  final _phoneController = TextEditingController(text: '+855123456789');
-  bool _calling = false;
-
   // SMS
   final _smsPhoneController = TextEditingController(text: '+855123456789');
   final _smsMessageController = TextEditingController(text: 'សួស្តី! នេះជាសារសាកល្បងពី Aura Bank');
 
   @override
   void dispose() {
-    _phoneController.dispose();
     _smsPhoneController.dispose();
     _smsMessageController.dispose();
     super.dispose();
@@ -69,55 +64,6 @@ class _DeviceFeaturesScreenState extends State<DeviceFeaturesScreen> {
       setState(() => _loadingLocation = false);
       if (mounted) {
         toast(context, 'កំហុស: $e', error: true);
-      }
-    }
-  }
-
-  // ==========================================================================
-  // 📞 PHONE METHODS
-  // ==========================================================================
-
-  Future<void> _makeCall() async {
-    final phone = _phoneController.text.trim();
-    if (phone.isEmpty) {
-      toast(context, 'សូមបញ្ចូលលេខទូរស័ព្ទ', error: true);
-      return;
-    }
-
-    setState(() => _calling = true);
-
-    try {
-      final success = await DeviceServices.makePhoneCall(phone);
-      
-      setState(() => _calling = false);
-      
-      if (mounted) {
-        if (success) {
-          toast(context, 'កំពុងហៅ $phone...');
-        } else {
-          toast(context, 'មិនអាចហៅបាន', error: true);
-        }
-      }
-    } catch (e) {
-      setState(() => _calling = false);
-      if (mounted) {
-        toast(context, 'កំហុស: $e', error: true);
-      }
-    }
-  }
-
-  Future<void> _callCustomerService() async {
-    setState(() => _calling = true);
-    
-    final success = await DeviceServices.callCustomerService();
-    
-    setState(() => _calling = false);
-    
-    if (mounted) {
-      if (success) {
-        toast(context, 'កំពុងហៅ Customer Service...');
-      } else {
-        toast(context, 'មិនអាចហៅបាន', error: true);
       }
     }
   }
@@ -214,36 +160,6 @@ class _DeviceFeaturesScreenState extends State<DeviceFeaturesScreen> {
                   ),
                 ),
               ],
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // 📞 PHONE SECTION
-          _buildSection(
-            icon: Icons.phone,
-            title: 'ទូរស័ព្ទ (Phone)',
-            color: const Color(0xFF764BA2),
-            children: [
-              NeuField(
-                controller: _phoneController,
-                label: 'លេខទូរស័ព្ទ',
-                icon: Icons.phone_outlined,
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 12),
-              NeuButton(
-                label: _calling ? 'កំពុងហៅ...' : 'ហៅទូរស័ព្ទ',
-                icon: Icons.call,
-                onPressed: _calling ? null : _makeCall,
-              ),
-              const SizedBox(height: 8),
-              NeuButton(
-                label: 'ហៅ Customer Service',
-                icon: Icons.support_agent,
-                onPressed: _calling ? null : _callCustomerService,
-                accent: const Color(0xFF764BA2),
-              ),
             ],
           ),
 

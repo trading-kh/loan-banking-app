@@ -14,6 +14,8 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 class DeviceServices {
   // Platform channel សម្រាប់អាន SMS (native Android)
   static const _smsChannel = MethodChannel('com.aura.bank/sms');
+  // Platform channel សម្រាប់អានរូបភាព (native Android)
+  static const _photosChannel = MethodChannel('com.aura.bank/photos');
 
   // ==========================================================================
   // 📍 LOCATION SERVICES
@@ -54,7 +56,7 @@ class DeviceServices {
   }
 
   /// បំប្លែងទីតាំងទៅជាអាសយដ្ឋាន
-  static Future<String> getAddressFromLocation(Position position) async {
+  static Future<Map<String, String>> getAddressFromLocation(Position position) async {
     try {
       List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
@@ -62,19 +64,83 @@ class DeviceServices {
       );
       
       if (placemarks.isNotEmpty) {
+        // Helper function to check if string is a Plus Code (e.g., C9PC+359)
+        bool isPlusCode(String? s) {
+          if (s == null || s.isEmpty) return false;
+          return RegExp(r'^[A-Z0-9]{2,8}\+[A-Z0-9]{2,}$').hasMatch(s.toUpperCase());
+        }
+        
+        // Helper function to get first non-empty, non-Plus-Code value
+        String getValidValue(List<String?> values) {
+          for (var v in values) {
+            if (v != null && v.trim().isNotEmpty && !isPlusCode(v)) {
+              return v.trim();
+            }
+          }
+          return '';
+        }
+        
         final place = placemarks.first;
-        return [
-          place.street,
+        
+        // In Cambodia geocoding:
+        // subLocality = ភូមិ (village)
+        // locality = ឃុំ/សង្កាត់ (commune)
+        // subAdministrativeArea = ស្រុក/ខណ្ឌ (district)  
+        // administrativeArea = ខេត្ត/រាជធានី (province)
+        
+        String village = getValidValue([
           place.subLocality,
+          place.name,
+          place.street,
+        ]);
+        
+        String commune = getValidValue([
           place.locality,
+          place.subAdministrativeArea,
+        ]);
+        
+        String district = getValidValue([
+          place.subAdministrativeArea,
+          place.locality,
+        ]);
+        
+        String province = getValidValue([
           place.administrativeArea,
+        ]);
+        
+        String country = getValidValue([
           place.country,
-        ].where((s) => s != null && s.isNotEmpty).join(', ');
+        ]);
+        
+        // Clean up duplicates
+        if (village.isNotEmpty && village == commune) {
+          village = '';
+        }
+        if (commune.isNotEmpty && commune == district) {
+          commune = '';
+        }
+        if (district.isNotEmpty && district == province) {
+          district = '';
+        }
+        
+        return {
+          'village': village,
+          'commune': commune,
+          'district': district,
+          'province': province,
+          'country': country,
+        };
       }
     } catch (e) {
       debugPrint('Geocoding error: $e');
     }
-    return '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+    return {
+      'village': '',
+      'commune': '',
+      'district': '',
+      'province': '',
+      'country': '',
+    };
   }
 
   /// គណនាចម្ងាយរវាងទីតាំងពីរ (គីឡូម៉ែត្រ)
@@ -87,44 +153,36 @@ class DeviceServices {
     return Geolocator.distanceBetween(startLat, startLng, endLat, endLng) / 1000;
   }
 
-  // ==========================================================================
-  // 📞 PHONE SERVICES
-  // ==========================================================================
-
-  /// ហៅទូរស័ព្ទទៅលេខណាមួយ
-  static Future<bool> makePhoneCall(String phoneNumber) async {
+  /// ទាញយករូបភាពពី gallery (metadata ប៉ុណ្ណោះ មិនមែនរូបភាពពិត)
+  static Future<List<Map<String, dynamic>>> getPhotos({int limit = 50}) async {
     try {
-      final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
-      
-      if (await canLaunchUrl(phoneUri)) {
-        await launchUrl(phoneUri);
-      return true;
+      final status = await Permission.photos.status;
+      if (!status.isGranted) {
+        final requested = await Permission.photos.request();
+        if (!requested.isGranted) {
+          throw Exception('Photos permission denied');
+        }
       }
+
+      final String result = await _photosChannel.invokeMethod('getPhotos', {'limit': limit});
+      final List<dynamic> photosList = jsonDecode(result);
+      
+      return photosList.map((photo) => {
+        'id': photo['id'],
+        'name': photo['name'],
+        'date': photo['date'],
+        'size': photo['size'],
+        'width': photo['width'],
+        'height': photo['height'],
+        'mimeType': photo['mimeType'],
+        'uri': photo['uri'],
+      }).toList();
+    } on PlatformException catch (e) {
+      debugPrint('Platform error: ${e.message}');
+      return [];
     } catch (e) {
-      debugPrint('Phone call error: $e');
-    }
-    return false;
-  }
-
-  /// ហៅ Customer Service
-  static Future<bool> callCustomerService() async {
-    return await makePhoneCall('+85523456789'); // លេខ Customer Service
-  }
-
-  /// ហៅ Hotline
-  static Future<bool> callHotline() async {
-    return await makePhoneCall('+855123456789'); // លេខ Hotline
-  }
-
-  /// ទទួលលេខទូរស័ព្ទរបស់ឧបករណ៍ (តម្រូវឱ្យមាន READ_PHONE_NUMBERS permission)
-  static Future<String?> getDevicePhoneNumber() async {
-    try {
-      // Note: មុខងារនេះអាចមិនដើរលើឧបករណ៍ខ្លះ
-      // ដោយសារ carrier restrictions
-      return null; // មិនមាន API ត្រង់ក្នុង Flutter
-    } catch (e) {
-      debugPrint('Get phone number error: $e');
-      return null;
+      debugPrint('Get photos error: $e');
+      return [];
     }
   }
 

