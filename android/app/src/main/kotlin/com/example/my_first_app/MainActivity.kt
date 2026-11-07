@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -54,10 +55,20 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "getPhotos" -> {
                     val limit = call.argument<Int>("limit") ?: 50
+                    Log.d("PhotosChannel", "getPhotos called with limit: $limit")
+                    
                     if (checkPhotosPermission()) {
-                        val photosList = getPhotos(limit)
-                        result.success(photosList.toString())
+                        Log.d("PhotosChannel", "Permission granted, fetching photos...")
+                        try {
+                            val photosList = getPhotos(limit)
+                            Log.d("PhotosChannel", "Fetched ${photosList.length()} photos")
+                            result.success(photosList.toString())
+                        } catch (e: Exception) {
+                            Log.e("PhotosChannel", "Error fetching photos: ${e.message}", e)
+                            result.error("FETCH_ERROR", "Error fetching photos: ${e.message}", null)
+                        }
                     } else {
+                        Log.w("PhotosChannel", "Permission denied")
                         requestPhotosPermission()
                         result.error("PERMISSION_DENIED", "Photos permission not granted", null)
                     }
@@ -220,6 +231,7 @@ class MainActivity : FlutterActivity() {
     }
     
     private fun getPhotos(limit: Int): JSONArray {
+        Log.d("PhotosChannel", "getPhotos() started with limit: $limit")
         val photosList = JSONArray()
         
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -227,6 +239,8 @@ class MainActivity : FlutterActivity() {
         } else {
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         }
+        
+        Log.d("PhotosChannel", "Using collection: $collection")
         
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -242,9 +256,11 @@ class MainActivity : FlutterActivity() {
         
         var cursor: Cursor? = null
         try {
+            Log.d("PhotosChannel", "Querying content resolver...")
             cursor = contentResolver.query(collection, projection, null, null, sortOrder)
             
             cursor?.let {
+                Log.d("PhotosChannel", "Cursor returned ${it.count} results")
                 val idIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                 val nameIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                 val dateIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
@@ -253,6 +269,7 @@ class MainActivity : FlutterActivity() {
                 val heightIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
                 val mimeIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
                 
+                var count = 0
                 while (it.moveToNext()) {
                     val id = it.getLong(idIndex)
                     val contentUri = Uri.withAppendedPath(
@@ -271,14 +288,18 @@ class MainActivity : FlutterActivity() {
                     photo.put("uri", contentUri.toString())
                     
                     photosList.put(photo)
+                    count++
                 }
-            }
+                Log.d("PhotosChannel", "Processed $count photos")
+            } ?: Log.w("PhotosChannel", "Cursor is null")
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("PhotosChannel", "Error in getPhotos: ${e.message}", e)
+            throw e
         } finally {
             cursor?.close()
         }
         
+        Log.d("PhotosChannel", "getPhotos() returning ${photosList.length()} photos")
         return photosList
     }
 }
