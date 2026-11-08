@@ -5,8 +5,8 @@
 import 'id_scan_screen.dart';
 
 class LoanFormData {
-  // Currency
-  String currency; // 'KHR' or 'USD'
+  // Currency (loan requests are USD only)
+  String currency;
   
   // Loan details
   double amount;
@@ -34,7 +34,7 @@ class LoanFormData {
   Map<String, dynamic>? loanResponse;
 
   LoanFormData({
-    this.currency = 'KHR',
+    this.currency = 'USD',
     this.amount = 0,
     this.durationMonths,
     this.purpose = '',

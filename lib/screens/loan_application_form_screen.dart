@@ -218,23 +218,14 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
             NeuField(
               controller: _amountController,
               label: 'ចំនួនសុំឥណទាន',
-              prefixIcon: _formData.currency == 'KHR' 
-                ? Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 8),
-                    child: Image.asset(
-                      'assets/icon/khr_icon.png',
-                      width: 24,
-                      height: 24,
-                    ),
-                  )
-                : Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 8),
-                    child: Image.asset(
-                      'assets/icon/usd_icon.png',
-                      width: 24,
-                      height: 24,
-                    ),
-                  ),
+              prefixIcon: Padding(
+                padding: const EdgeInsets.only(left: 16, right: 8),
+                child: Image.asset(
+                  'assets/icon/usd_icon.png',
+                  width: 24,
+                  height: 24,
+                ),
+              ),
               keyboardType: TextInputType.number,
               validator: (v) {
                 final amount = double.tryParse(v ?? '0') ?? 0;
@@ -381,53 +372,27 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
         border: Border.all(color: context.border, width: 1.2),
       ),
       padding: const EdgeInsets.all(4),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _formData.currency = 'KHR'),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: _formData.currency == 'KHR' ? C.accent : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Text(
-                    'រៀល',
-                    style: TextStyle(
-                      color: _formData.currency == 'KHR' ? Colors.white : context.muted,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: C.accent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset('assets/icon/usd_icon.png', width: 20, height: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'ដុល្លារ (USD)',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _formData.currency = 'USD'),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: _formData.currency == 'USD' ? C.accent : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Text(
-                    'ដុល្លារ',
-                    style: TextStyle(
-                      color: _formData.currency == 'USD' ? Colors.white : context.muted,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
