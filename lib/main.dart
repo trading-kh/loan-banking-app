@@ -5163,6 +5163,32 @@ const _qrBankSuffix = <String, String>{
   'bakong': 'BAKONG', 'nbc': 'BAKONG',
 };
 
+/// TLV តូចៗក្នុង KHQR/EMVCo (tag 2 តួ + length 2 តួ + value)
+class _TlvField {
+  final String tag, value;
+  const _TlvField(this.tag, this.value);
+}
+
+List<_TlvField> _emvTlv(String s) {
+  final out = <_TlvField>[];
+  var i = 0;
+  while (i + 4 <= s.length) {
+    final len = int.tryParse(s.substring(i + 2, i + 4));
+    if (len == null) break;
+    final start = i + 4;
+    if (start + len > s.length) break;
+    out.add(_TlvField(s.substring(i, i + 2), s.substring(start, start + len)));
+    i = start + len;
+  }
+  return out;
+}
+
+String? _bankCodeFromAccount(String account) {
+  final at = account.lastIndexOf('@');
+  if (at < 0 || at == account.length - 1) return null;
+  return _qrBankSuffix[account.substring(at + 1).toLowerCase()];
+}
+
 /// កំណត់ធនាគារពី QR ភ្លាមៗនៅលើទូរសព្ទ (មិនរង់ចាំ server) ដើម្បីបង្ហាញ logo
 String? bankCodeFromQr(String raw) {
   final t = raw.trim();
@@ -5185,9 +5211,24 @@ String? bankCodeFromQr(String raw) {
         .trim().toUpperCase();
     if (b.isNotEmpty) return b;
   }
-  for (final m in RegExp(r'@([A-Za-z0-9]{2,20})').allMatches(t)) {
-    final code = _qrBankSuffix[m.group(1)!.toLowerCase()];
-    if (code != null) return code;
+  // KHQR: ធនាគារស្ថិតក្នុង Bakong ID (sub-tag 00) ឬ account (01/02)
+  if (t.startsWith('000201')) {
+    for (final f in _emvTlv(t)) {
+      final n = int.tryParse(f.tag) ?? 0;
+      if (n < 26 || n > 51) continue;
+      for (final s in _emvTlv(f.value)) {
+        if (s.tag != '00' && s.tag != '01' && s.tag != '02') continue;
+        final code = _bankCodeFromAccount(s.value);
+        if (code != null) return code;
+      }
+    }
+  }
+  // យក suffix វែងមុន — `@aba` អាចជាប់លេខ TLV នៅខាងក្រោយ (`@aba0108…`)
+  final lower = t.toLowerCase();
+  final keys = _qrBankSuffix.keys.toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
+  for (final k in keys) {
+    if (lower.contains('@$k')) return _qrBankSuffix[k];
   }
   return null;
 }
@@ -6692,15 +6733,8 @@ class _QrScreenState extends State<QrScreen> {
                   onTap: () => _setScan(false),
                 ),
               ]),
-              const SizedBox(height: 18),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Column(children: [
-                  _bankLogoRow(_scannerBanks.sublist(0, 8)),
-                  const SizedBox(height: 7),
-                  _bankLogoRow([..._scannerBanks.sublist(8), null]),
-                ]),
-              ),
+              const SizedBox(height: 16),
+              _bankStrip(),
             ]),
           ),
         ),
@@ -6732,12 +6766,40 @@ class _QrScreenState extends State<QrScreen> {
         ]),
       );
 
+  /// បន្ទះ logo ធនាគារ ២ ជួរ — កញ្ចក់ស្រាលលើផ្ទៃខ្មៅ
+  Widget _bankStrip() => Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.fromLTRB(10, 12, 10, 9),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.white.withValues(alpha: 0.11),
+                Colors.white.withValues(alpha: 0.035)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          boxShadow: [BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 18, offset: const Offset(0, 8))],
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          _bankLogoRow(_scannerBanks.sublist(0, 8)),
+          const SizedBox(height: 7),
+          _bankLogoRow([..._scannerBanks.sublist(8), null]),
+          const SizedBox(height: 9),
+          Text('ធនាគារ និងកាបូបឌីជីថលដែលគាំទ្រ',
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 9.5, fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3)),
+        ]),
+      );
+
   Widget _bankLogoRow(List<String?> codes) => Row(children: [
         for (final c in codes)
           Expanded(
             child: Center(
-              child: c == null ? const SizedBox(height: 34)
-                  : BankLogo(code: c, size: 34),
+              child: c == null ? const SizedBox(height: 28)
+                  : BankLogo(code: c, size: 28),
             ),
           ),
       ]);
