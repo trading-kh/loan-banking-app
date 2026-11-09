@@ -129,30 +129,106 @@ class LoanReceiptScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // Notification
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: C.accent.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: C.accent.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.info_outline, color: C.accent, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'ពាក្យស្នើសុំរបស់អ្នកត្រូវបានទទួល ហើយនឹងត្រូវពិនិត្យក្នុងរយៈពេល ៣-៥ ថ្ងៃធ្វើការ',
+            // Tracking link
+            GestureDetector(
+              onTap: () {
+                Navigator.popUntil(context, (route) => route.isFirst);
+                tabIndex.value = 3;
+              },
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      C.accent.withValues(alpha: 0.16),
+                      C.accentGreen.withValues(alpha: 0.10),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border:
+                      Border.all(color: C.accent.withValues(alpha: 0.32)),
+                  boxShadow: [
+                    BoxShadow(
+                        color: C.accent.withValues(alpha: 0.14),
+                        offset: const Offset(0, 8),
+                        blurRadius: 22,
+                        spreadRadius: -6),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: AuraGrad.button,
+                            boxShadow: [
+                              BoxShadow(
+                                  color: C.accent.withValues(alpha: 0.35),
+                                  blurRadius: 14,
+                                  spreadRadius: -4),
+                            ],
+                          ),
+                          child: const Icon(Icons.track_changes_rounded,
+                              color: Colors.white, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'ការស្នើសុំរបស់លោកអ្នកជោគជ័យហើយ',
+                            style: TextStyle(
+                              color: context.ink,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            color: C.accent, size: 22),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'ចុចដើម្បីមើលដំណើរការ និងជំហាននីមួយៗរបស់ឥណទាន',
                       style: TextStyle(
-                        color: context.ink,
-                        fontSize: 13,
-                        height: 1.5,
+                          color: context.muted, fontSize: 11.5, height: 1.45),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 42,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: C.accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.route_rounded,
+                              color: C.accent, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            'តាមដាន',
+                            style: TextStyle(
+                              color: C.accent,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const Spacer(),
+                          Icon(Icons.arrow_forward_rounded,
+                              color: C.accent, size: 17),
+                        ],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 32),
