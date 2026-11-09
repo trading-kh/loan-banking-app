@@ -4800,28 +4800,32 @@ class _NotificationScreenState extends State<NotificationScreen> {
 class QrPayResult {
   final double amount;
   final int cardId;
-  final String note, account;
+  final String account;
   const QrPayResult({required this.amount, required this.cardId,
-      required this.note, required this.account});
+      required this.account});
 }
 
 class QrPayScreen extends StatefulWidget {
   final String name, account, masked;
-  final String? bankCode, bankName;
+  final String? bankCode;
   final double? initialAmount;
   const QrPayScreen({super.key, required this.name, this.account = '',
-      this.masked = '', this.bankCode, this.bankName, this.initialAmount});
+      this.masked = '', this.bankCode, this.initialAmount});
   @override
   State<QrPayScreen> createState() => _QrPayScreenState();
 }
 
-class _QrPayScreenState extends State<QrPayScreen> {
+class _QrPayScreenState extends State<QrPayScreen>
+    with SingleTickerProviderStateMixin {
   late final TextEditingController _acc =
       TextEditingController(text: widget.account);
   late String _amt = widget.initialAmount == null
       ? '' : widget.initialAmount!.toStringAsFixed(2);
-  String _note = '';
   bool _obscure = false;
+
+  late final AnimationController _pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600))
+    ..repeat(reverse: true);
 
   int get _cardId => bank.cards.isEmpty ? 0 : bank.cards.first.id;
 
@@ -4829,6 +4833,7 @@ class _QrPayScreenState extends State<QrPayScreen> {
 
   @override
   void dispose() {
+    _pulse.dispose();
     _acc.dispose();
     super.dispose();
   }
@@ -4853,28 +4858,6 @@ class _QrPayScreenState extends State<QrPayScreen> {
     });
   }
 
-  Future<void> _editNote() async {
-    final c = TextEditingController(text: _note);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('គោលបំណង'),
-        content: TextField(
-          controller: c, autofocus: true, maxLength: 60,
-          decoration: const InputDecoration(hintText: 'ឧ. បង់ថ្លៃអាហារ'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('បោះបង់')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('រក្សាទុក')),
-        ],
-      ),
-    );
-    if (ok == true) setState(() => _note = c.text.trim());
-    c.dispose();
-  }
-
   void _pay() {
     final a = _value;
     if (a == null || a <= 0) {
@@ -4890,8 +4873,8 @@ class _QrPayScreenState extends State<QrPayScreen> {
       toast(context, 'គ្មានគណនីសម្រាប់ទូទាត់', error: true);
       return;
     }
-    Navigator.pop(context, QrPayResult(
-        amount: a, cardId: _cardId, note: _note, account: acc));
+    Navigator.pop(context,
+        QrPayResult(amount: a, cardId: _cardId, account: acc));
   }
 
   @override
@@ -4924,163 +4907,49 @@ class _QrPayScreenState extends State<QrPayScreen> {
       body: SafeArea(
         top: false,
         child: Column(children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-              child: Column(children: [
-                _bankAvatar(context),
-                const SizedBox(height: 14),
-                Text(widget.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
-                        color: context.ink)),
-                const SizedBox(height: 5),
-                if (widget.account.isEmpty)
-                  SizedBox(width: 230,
-                      child: NeuField(controller: _acc,
-                          label: 'លេខគណនីអ្នកទទួល',
-                          icon: Icons.account_balance_wallet_outlined,
-                          onChanged: (_) => setState(() {})))
-                else
-                  Text(widget.masked.isNotEmpty ? widget.masked : widget.account,
-                      style: TextStyle(fontSize: 13, letterSpacing: 0.4,
-                          color: context.muted)),
-                const SizedBox(height: 12),
-                _bankPill(context),
-                const SizedBox(height: 18),
-                Row(children: [
-                  _actionBtn(context,
-                      icon: Icons.chat_bubble_outline_rounded,
-                      label: 'គោលបំណង', onTap: _editNote),
-                  const SizedBox(width: 10),
-                  _actionBtn(context,
-                      icon: Icons.favorite_border_rounded,
-                      label: 'កំណត់ត្រា',
-                      onTap: () => toast(context, 'បានកត់ត្រាអ្នកទទួលនេះ')),
-                ]),
-                if (_note.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('គោលបំណង៖ $_note',
-                          style: TextStyle(fontSize: 11.5, color: context.muted)),
-                    ),
-                  ),
-                const SizedBox(height: 18),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('ទូទាត់ពី',
-                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
-                          color: context.muted)),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [
-                      C.accent.withValues(alpha: 0.16),
-                      C.accentGold.withValues(alpha: 0.09),
-                    ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                        color: C.accent.withValues(alpha: 0.28), width: 1.2),
-                  ),
-                  child: Row(children: [
-                    Container(width: 42, height: 42,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                              colors: [C.accent, C.bgDark],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.account_balance_wallet_rounded,
-                            color: Colors.white, size: 20)),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min, children: [
-                      Text(bank.userPhone.isNotEmpty
-                              ? bank.userPhone
-                              : 'គណនីកម្ចីផ្ទាល់ខ្លួន',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
-                              color: context.ink)),
-                      const SizedBox(height: 2),
-                      Text(_obscure
-                              ? '••••••'
-                              : (card == null ? 'មិនមានគណនី' : money(card.balance)),
-                          style: TextStyle(fontSize: 12.5, color: context.muted)),
-                    ])),
-                    IconButton(
-                      icon: Icon(_obscure
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          size: 20, color: context.muted),
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                    ),
-                  ]),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  decoration: BoxDecoration(
-                    color: context.card,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                        color: C.accent.withValues(alpha: 0.30), width: 1.5),
-                    boxShadow: [BoxShadow(
-                        color: C.accent.withValues(alpha: 0.10),
-                        blurRadius: 18, offset: const Offset(0, 8))],
-                  ),
-                  child: Row(mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic, children: [
-                    Text(_amt.isEmpty ? '0' : _amt,
-                        style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800,
-                            color: value == null ? context.muted : context.ink)),
-                    const SizedBox(width: 6),
-                    Text('\$', style: TextStyle(fontSize: 20,
-                        fontWeight: FontWeight.w700, color: context.muted)),
-                  ]),
-                ),
-              ]),
-            ),
-          ),
-          _keypad(context),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 2, 20, 12),
-            child: SizedBox(
-              width: double.infinity, height: 54,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: C.bgDark,
-                  disabledBackgroundColor: C.bgDark.withValues(alpha: 0.35),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
-                ),
-                onPressed: (value == null || value <= 0) ? null : _pay,
-                child: const Text('ទូទាត់ឥឡូវ',
-                    style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800,
-                        color: Colors.white)),
-              ),
-            ),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            child: Column(children: [
+              _bankAvatar(context),
+              const SizedBox(height: 8),
+              Text(widget.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
+                      color: context.ink)),
+              const SizedBox(height: 3),
+              if (widget.account.isEmpty)
+                SizedBox(width: 230,
+                    child: NeuField(controller: _acc,
+                        label: 'លេខគណនីអ្នកទទួល',
+                        icon: Icons.account_balance_wallet_outlined,
+                        onChanged: (_) => setState(() {})))
+              else
+                Text(widget.masked.isNotEmpty ? widget.masked : widget.account,
+                    style: TextStyle(fontSize: 12.5, letterSpacing: 0.4,
+                        color: context.muted)),
+              const SizedBox(height: 10),
+              _payFrom(context, card),
+            ]),
           ),
+          const SizedBox(height: 10),
+          _amountBox(context, value),
+          const SizedBox(height: 8),
+          Expanded(child: _keypad(context)),
+          _payButton(context, value),
         ]),
       ),
     );
   }
 
   Widget _bankAvatar(BuildContext context) => Container(
-        width: 82, height: 82,
-        padding: const EdgeInsets.all(7),
+        width: 68, height: 68,
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
           color: context.card,
           shape: BoxShape.circle,
           border: Border.all(color: C.accent.withValues(alpha: 0.25), width: 1.5),
           boxShadow: [BoxShadow(
               color: C.accent.withValues(alpha: 0.18),
-              blurRadius: 22, offset: const Offset(0, 8))],
+              blurRadius: 20, offset: const Offset(0, 7))],
         ),
         child: ClipOval(
           child: widget.bankCode == null
@@ -5089,65 +4958,107 @@ class _QrPayScreenState extends State<QrPayScreen> {
                     gradient: LinearGradient(colors: [C.accent, C.bgDark],
                         begin: Alignment.topLeft, end: Alignment.bottomRight)),
                   child: const Icon(Icons.account_balance_rounded,
-                      color: Colors.white, size: 32))
-              : BankLogo(code: widget.bankCode!, size: 68),
+                      color: Colors.white, size: 28))
+              : BankLogo(code: widget.bankCode!, size: 56),
         ),
       );
 
-  Widget _bankPill(BuildContext context) {
-    final label = widget.bankName ?? 'Aura Bank';
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 6, 14, 6),
-      decoration: BoxDecoration(
-        color: C.accent.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: C.accent.withValues(alpha: 0.25)),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (widget.bankCode != null)
-          BankLogo(code: widget.bankCode!, size: 20)
-        else
-          const Icon(Icons.verified_rounded, size: 18, color: C.accent),
-        const SizedBox(width: 7),
-        Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700,
-            color: context.ink)),
-      ]),
-    );
-  }
-
-  Widget _actionBtn(BuildContext context, {required IconData icon,
-      required String label, required VoidCallback onTap}) =>
-      Expanded(
-        child: GestureDetector(
-          onTap: onTap,
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            decoration: BoxDecoration(
-              color: context.card,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: context.border),
-            ),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(icon, size: 18, color: C.accent),
-              const SizedBox(width: 7),
-              Text(label, style: TextStyle(fontSize: 12.5,
-                  fontWeight: FontWeight.w600, color: context.ink)),
-            ]),
+  Widget _payFrom(BuildContext context, BankCard? card) => Container(
+        padding: const EdgeInsets.fromLTRB(12, 5, 4, 5),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [
+            C.accent.withValues(alpha: 0.16),
+            C.accentGold.withValues(alpha: 0.09),
+          ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+              color: C.accent.withValues(alpha: 0.28), width: 1.2),
+        ),
+        child: Row(children: [
+          Container(width: 34, height: 34,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [C.accent, C.bgDark],
+                    begin: Alignment.topLeft, end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.account_balance_wallet_rounded,
+                  color: Colors.white, size: 17)),
+          const SizedBox(width: 10),
+          Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min, children: [
+            Text('សមតុល្យអាចប្រើប្រាស់',
+                style: TextStyle(fontSize: 10.5, color: context.muted)),
+            const SizedBox(height: 1),
+            Text(_obscure
+                    ? '••••••'
+                    : (card == null ? '—' : money(card.balance)),
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800,
+                    color: context.ink)),
+          ])),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'បង្ហាញ / បិទសមតុល្យ',
+            icon: Icon(_obscure
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                size: 19, color: context.muted),
+            onPressed: () => setState(() => _obscure = !_obscure),
           ),
+        ]),
+      );
+
+  Widget _amountBox(BuildContext context, double? value) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Container(
+          width: double.infinity, height: 86,
+          decoration: BoxDecoration(
+            color: context.card,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: C.accent.withValues(alpha: 0.30), width: 1.5),
+            boxShadow: [BoxShadow(
+                color: C.accent.withValues(alpha: 0.10),
+                blurRadius: 18, offset: const Offset(0, 8))],
+          ),
+          alignment: Alignment.center,
+          child: Row(mainAxisAlignment: MainAxisAlignment.center,
+              textBaseline: TextBaseline.alphabetic,
+              crossAxisAlignment: CrossAxisAlignment.baseline, children: [
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 160),
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.9, end: 1).animate(anim),
+                    child: child)),
+              child: Text(_amt.isEmpty ? '0' : _amt,
+                  key: ValueKey<String>(_amt),
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800,
+                      color: value == null ? context.muted : context.ink)),
+            ),
+            const SizedBox(width: 6),
+            Text('\$', style: TextStyle(fontSize: 18,
+                fontWeight: FontWeight.w700, color: context.muted)),
+          ]),
         ),
       );
 
   Widget _keypad(BuildContext context) {
     const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 2, 14, 4),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
       child: Column(children: [
         for (var r = 0; r < 4; r++) ...[
-          Row(children: [
-            for (var c = 0; c < 3; c++)
-              Expanded(child: _keyBtn(context, keys[r * 3 + c])),
-          ]),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var c = 0; c < 3; c++)
+                  Expanded(child: _keyBtn(context, keys[r * 3 + c])),
+              ],
+            ),
+          ),
           if (r < 3) const SizedBox(height: 6),
         ],
       ]),
@@ -5162,7 +5073,6 @@ class _QrPayScreenState extends State<QrPayScreen> {
             borderRadius: BorderRadius.circular(14),
             onTap: () => _key(k),
             child: Container(
-              height: 50,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: context.card,
@@ -5177,6 +5087,52 @@ class _QrPayScreenState extends State<QrPayScreen> {
           ),
         ),
       );
+
+  Widget _payButton(BuildContext context, double? value) {
+    final enabled = value != null && value > 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: AnimatedBuilder(
+        animation: _pulse,
+        builder: (context, _) {
+          final t = enabled ? _pulse.value : 0.0;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: enabled
+                    ? [Color.lerp(C.bgDark, C.accent, 0.45 * t)!, C.bgDark]
+                    : [C.bgDark.withValues(alpha: 0.35),
+                       C.bgDark.withValues(alpha: 0.35)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: enabled
+                  ? [BoxShadow(
+                      color: C.accent.withValues(alpha: 0.18 + 0.22 * t),
+                      blurRadius: 16 + 14 * t,
+                      offset: const Offset(0, 8))]
+                  : const [],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: enabled ? _pay : null,
+                child: const Center(
+                  child: Text('ទូទាត់ឥឡូវ',
+                      style: TextStyle(fontSize: 15.5,
+                          fontWeight: FontWeight.w800, color: Colors.white)),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 }
 
 // ============================================================================
@@ -5226,9 +5182,7 @@ class BankLogo extends StatelessWidget {
   Widget _monogram(String key) {
     final colors = _fallbackColors[key] ??
         const [Color(0xFF1E3A8A), Color(0xFF3B9AD9)];
-    final label = key == 'OTHER'
-        ? 'QR'
-        : (key.length > 3 ? key.substring(0, 2) : key);
+    final label = key.length > 3 ? key.substring(0, 2) : key;
     return Container(
       width: size, height: size,
       decoration: BoxDecoration(
@@ -5240,23 +5194,26 @@ class BankLogo extends StatelessWidget {
             blurRadius: 12, offset: const Offset(0, 4))],
       ),
       alignment: Alignment.center,
-      child: Padding(
-        padding: EdgeInsets.all(size * 0.14),
-        child: FittedBox(child: Text(label,
-            style: const TextStyle(color: Colors.white,
-                fontWeight: FontWeight.w800, letterSpacing: 0.5))),
-      ),
+      child: key == 'OTHER'
+          ? Icon(Icons.account_balance_rounded,
+              color: Colors.white, size: size * 0.44)
+          : Padding(
+              padding: EdgeInsets.all(size * 0.14),
+              child: FittedBox(child: Text(label,
+                  style: const TextStyle(color: Colors.white,
+                      fontWeight: FontWeight.w800, letterSpacing: 0.5))),
+            ),
     );
   }
 }
 
 class _ExtQrIntent {
-  final String bankCode, bankName, account, name, note;
+  final String bankCode, bankName, account, name;
   final double amount;
   final int cardId;
   const _ExtQrIntent({required this.bankCode, required this.bankName,
       required this.account, required this.name, required this.amount,
-      required this.cardId, this.note = ''});
+      required this.cardId});
 }
 
 class _OtpSheet extends StatefulWidget {
@@ -5866,7 +5823,6 @@ class _QrScreenState extends State<QrScreen> {
       await bank.transferP2P(
           recipientId: recipient['recipient_id'].toString(),
           amount: amt, cardId: cid, pin: pin,
-          note: res.note.isEmpty ? null : res.note,
           idempotencyKey: ApiService.newIdempotencyKey());
       if (!mounted) return;
       final card = bank.cards.firstWhere((c) => c.id == cid,
@@ -5924,7 +5880,7 @@ class _QrScreenState extends State<QrScreen> {
       MaterialPageRoute(builder: (_) => QrPayScreen(
           name: name.isEmpty ? 'អ្នកទទួល' : name,
           account: (info['account'] ?? '').toString(),
-          bankCode: code, bankName: bankName,
+          bankCode: code,
           initialAmount: (info['amount'] as num?)?.toDouble())),
     );
     if (!mounted) return;
@@ -5935,7 +5891,7 @@ class _QrScreenState extends State<QrScreen> {
     final intent = _ExtQrIntent(
         bankCode: code, bankName: bankName, account: res.account,
         name: name.isEmpty ? 'អ្នកទទួល' : name, amount: res.amount,
-        cardId: res.cardId, note: res.note);
+        cardId: res.cardId);
     await _sendExternalWithOtp(intent, raw);
   }
 
@@ -5948,7 +5904,6 @@ class _QrScreenState extends State<QrScreen> {
           name: intent.name,
           amount: intent.amount,
           cardId: intent.cardId,
-          note: intent.note.isEmpty ? null : intent.note,
           rawQr: raw,
         );
 
