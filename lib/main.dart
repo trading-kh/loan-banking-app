@@ -196,6 +196,26 @@ String fmtTime(DateTime t) {
   return '${dayLabel(t)}, $h:$m $ap';
 }
 
+// ── ពេលវេលាជាភាសាខ្មែរ (សម្រាប់ receipt / flow / notification) ──
+const _khMonthsLong = ['មករា', 'កុម្ភៈ', 'មីនា', 'មេសា', 'ឧសភា', 'មិថុនា',
+  'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ'];
+
+String khDateLong(DateTime t) =>
+    'ថ្ងៃទី ${t.day} ខែ ${_khMonthsLong[t.month - 1]} ឆ្នាំ ${t.year}';
+
+String khClock(DateTime t) {
+  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  final m = t.minute.toString().padLeft(2, '0');
+  return '$h:$m ${t.hour >= 12 ? 'ល្ងាច' : 'ព្រឹក'}';
+}
+
+/// «9 វិច្ឆិកា | 11:39 PM» — ក្រោមជំហាននីមួយៗក្នុង flow
+String khFlowStamp(DateTime t) {
+  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  final m = t.minute.toString().padLeft(2, '0');
+  return '${t.day} ${_khMonthsLong[t.month - 1]} | $h:$m ${t.hour >= 12 ? 'PM' : 'AM'}';
+}
+
 double? parseAmt(String s) {
   final v = double.tryParse(s.trim());
   return (v == null || v <= 0) ? null : v;
@@ -530,9 +550,11 @@ class AppNotif {
   bool get isTransferOut =>
       title.contains('ផ្ទេរ') && body.trimLeft().startsWith('ផ្ទេរ');
 
-  /// សារប្រាក់ចូល (body អ្នកបានទទួល $x ពី ...)
+  /// សារប្រាក់ចូល (body លោកអ្នកបានទទួលប្រាក់ចំនួន $x ពីឈ្មោះ ...)
   bool get isTransferIn =>
-      title.contains('ទទួល') && body.trimLeft().startsWith('អ្នកបានទទួល');
+      title.contains('ទទួល') &&
+      (body.trimLeft().startsWith('លោកអ្នកបានទទួល') ||
+          body.trimLeft().startsWith('អ្នកបានទទួល'));
 
   bool get isTransferMessage =>
       (isTransferOut || isTransferIn) && transferAmount != null;
@@ -558,7 +580,7 @@ class AppNotif {
   }
 
   String? get transferSender {
-    final m = RegExp(r'\sពី\s+(.+)$').firstMatch(body.trim());
+    final m = RegExp(r'(?:ពីឈ្មោះ|ពី)\s+(.+)$').firstMatch(body.trim());
     return m?.group(1)?.trim();
   }
 
@@ -2070,6 +2092,312 @@ Future<void> confirmAndPay(BuildContext context, {
   }
 }
 
+// ============================================================================
+//  TRANSFER FLOW — Aura → Bakong (ធនាគារកណ្ដាល) → ធនាគារអ្នកទទួល
+// ============================================================================
+class _TransferFlowStrip extends StatelessWidget {
+  /// ធនាគារអ្នកទទួល — `AURA` ឬ កូដធនាគារដែលបានស្កេន
+  final String recipientBankCode;
+  final String? recipientName;
+  final DateTime when;
+
+  /// 0 → 1 ជំហានរត់តាមជំហាន
+  final double progress;
+
+  const _TransferFlowStrip({required this.recipientBankCode,
+      this.recipientName, required this.when, this.progress = 1});
+
+  String _bankName(String code) {
+    if (code == 'AURA') return 'Aura Bank';
+    if (code == 'BAKONG') return 'Bakong · NBC';
+    for (final r in bank.rails) {
+      if (r.code == code) return r.name;
+    }
+    return code;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: progress.clamp(0.0, 1.0)),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOutCubic,
+      builder: (_, t, __) {
+        final n0 = t >= 0.06;
+        final l1 = ((t - 0.10) / 0.28).clamp(0.0, 1.0);
+        final n1 = t >= 0.42;
+        final l2 = ((t - 0.46) / 0.28).clamp(0.0, 1.0);
+        final n2 = t >= 0.78;
+        return Column(children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _node(context, 'AURA', 'បានផ្ញើចេញ', 'Aura Bank', n0),
+            _line(context, l1),
+            _node(context, 'BAKONG', 'បានផ្ញើបន្ត', 'ធនាគារកណ្ដាលកម្ពុជា', n1),
+            _line(context, l2),
+            _node(context, recipientBankCode, 'បានផ្ញើដល់អ្នកទទួល',
+                recipientName?.trim().isNotEmpty == true
+                    ? recipientName!.trim()
+                    : _bankName(recipientBankCode), n2),
+          ]),
+          const SizedBox(height: 12),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.shield_rounded, size: 12,
+                color: C.accentGreen.withValues(alpha: 0.85)),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text('ឆ្លងកាត់ប្រព័ន្ធ Bakong របស់ធនាគារកណ្ដាល · សុវត្ថិភាពខ្ពស់',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 9.5, color: context.muted)),
+            ),
+          ]),
+        ]);
+      },
+    );
+  }
+
+  Widget _node(BuildContext context, String code, String label,
+      String subtitle, bool done) {
+    return SizedBox(
+      width: 84,
+      child: Column(children: [
+        Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+          AnimatedScale(
+            scale: done ? 1 : 0.86,
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOutBack,
+            child: AnimatedOpacity(
+              opacity: done ? 1 : 0.45,
+              duration: const Duration(milliseconds: 260),
+              child: BankLogo(code: code, size: 44),
+            ),
+          ),
+          Positioned(
+            right: -1, bottom: -1,
+            child: AnimatedScale(
+              scale: done ? 1 : 0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutBack,
+              child: Container(
+                width: 18, height: 18,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                      colors: [C.accentGreen, Color(0xFF1C9C73)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight),
+                  border: Border.all(
+                      color: Theme.of(context).colorScheme.surface, width: 1.6),
+                  boxShadow: [BoxShadow(
+                      color: C.accentGreen.withValues(alpha: 0.4),
+                      blurRadius: 8)],
+                ),
+                child: const Icon(Icons.check_rounded,
+                    size: 11, color: Colors.white),
+              ),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 8),
+        AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 260),
+          style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              color: done ? context.ink : context.muted),
+          child: Text(label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(height: 3),
+        AnimatedOpacity(
+          opacity: done ? 1 : 0,
+          duration: const Duration(milliseconds: 260),
+          child: Text(subtitle,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 8, color: context.muted)),
+        ),
+        const SizedBox(height: 2),
+        AnimatedOpacity(
+          opacity: done ? 1 : 0,
+          duration: const Duration(milliseconds: 260),
+          child: Text(khFlowStamp(when),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 7.5, color: context.muted)),
+        ),
+      ]),
+    );
+  }
+
+  Widget _line(BuildContext context, double p) => Expanded(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 21),
+          child: Stack(children: [
+            Container(
+              height: 2.2,
+              decoration: BoxDecoration(
+                color: context.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            FractionallySizedBox(
+              widthFactor: p,
+              child: Container(
+                height: 2.2,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(2),
+                  gradient: const LinearGradient(
+                      colors: [C.accentGreen, C.accent]),
+                  boxShadow: [BoxShadow(
+                      color: C.accent.withValues(alpha: 0.45),
+                      blurRadius: 6)],
+                ),
+              ),
+            ),
+          ]),
+        ),
+      );
+}
+
+/// គ្រប់គ្រង overlay «កំពុងផ្ទេរ» រវាងចុចបង់ និង receipt
+class _TransferFlowHandle {
+  OverlayEntry? _entry;
+  final ValueNotifier<double> _t = ValueNotifier(0);
+  Timer? _timer;
+
+  void open(BuildContext context, {required String bankCode,
+      String? recipientName, double? amount}) {
+    close();
+    _t.value = 0.14;
+    _entry = OverlayEntry(builder: (_) => _TransferFlowOverlay(
+          progress: _t,
+          bankCode: bankCode,
+          recipientName: recipientName,
+          amount: amount,
+        ));
+    Overlay.of(context, rootOverlay: true).insert(_entry!);
+    _timer = Timer(const Duration(milliseconds: 900), () {
+      _t.value = 0.46;
+    });
+  }
+
+  /// បំពេញជំហានទី ៣ ហើយបិទ overlay យ៉ាងរលូន
+  Future<void> complete() async {
+    _timer?.cancel();
+    _t.value = 1;
+    await Future.delayed(const Duration(milliseconds: 1000));
+    close();
+  }
+
+  void close() {
+    _timer?.cancel();
+    _timer = null;
+    _entry?.remove();
+    _entry = null;
+  }
+
+  void dispose() {
+    close();
+    _t.dispose();
+  }
+}
+
+class _TransferFlowOverlay extends StatelessWidget {
+  final ValueNotifier<double> progress;
+  final String bankCode;
+  final String? recipientName;
+  final double? amount;
+  const _TransferFlowOverlay({required this.progress, required this.bankCode,
+      this.recipientName, this.amount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF022841),
+              const Color(0xFF033553),
+              C.bgDark,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 56, height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(colors: [
+                      C.accent.withValues(alpha: 0.22),
+                      C.accentGold.withValues(alpha: 0.16),
+                    ]),
+                    border: Border.all(
+                        color: C.accent.withValues(alpha: 0.35)),
+                  ),
+                  child: const Icon(Icons.bolt_rounded,
+                      color: C.accentGold, size: 28),
+                ),
+                const SizedBox(height: 16),
+                const Text('កំពុងផ្ទេរប្រាក់',
+                    style: TextStyle(color: Colors.white, fontSize: 18,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('សូមរង់ចាំមួយសន្ទុះ — កុំបិទកម្មវិធី',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 11.5)),
+                const SizedBox(height: 26),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(12, 18, 12, 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12)),
+                  ),
+                  child: AnimatedBuilder(
+                    animation: progress,
+                    builder: (_, __) => _TransferFlowStrip(
+                      recipientBankCode: bankCode,
+                      recipientName: recipientName,
+                      when: DateTime.now(),
+                      progress: progress.value,
+                    ),
+                  ),
+                ),
+                if (amount != null) ...[
+                  const SizedBox(height: 22),
+                  Text(money(amount!),
+                      style: const TextStyle(color: C.accentGold,
+                          fontSize: 26, fontWeight: FontWeight.w800)),
+                ],
+                const SizedBox(height: 26),
+                SizedBox(
+                  width: 26, height: 26,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      color: C.accent.withValues(alpha: 0.85)),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class ReceiptScreen extends StatefulWidget {
   final String title;
   final double amount;
@@ -2079,9 +2407,19 @@ class ReceiptScreen extends StatefulWidget {
   final String? appBarTitle;
   final String? actionText;
   final String? bankCode;
+
+  /// ធនាគារអ្នកទទួល — បើមាន → បង្ហាញ flow ៣ ជំហាន (ផ្ទេរចេញ)
+  final String? flowBankCode;
+  final String? flowRecipient;
+
+  /// សារប្រាក់ចូល — បង្ហាញពាក្យ «លោកអ្នកបានទទួលប្រាក់ចំនួន ...»
+  final bool incoming;
+  final String? senderName;
+
   const ReceiptScreen({super.key, required this.title, required this.amount,
       this.recipient, this.ref, this.when, this.appBarTitle, this.actionText,
-      this.bankCode});
+      this.bankCode, this.flowBankCode, this.flowRecipient,
+      this.incoming = false, this.senderName});
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
 }
@@ -2120,55 +2458,181 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
   @override
   Widget build(BuildContext context) {
+    final flow = widget.flowBankCode != null;
     final body = SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Column(children: [
-              const Spacer(),
-              _badge(),
-              const SizedBox(height: 20),
-              _fadeIn(Column(children: [
-                Text('ប្រតិបត្តិការជោគជ័យ!',
-                    style: TextStyle(color: context.ink, fontSize: 20,
-                        fontWeight: FontWeight.w800)),
-                const SizedBox(height: 2),
-                TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: widget.amount),
-                  duration: const Duration(milliseconds: 900),
-                  curve: Curves.easeOutCubic,
-                  builder: (_, v, __) => Text(money(v),
-                      style: const TextStyle(color: C.accent,
-                          fontSize: 34, fontWeight: FontWeight.w800)),
-                ),
-              ])),
-              const SizedBox(height: 24),
-              if (widget.bankCode != null) ...[
-                _fadeIn(_bankChip(context)),
-                const SizedBox(height: 16),
-              ],
-              _fadeIn(NeuBox(inset: true, child: Column(children: [
-                _actionRow(context),
-                InfoRow('ពីគណនី', _sender),
-                InfoRow('លេខយោង', _ref),
-                InfoRow('កាលបរិច្ឆេទ', _time),
-              ]))),
-              const Spacer(),
-              _fadeIn(Column(children: [
-                const _MissingMoneyLink(),
-                const SizedBox(height: 10),
-                NeuButton(label: 'រួចរាល់', icon: Icons.done,
-                    onPressed: () => widget.appBarTitle != null
-                        ? Navigator.of(context).pop()
-                        : Navigator.of(context)
-                            .popUntil((r) => r.isFirst)),
-              ])),
-            ]),
+            child: flow
+                ? SingleChildScrollView(child: _content(context, flow: true))
+                : _content(context, flow: false),
           ),
         );
     if (widget.appBarTitle == null) return Scaffold(body: body);
     return Scaffold(
       appBar: AppBar(title: Text(widget.appBarTitle!)),
       body: body,
+    );
+  }
+
+  Widget _content(BuildContext context, {required bool flow}) {
+    return Column(children: [
+      if (flow) const SizedBox(height: 4) else const Spacer(),
+      _badge(compact: flow),
+      SizedBox(height: flow ? 12 : 20),
+      _fadeIn(_headline()),
+      SizedBox(height: flow ? 16 : 18),
+      if (flow) ...[
+        _fadeIn(_flowCard(context)),
+        const SizedBox(height: 14),
+        _fadeIn(_outgoingPanel(context)),
+      ] else if (widget.incoming) ...[
+        _fadeIn(_incomingCard(context)),
+      ] else ...[
+        if (widget.bankCode != null) ...[
+          _fadeIn(_bankChip(context)),
+          const SizedBox(height: 16),
+        ],
+        _fadeIn(_outgoingPanel(context)),
+      ],
+      if (flow) const SizedBox(height: 18) else const Spacer(),
+      _fadeIn(Column(children: [
+        const _MissingMoneyLink(),
+        const SizedBox(height: 10),
+        NeuButton(label: 'រួចរាល់', icon: Icons.done,
+            onPressed: () => widget.appBarTitle != null
+                ? Navigator.of(context).pop()
+                : Navigator.of(context).popUntil((r) => r.isFirst)),
+      ])),
+    ]);
+  }
+
+  Widget _headline() {
+    final incoming = widget.incoming;
+    final label = incoming
+        ? 'លោកអ្នកបានទទួលប្រាក់ចំនួន'
+        : widget.flowBankCode != null
+            ? 'ផ្ទេរប្រាក់ជោគជ័យ'
+            : 'ប្រតិបត្តិការជោគជ័យ!';
+    return Column(children: [
+      Text(label, textAlign: TextAlign.center,
+          style: TextStyle(color: incoming ? context.muted : context.ink,
+              fontSize: incoming ? 14 : 20, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 2),
+      TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: widget.amount),
+        duration: const Duration(milliseconds: 900),
+        curve: Curves.easeOutCubic,
+        builder: (_, v, __) => Text(money(v),
+            style: TextStyle(color: incoming ? C.accentGreen : C.accent,
+                fontSize: 34, fontWeight: FontWeight.w800)),
+      ),
+    ]);
+  }
+
+  /// ជំហានផ្ទេរ ៣ ជំហាន — Aura → Bakong → ធនាគារអ្នកទទួល
+  Widget _flowCard(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(8, 14, 8, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: context.isDark
+            ? Colors.white.withValues(alpha: 0.045)
+            : Colors.white.withValues(alpha: 0.85),
+        border: Border.all(color: C.accent.withValues(alpha: 0.20)),
+        boxShadow: [BoxShadow(color: C.accent.withValues(alpha: 0.12),
+            blurRadius: 26, offset: const Offset(0, 12))],
+      ),
+      child: Column(children: [
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.route_rounded, size: 13,
+              color: C.accent.withValues(alpha: 0.9)),
+          const SizedBox(width: 5),
+          Text('ដំណើរការផ្ទេរប្រាក់',
+              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700,
+                  color: context.muted)),
+        ]),
+        const SizedBox(height: 12),
+        _TransferFlowStrip(
+          recipientBankCode: widget.flowBankCode!,
+          recipientName: widget.flowRecipient ?? widget.recipient,
+          when: widget.when ?? DateTime.now(),
+        ),
+      ]),
+    );
+  }
+
+  Widget _outgoingPanel(BuildContext context) => NeuBox(inset: true,
+      child: Column(children: [
+        _actionRow(context),
+        InfoRow('ពីគណនី', _sender),
+        InfoRow('លេខយោង', _ref),
+        InfoRow('កាលបរិច្ឆេទ', _time),
+      ]));
+
+  /// សារប្រាក់ចូល — ធនាគារ + logo, អ្នកផ្ញើ, ថ្ងៃ ម៉ោង
+  Widget _incomingCard(BuildContext context) {
+    final code = (widget.bankCode ?? 'AURA').toUpperCase();
+    var bankName = code == 'AURA' ? 'Aura Bank' : code;
+    for (final r in bank.rails) {
+      if (r.code == code) bankName = r.name;
+    }
+    final who = (widget.senderName ?? '').trim().isNotEmpty
+        ? widget.senderName!.trim()
+        : _sender;
+    final when = widget.when ?? DateTime.now();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: context.isDark
+            ? Colors.white.withValues(alpha: 0.045)
+            : Colors.white.withValues(alpha: 0.9),
+        border: Border.all(color: C.accentGreen.withValues(alpha: 0.24)),
+        boxShadow: [BoxShadow(color: C.accentGreen.withValues(alpha: 0.12),
+            blurRadius: 26, offset: const Offset(0, 12))],
+      ),
+      child: Column(children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: context.isDark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : Colors.white,
+              border: Border.all(color: context.border),
+            ),
+            child: BankLogo(code: code, size: 26),
+          ),
+          const SizedBox(width: 9),
+          Expanded(child: Text(bankName,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800,
+                  color: context.ink))),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: C.accentGreen.withValues(alpha: 0.13),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.south_west_rounded, size: 11,
+                  color: C.accentGreen),
+              const SizedBox(width: 3),
+              const Text('ប្រាក់ចូល',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
+                      color: C.accentGreen)),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        InfoRow('ពីឈ្មោះ', who),
+        InfoRow('ថ្ងៃទី', khDateLong(when)),
+        InfoRow('ម៉ោង', khClock(when)),
+        InfoRow('លេខយោង', _ref),
+      ]),
     );
   }
 
@@ -2218,8 +2682,11 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     );
   }
 
-  Widget _badge() => SizedBox(
-        width: 136, height: 136,
+  Widget _badge({bool compact = false}) {
+    final dim = compact ? 108.0 : 136.0;
+    final core = compact ? 64.0 : 80.0;
+    return SizedBox(
+        width: dim, height: dim,
         child: AnimatedBuilder(
           animation: _c,
           builder: (_, __) {
@@ -2229,14 +2696,14 @@ class _ReceiptScreenState extends State<ReceiptScreen>
             final check = Curves.easeOutBack
                 .transform(((_c.value - 0.22) / 0.45).clamp(0.0, 1.0));
             return Stack(alignment: Alignment.center, children: [
-              CustomPaint(size: const Size(136, 136),
+              CustomPaint(size: Size(dim, dim),
                   painter: _SuccessPainter(ring: ring, burst: burst)),
               Transform.scale(
                 scale: 0.35 + 0.65 * check,
                 child: Opacity(
                   opacity: check.clamp(0.0, 1.0),
                   child: Container(
-                    width: 80, height: 80,
+                    width: core, height: core,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: const LinearGradient(
@@ -2247,8 +2714,8 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                           color: C.accentGreen.withValues(alpha: 0.38),
                           blurRadius: 24, offset: const Offset(0, 9))],
                     ),
-                    child: const Icon(Icons.check_rounded,
-                        color: Colors.white, size: 46),
+                    child: Icon(Icons.check_rounded,
+                        color: Colors.white, size: compact ? 38 : 46),
                   ),
                 ),
               ),
@@ -2256,6 +2723,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
           },
         ),
       );
+  }
 }
 
 class _SuccessPainter extends CustomPainter {
@@ -3852,6 +4320,8 @@ class _TransferScreenState extends State<TransferScreen> {
   // key ស្ទួនសម្រាប់សំណើដូចគ្នា (បណ្ដាញដាច់ → retry មិនកាត់លុយពីរដង)
   String? _retrySig, _retryKey;
 
+  final _flow = _TransferFlowHandle();
+
   BankRail? get rail {
     for (final b in bank.rails) {
       if (b.code == railCode) return b;
@@ -3871,6 +4341,7 @@ class _TransferScreenState extends State<TransferScreen> {
 
   @override
   void dispose() {
+    _flow.dispose();
     contact.dispose(); name.dispose(); account.dispose();
     amount.dispose(); note.dispose();
     super.dispose();
@@ -3959,6 +4430,12 @@ class _TransferScreenState extends State<TransferScreen> {
         ? _retryKey! : ApiService.newIdempotencyKey();
 
     setState(() => sending = true);
+    final flowBank = p2pMode ? 'AURA' : railCode;
+    final flowName = p2pMode
+        ? ((found?['name']) ?? '').toString()
+        : name.text.trim();
+    _flow.open(context, bankCode: flowBank,
+        recipientName: flowName, amount: a);
     try {
       final r = p2pMode
           ? await bank.transferP2P(recipientId: recipientId!, amount: a,
@@ -3971,6 +4448,7 @@ class _TransferScreenState extends State<TransferScreen> {
               amount: a, cardId: cid, pin: pin,
               note: nt.isEmpty ? null : nt, idempotencyKey: key);
       _retrySig = null; _retryKey = null;
+      await _flow.complete();
       if (!mounted) return;
       final rName = p2pMode
           ? ((found?['name']) ?? 'អ្នកទទួល').toString()
@@ -3981,11 +4459,14 @@ class _TransferScreenState extends State<TransferScreen> {
         transitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (_, __, ___) => ReceiptScreen(
             title: (tx is Map ? tx['title'] : null)?.toString() ?? 'ផ្ទេរប្រាក់',
-            amount: a, recipient: rName.isEmpty ? null : rName),
+            amount: a, recipient: rName.isEmpty ? null : rName,
+            flowBankCode: flowBank,
+            flowRecipient: rName.isEmpty ? null : rName),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ));
     } on ApiException catch (e) {
+      _flow.close();
       if (e.code == 'TIMEOUT' || e.code == 'NETWORK') {
         _retrySig = sig; _retryKey = key;
       }
@@ -3994,6 +4475,7 @@ class _TransferScreenState extends State<TransferScreen> {
             error: true);
       }
     } catch (_) {
+      _flow.close();
       if (mounted) toast(context, 'Network error', error: true);
     } finally {
       if (mounted) setState(() => sending = false);
@@ -5209,6 +5691,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
         appBarTitle: 'សារប្រតិបត្តិការ',
         actionText: action,
         bankCode: n.bankLogoCode,
+        incoming: !outgoing,
+        senderName: outgoing ? null : name,
       ),
       transitionsBuilder: (_, a, __, c) => FadeTransition(
           opacity: CurvedAnimation(parent: a, curve: Curves.easeOutCubic),
@@ -5262,7 +5746,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                 Text(n.title, style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     color: context.ink, fontSize: 13)),
-                                Text(n.body, style: TextStyle(fontSize: 12,
+                                Text(n.body, maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12,
                                     color: context.muted)),
                                 Text(fmtTime(n.time), style: TextStyle(
                                     fontSize: 10.5, color: context.muted)),
@@ -5410,6 +5896,8 @@ class _QrPayScreenState extends State<QrPayScreen>
 
   double? get _value => parseAmt(_amt);
 
+  final _flow = _TransferFlowHandle();
+
   @override
   void initState() {
     super.initState();
@@ -5419,6 +5907,7 @@ class _QrPayScreenState extends State<QrPayScreen>
 
   @override
   void dispose() {
+    _flow.dispose();
     _pulse.dispose();
     _acc.dispose();
     super.dispose();
@@ -5547,24 +6036,29 @@ class _QrPayScreenState extends State<QrPayScreen>
     if (pin == null || !mounted) return;
     setState(() => _submitting = true);
     final cid = _cardId;
+    _flow.open(context, bankCode: 'AURA', recipientName: _name, amount: amt);
     try {
       await bank.transferP2P(
           recipientId: _recipientId, amount: amt, cardId: cid, pin: pin,
           idempotencyKey: ApiService.newIdempotencyKey());
+      await _flow.complete();
       if (!mounted) return;
       Navigator.of(context).pushReplacement(PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (_, __, ___) => ReceiptScreen(
-            title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt),
+            title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
+            flowBankCode: 'AURA', flowRecipient: _name),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ));
     } on ApiException catch (e) {
+      _flow.close();
       if (!mounted) return;
       setState(() => _submitting = false);
       toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
           error: true);
     } catch (_) {
+      _flow.close();
       if (!mounted) return;
       setState(() => _submitting = false);
       toast(context, 'Network error', error: true);
@@ -5619,12 +6113,19 @@ class _QrPayScreenState extends State<QrPayScreen>
     );
     if (result == null || !mounted) return;
 
-    await bank.loadAll();
+    final flowBank = _bankCode ?? 'OTHER';
+    setState(() => _submitting = true);
+    _flow.open(context, bankCode: flowBank, recipientName: _name, amount: amt);
+    try {
+      await bank.loadAll();
+    } catch (_) {}
+    await _flow.complete();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 350),
       pageBuilder: (_, __, ___) => ReceiptScreen(
-          title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt),
+          title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
+          flowBankCode: flowBank, flowRecipient: _name),
       transitionsBuilder: (_, anim, __, child) =>
           FadeTransition(opacity: anim, child: child),
     ));
