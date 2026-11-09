@@ -2656,8 +2656,12 @@ class HomeScreen extends StatelessWidget {
                         () => _payBill(context, 'វិក្កយបត្រ', Icons.receipt_long)),
                     AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
                         () => tabIndex.value = 1),
-                    AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
-                        () => push(context, const QrScreen(startScan: true))),
+                    AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន', () async {
+                      final raw = await push(
+                          context, const QrScreen(startScan: true));
+                      if (!context.mounted || raw is! String) return;
+                      await payScannedQr(context, raw);
+                    }),
                     AbaCell(Icons.savings_outlined, 'សន្សំ',
                         () => push(context, const SavingsScreen())),
                     AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
@@ -5520,6 +5524,177 @@ class _OtpSheetState extends State<_OtpSheet>
       );
 }
 
+// ============================================================================
+//  QR FLOW  —  ស្កេនរួច → ទំព័រទូទាត់ → OTP (ខាងក្រៅ) → receipt
+//  ទំព័រស្កេនត្រូវបានបិទមុនពេលចូល flow នេះ
+// ============================================================================
+Future<void> payScannedQr(BuildContext context, String raw) async {
+  final u = Uri.tryParse(raw);
+  final token = (u != null && u.scheme == 'aurabank' && u.host == 'pay')
+      ? u.queryParameters['token']
+      : null;
+  if (token == null || token.isEmpty) {
+    await _payExternalQr(context, raw);
+    return;
+  }
+  Map<String, dynamic> r;
+  try {
+    r = await ApiService.resolveQr(token);
+  } on ApiException catch (e) {
+    if (context.mounted) toast(context, e.message, error: true);
+    return;
+  } catch (_) {
+    if (context.mounted) toast(context, 'Network error', error: true);
+    return;
+  }
+  if (!context.mounted) return;
+  await _payAuraQr(context, r);
+}
+
+Future<void> _payAuraQr(BuildContext context, Map<String, dynamic> recipient) async {
+  if (bank.cards.isEmpty) {
+    toast(context, 'គ្មានកាត', error: true);
+    return;
+  }
+  final name = (recipient['name'] ?? 'អ្នកទទួល').toString();
+  final masked = (recipient['masked_account'] ?? '').toString();
+  final preAmt = (recipient['amount'] as num?)?.toDouble();
+  final res = await Navigator.of(context).push<QrPayResult>(
+    MaterialPageRoute(builder: (_) => QrPayScreen(
+        name: name, account: masked, masked: masked,
+        initialAmount: preAmt)),
+  );
+  if (!context.mounted || res == null) return;
+
+  final amt = res.amount;
+  final cid = res.cardId;
+  final pin = await bank.pinForTransfer(context);
+  if (pin == null || !context.mounted) return;
+  try {
+    await bank.transferP2P(
+        recipientId: recipient['recipient_id'].toString(),
+        amount: amt, cardId: cid, pin: pin,
+        idempotencyKey: ApiService.newIdempotencyKey());
+    if (!context.mounted) return;
+    final card = bank.cards.firstWhere((c) => c.id == cid,
+        orElse: () => bank.cards.first);
+    await Navigator.of(context).push(PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 350),
+      pageBuilder: (_, __, ___) => ReceiptScreen(
+          title: 'ផ្ទេរទៅ $name (QR)', amount: amt, card: card),
+      transitionsBuilder: (_, anim, __, child) =>
+          FadeTransition(opacity: anim, child: child),
+    ));
+  } on ApiException catch (e) {
+    if (context.mounted) {
+      toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
+          error: true);
+    }
+  } catch (_) {
+    if (context.mounted) toast(context, 'Network error', error: true);
+  }
+}
+
+Future<void> _payExternalQr(BuildContext context, String raw) async {
+  Map<String, dynamic> info;
+  try {
+    info = await ApiService.inspectExternalQr(raw);
+  } on ApiException catch (e) {
+    if (context.mounted) toast(context, e.message, error: true);
+    return;
+  } catch (_) {
+    if (context.mounted) toast(context, 'Network error', error: true);
+    return;
+  }
+  if (!context.mounted) return;
+  if (bank.cards.isEmpty) {
+    toast(context, 'គ្មានកាតសម្រាប់ផ្ទេរ', error: true);
+    return;
+  }
+  await bank.ensureRails();
+  if (!context.mounted) return;
+
+  var code = (info['bank_code'] ?? 'OTHER').toString().toUpperCase();
+  if (bank.rails.isNotEmpty && !bank.rails.any((r) => r.code == code)) {
+    code = bank.rails.first.code;
+  }
+  var bankName = '';
+  for (final r in bank.rails) {
+    if (r.code == code) bankName = r.name;
+  }
+  if (bankName.isEmpty) {
+    bankName = (info['bank_name'] ?? code).toString();
+  }
+  final name = (info['name'] ?? '').toString().trim();
+  final res = await Navigator.of(context).push<QrPayResult>(
+    MaterialPageRoute(builder: (_) => QrPayScreen(
+        name: name.isEmpty ? 'អ្នកទទួល' : name,
+        account: (info['account'] ?? '').toString(),
+        bankCode: code,
+        initialAmount: (info['amount'] as num?)?.toDouble())),
+  );
+  if (!context.mounted || res == null) return;
+
+  final intent = _ExtQrIntent(
+      bankCode: code, bankName: bankName, account: res.account,
+      name: name.isEmpty ? 'អ្នកទទួល' : name, amount: res.amount,
+      cardId: res.cardId);
+  final idem = ApiService.newIdempotencyKey();
+
+  Future<Map<String, dynamic>> start() => ApiService.startExternalQr(
+        bankCode: intent.bankCode,
+        account: intent.account,
+        name: intent.name,
+        amount: intent.amount,
+        cardId: intent.cardId,
+        rawQr: raw,
+      );
+
+  Map<String, dynamic> first;
+  try {
+    first = await start();
+  } on ApiException catch (e) {
+    if (context.mounted) toast(context, e.message, error: true);
+    return;
+  } catch (_) {
+    if (context.mounted) toast(context, 'Network error', error: true);
+    return;
+  }
+  if (!context.mounted) return;
+
+  final result = await showModalBottomSheet<Map<String, dynamic>>(
+    context: context, isScrollControlled: true, showDragHandle: true,
+    backgroundColor: context.card,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+    builder: (_) => _OtpSheet(
+      initial: first,
+      bankCode: intent.bankCode,
+      bankName: intent.bankName,
+      recipient: intent.name,
+      account: intent.account,
+      amount: intent.amount,
+      resend: start,
+      confirm: (requestId, otp) => ApiService.confirmExternalQr(
+          requestId: requestId, otp: otp, idempotencyKey: idem),
+    ),
+  );
+  if (result == null || !context.mounted) return;
+
+  await bank.loadAll();
+  if (!context.mounted) return;
+  final card = bank.cards.firstWhere((c) => c.id == intent.cardId,
+      orElse: () => bank.cards.first);
+  await Navigator.of(context).push(PageRouteBuilder(
+    transitionDuration: const Duration(milliseconds: 350),
+    pageBuilder: (_, __, ___) => ReceiptScreen(
+        title: 'ផ្ទេរទៅ ${intent.name} (${intent.bankName})',
+        amount: intent.amount, card: card),
+    transitionsBuilder: (_, anim, __, child) =>
+        FadeTransition(opacity: anim, child: child),
+  ));
+}
+
 class QrScreen extends StatefulWidget {
   final bool startScan;
   const QrScreen({super.key, this.startScan = false});
@@ -5629,12 +5804,6 @@ class _QrScreenState extends State<QrScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
   }
 
-  void _startCamera() {
-    if (!mounted || !_scan || _ctrl != null) return;
-    setState(() => _ctrl = MobileScannerController(
-        detectionSpeed: DetectionSpeed.noDuplicates));
-  }
-
   /// បិទ: បើចូលមកជា full-screen route → pop; បើចូលពី tab ទទួលប្រាក់ → ត្រឡប់ទៅ tab នោះ
   void _close() {
     if (widget.startScan) {
@@ -5665,221 +5834,18 @@ class _QrScreenState extends State<QrScreen> {
     final raw = cap.barcodes.first.rawValue;
     if (raw == null) return;
     _busy = true;
-    // ស្កេនបាន = បិទកាមេរ៉ាភ្លាម មុនបន្តទៅទំព័រទូទាត់/OTP
+    // ស្កេនបាន = បិទកាមេរ៉ា និងចាកចេញពីទំព័រស្កេនភ្លាម
     _stopCamera();
-    final u = Uri.tryParse(raw);
-    final token = (u != null && u.scheme == 'aurabank' && u.host == 'pay')
-        ? u.queryParameters['token']
-        : null;
-    if (token == null || token.isEmpty) {
-      // QR ខាងក្រៅ → Alert + តម្រូវ OTP មុនផ្ទេរ
-      try {
-        await _handleExternalQr(raw);
-      } finally {
-        _busy = false;
-      }
+    if (widget.startScan) {
+      Navigator.of(context).pop(raw);
       return;
     }
+    _setScan(false);
     try {
-      // Server បក token → អ្នកទទួលពិតប្រាកដ (មិនជឿឈ្មោះ/uid ក្នុង QR)
-      final r = await ApiService.resolveQr(token);
-      if (!mounted) return;
-      await _confirmSend(r);
-    } on ApiException catch (e) {
-      if (mounted) {
-        toast(context, e.message, error: true);
-        _startCamera();
-      }
-    } catch (_) {
-      if (mounted) {
-        toast(context, 'Network error', error: true);
-        _startCamera();
-      }
+      await payScannedQr(context, raw);
     } finally {
       _busy = false;
     }
-  }
-
-  Future<void> _confirmSend(Map<String, dynamic> recipient) async {
-    if (bank.cards.isEmpty) {
-      toast(context, 'គ្មានកាត', error: true);
-      _startCamera();
-      return;
-    }
-    final name = (recipient['name'] ?? 'អ្នកទទួល').toString();
-    final masked = (recipient['masked_account'] ?? '').toString();
-    final preAmt = (recipient['amount'] as num?)?.toDouble();
-    final res = await Navigator.of(context).push<QrPayResult>(
-      MaterialPageRoute(builder: (_) => QrPayScreen(
-          name: name, account: masked, masked: masked,
-          initialAmount: preAmt)),
-    );
-    if (!mounted) return;
-    if (res == null) {
-      _startCamera();
-      return;
-    }
-
-    final amt = res.amount;
-    final cid = res.cardId;
-    final pin = await bank.pinForTransfer(context);
-    if (pin == null || !mounted) {
-      _startCamera();
-      return;
-    }
-    try {
-      await bank.transferP2P(
-          recipientId: recipient['recipient_id'].toString(),
-          amount: amt, cardId: cid, pin: pin,
-          idempotencyKey: ApiService.newIdempotencyKey());
-      if (!mounted) return;
-      final card = bank.cards.firstWhere((c) => c.id == cid,
-          orElse: () => bank.cards.first);
-      await Navigator.of(context).push(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) => ReceiptScreen(
-            title: 'ផ្ទេរទៅ $name (QR)', amount: amt, card: card),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ));
-      _startCamera();
-    } on ApiException catch (e) {
-      if (mounted) {
-        toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
-            error: true);
-        _startCamera();
-      }
-    } catch (_) {
-      if (mounted) {
-        toast(context, 'Network error', error: true);
-        _startCamera();
-      }
-    }
-  }
-
-  // ── QR ខាងក្រៅ (មិនមែន Aura Bank) → ទំព័រទូទាត់ + OTP ──────────────────
-  Future<void> _handleExternalQr(String raw) async {
-    Map<String, dynamic> info;
-    try {
-      info = await ApiService.inspectExternalQr(raw);
-    } on ApiException catch (e) {
-      if (mounted) {
-        toast(context, e.message, error: true);
-        _startCamera();
-      }
-      return;
-    } catch (_) {
-      if (mounted) {
-        toast(context, 'Network error', error: true);
-        _startCamera();
-      }
-      return;
-    }
-    if (!mounted) return;
-    if (bank.cards.isEmpty) {
-      toast(context, 'គ្មានកាតសម្រាប់ផ្ទេរ', error: true);
-      _startCamera();
-      return;
-    }
-    await bank.ensureRails();
-    if (!mounted) return;
-
-    var code = (info['bank_code'] ?? 'OTHER').toString().toUpperCase();
-    if (bank.rails.isNotEmpty && !bank.rails.any((r) => r.code == code)) {
-      code = bank.rails.first.code;
-    }
-    var bankName = '';
-    for (final r in bank.rails) {
-      if (r.code == code) bankName = r.name;
-    }
-    if (bankName.isEmpty) {
-      bankName = (info['bank_name'] ?? code).toString();
-    }
-    final name = (info['name'] ?? '').toString().trim();
-    final res = await Navigator.of(context).push<QrPayResult>(
-      MaterialPageRoute(builder: (_) => QrPayScreen(
-          name: name.isEmpty ? 'អ្នកទទួល' : name,
-          account: (info['account'] ?? '').toString(),
-          bankCode: code,
-          initialAmount: (info['amount'] as num?)?.toDouble())),
-    );
-    if (!mounted) return;
-    if (res == null) {
-      _startCamera();
-      return;
-    }
-    final intent = _ExtQrIntent(
-        bankCode: code, bankName: bankName, account: res.account,
-        name: name.isEmpty ? 'អ្នកទទួល' : name, amount: res.amount,
-        cardId: res.cardId);
-    await _sendExternalWithOtp(intent, raw);
-  }
-
-  Future<void> _sendExternalWithOtp(_ExtQrIntent intent, String raw) async {
-    final idem = ApiService.newIdempotencyKey();
-
-    Future<Map<String, dynamic>> start() => ApiService.startExternalQr(
-          bankCode: intent.bankCode,
-          account: intent.account,
-          name: intent.name,
-          amount: intent.amount,
-          cardId: intent.cardId,
-          rawQr: raw,
-        );
-
-    Map<String, dynamic> first;
-    try {
-      first = await start();
-    } on ApiException catch (e) {
-      if (mounted) {
-        toast(context, e.message, error: true);
-        _startCamera();
-      }
-      return;
-    } catch (_) {
-      if (mounted) {
-        toast(context, 'Network error', error: true);
-        _startCamera();
-      }
-      return;
-    }
-    if (!mounted) return;
-
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      backgroundColor: context.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-      builder: (_) => _OtpSheet(
-        initial: first,
-        bankCode: intent.bankCode,
-        bankName: intent.bankName,
-        recipient: intent.name,
-        account: intent.account,
-        amount: intent.amount,
-        resend: start,
-        confirm: (requestId, otp) => ApiService.confirmExternalQr(
-            requestId: requestId, otp: otp, idempotencyKey: idem),
-      ),
-    );
-    if (result == null || !mounted) {
-      _startCamera();
-      return;
-    }
-
-    await bank.loadAll();
-    if (!mounted) return;
-    final card = bank.cards.firstWhere((c) => c.id == intent.cardId,
-        orElse: () => bank.cards.first);
-    await Navigator.of(context).push(PageRouteBuilder(
-      transitionDuration: const Duration(milliseconds: 350),
-      pageBuilder: (_, __, ___) => ReceiptScreen(
-          title: 'ផ្ទេរទៅ ${intent.name} (${intent.bankName})',
-          amount: intent.amount, card: card),
-      transitionsBuilder: (_, anim, __, child) =>
-          FadeTransition(opacity: anim, child: child),
-    ));
-    _startCamera();
   }
 
   // ── build ──────────────────────────────────────────────────────────────────
