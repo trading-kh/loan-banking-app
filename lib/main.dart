@@ -542,7 +542,16 @@ class AppNotif {
 
   String? get transferRecipient {
     final m = RegExp(r'\sទៅ\s+(.+)$').firstMatch(body.trim());
-    return m?.group(1)?.trim();
+    var name = m?.group(1)?.trim();
+    if (name == null) return null;
+    // ដកឈ្មោះ rails ទូទៅ «(Global / Other Bank)» ចេញពីសារ
+    name = name
+        .replaceAll(
+            RegExp(r'\s*\([^)]*(?:Global|Other Bank)[^)]*\)',
+                caseSensitive: false),
+            '')
+        .trim();
+    return name;
   }
 
   String? get transferSender {
@@ -2056,21 +2065,8 @@ class _ReceiptScreenState extends State<ReceiptScreen>
               ]))),
               const Spacer(),
               _fadeIn(Column(children: [
-                TextButton.icon(
-                  onPressed: () => Navigator.of(context).push(PageRouteBuilder(
-                    transitionDuration: const Duration(milliseconds: 300),
-                    pageBuilder: (_, __, ___) => const _MissingMoneyScreen(),
-                    transitionsBuilder: (_, a, __, c) =>
-                        FadeTransition(opacity: a, child: c),
-                  )),
-                  icon: const Icon(Icons.help_outline_rounded, size: 17),
-                  label: const Text('បើមិនឃើញប្រាក់ចូលទេ ចុចទីនេះ'),
-                  style: TextButton.styleFrom(
-                      foregroundColor: C.accent,
-                      textStyle: const TextStyle(fontSize: 12.5,
-                          fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(height: 4),
+                const _MissingMoneyLink(),
+                const SizedBox(height: 10),
                 NeuButton(label: 'រួចរាល់', icon: Icons.done,
                     onPressed: () => widget.appBarTitle != null
                         ? Navigator.of(context).pop()
@@ -2208,6 +2204,119 @@ class _MissingMoneyScreen extends StatelessWidget {
         appBar: AppBar(title: const Text('បើមិនឃើញប្រាក់ចូលទេ')),
         body: const SizedBox.shrink(),
       );
+}
+
+/// ពាក្យប្រាប់ + icon ចុចបាន ជាមួយសន្ទស្សន៍រត់ជុំវិញ និង skeleton slide
+class _MissingMoneyLink extends StatefulWidget {
+  const _MissingMoneyLink();
+  @override
+  State<_MissingMoneyLink> createState() => _MissingMoneyLinkState();
+}
+
+class _MissingMoneyLinkState extends State<_MissingMoneyLink>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2400))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _open() => Navigator.of(context).push(PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (_, __, ___) => const _MissingMoneyScreen(),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+      ));
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = context.isDark;
+    const base = C.accent;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Text('បើមិនឃើញប្រាក់ទេ',
+          style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: context.muted)),
+      const SizedBox(height: 12),
+      GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _open,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (_, __) {
+            final t = _c.value;
+            return SizedBox(
+              width: 64,
+              height: 64,
+              child: Stack(alignment: Alignment.center, children: [
+                Transform.rotate(
+                  angle: t * 2 * math.pi,
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: SweepGradient(
+                        colors: [
+                          base.withValues(alpha: 0.0),
+                          base.withValues(alpha: 0.0),
+                          base.withValues(alpha: 0.45),
+                          C.accentGold.withValues(alpha: 0.85),
+                          base.withValues(alpha: 0.0),
+                        ],
+                        stops: const [0.0, 0.70, 0.86, 0.94, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: context.card,
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black
+                              .withValues(alpha: dark ? 0.45 : 0.12),
+                          blurRadius: 10,
+                          offset: const Offset(3, 4)),
+                      BoxShadow(
+                          color: Colors.white
+                              .withValues(alpha: dark ? 0.07 : 0.9),
+                          blurRadius: 8,
+                          offset: const Offset(-3, -4)),
+                    ],
+                  ),
+                  child: ShaderMask(
+                    blendMode: BlendMode.srcATop,
+                    shaderCallback: (r) => LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        base.withValues(alpha: 0.55),
+                        base,
+                        Colors.white,
+                        base,
+                        base.withValues(alpha: 0.55),
+                      ],
+                      stops: const [0.0, 0.32, 0.5, 0.68, 1.0],
+                      transform: _SkeletonSlide(t),
+                    ).createShader(r),
+                    child:
+                        const Icon(Icons.help_outline_rounded, size: 25),
+                  ),
+                ),
+              ]),
+            );
+          },
+        ),
+      ),
+    ]);
+  }
 }
 
 // ============================================================================
