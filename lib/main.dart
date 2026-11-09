@@ -3069,7 +3069,7 @@ class TransferMenuScreen extends StatelessWidget {
                   _buildTransferItem(context, icon: Icons.account_balance_wallet, iconColor: const Color(0xFF1E3A8A), title: 'ធនាគារក្នុងស្រុក', subtitle: 'ជ្រើសរើសធនាគារដើម្បីផ្ទេរប្រាក់', showChevron: true, onTap: () => push(context, const BankSelectionScreen())),
                   _buildTransferItem(context, icon: Icons.account_balance, iconColor: const Color(0xFF9333EA), title: 'ផ្ទេរប្រាក់ក្នុងប្រទេស', subtitle: 'ផ្ទេរប្រាក់ទៅធនាគារ | MFIs | វ៉លឡេត', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'ABA', heading: 'ផ្ទេរក្នុងប្រទេស'))),
                   _buildTransferItem(context, icon: Icons.public, iconColor: const Color(0xFF0F766E), title: 'ផ្ទេរប្រាក់ទៅក្រៅប្រទេស', subtitle: 'ផ្ទេរប្រាក់ទៅធនាគារ | ភ្នាក់ងារផ្ទេរប្រាក់ពិភពលោក', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'OTHER', heading: 'ផ្ទេរក្រៅប្រទេស'))),
-                  _buildTransferItem(context, icon: Icons.credit_card, iconColor: const Color(0xFFD946EF), title: 'ផ្ទេរប្រាក់ទៅប័ណ្ណ', subtitle: 'ផ្ទេរប្រាក់ទៅប័ណ្ណរបស់ធនាគារផ្សេង', showChevron: true, trailing: Row(mainAxisSize: MainAxisSize.min, children: [Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), decoration: BoxDecoration(color: Colors.blue[900], borderRadius: BorderRadius.circular(3)), child: const Text('VISA', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold))), const SizedBox(width: 4), Container(width: 16, height: 12, decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(3)), child: Center(child: Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle))))]), onTap: () => push(context, const TransferScreen(bankCode: 'CANADIA', heading: 'ផ្ទេរទៅប័ណ្ណ'))),
+                  _buildTransferItem(context, icon: Icons.credit_card, iconColor: const Color(0xFFD946EF), title: 'ផ្ទេរប្រាក់ទៅប័ណ្ណ', subtitle: 'ផ្ទេរប្រាក់ទៅប័ណ្ណរបស់ធនាគារផ្សេង', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'CANADIA', heading: 'ផ្ទេរទៅប័ណ្ណ'))),
                   _buildTransferItem(context, icon: Icons.insert_chart_outlined_rounded, iconColor: const Color(0xFFB45309), title: 'គណនីជូញដួរ', subtitle: 'ផ្ទេរប្រាក់រវាងគណនីអេស៊ីលីដា និងគណនីជូញដួរ', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'JUNTUOR', heading: 'គណនីជូញដួរ'))),
                 ],
               ),
@@ -4879,6 +4879,77 @@ class _QrAmountSheetState extends State<_QrAmountSheet> {
 // ============================================================================
 //  QR ខាងក្រៅ — Alert ព្រមាន + OTP ៦ ខ្ទង់
 // ============================================================================
+// ============================================================================
+//  BankLogo — Logo ពិតរបស់ធនាគារនីមួយៗ (asset) + fallback monogram
+// ============================================================================
+class BankLogo extends StatelessWidget {
+  final String code;
+  final double size;
+  const BankLogo({super.key, required this.code, this.size = 48});
+
+  static const _assets = <String, String>{
+    'ABA': 'assets/banks/aba.png',
+    'ACLEDA': 'assets/banks/acleda.png',
+    'CANADIA': 'assets/banks/canadia.png',
+    'WING': 'assets/banks/wing.png',
+    'JUNTUOR': 'assets/banks/jtrust.png',
+  };
+
+  static const _fallbackColors = <String, List<Color>>{
+    'LYF': [Color(0xFF1F8A70), Color(0xFF26B47F)],
+    'OTHER': [Color(0xFF3B5BDB), Color(0xFF6C8CFF)],
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final key = code.trim().toUpperCase();
+    final asset = _assets[key];
+    if (asset != null) {
+      return Container(
+        width: size, height: size,
+        padding: EdgeInsets.all(size * 0.09),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(size * 0.26),
+          boxShadow: [BoxShadow(
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 12, offset: const Offset(0, 4))],
+        ),
+        child: Image.asset(asset, fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            errorBuilder: (_, __, ___) => _monogram(key)),
+      );
+    }
+    return _monogram(key);
+  }
+
+  Widget _monogram(String key) {
+    final colors = _fallbackColors[key] ??
+        const [Color(0xFF1E3A8A), Color(0xFF3B9AD9)];
+    final label = key == 'OTHER'
+        ? 'QR'
+        : (key.length > 3 ? key.substring(0, 2) : key);
+    return Container(
+      width: size, height: size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: colors,
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(size * 0.26),
+        boxShadow: [BoxShadow(
+            color: colors.last.withValues(alpha: 0.30),
+            blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      alignment: Alignment.center,
+      child: Padding(
+        padding: EdgeInsets.all(size * 0.14),
+        child: FittedBox(child: Text(label,
+            style: const TextStyle(color: Colors.white,
+                fontWeight: FontWeight.w800, letterSpacing: 0.5))),
+      ),
+    );
+  }
+}
+
 class _ExtQrIntent {
   final String bankCode, bankName, account, name;
   final double amount;
@@ -4920,9 +4991,15 @@ class _ExternalQrSheetState extends State<_ExternalQrSheet> {
 
   String get _bankName {
     for (final r in bank.rails) {
-      if (r.code == _safeBankCode) return r.name;
+      if (r.code == _bankCode) return r.name;
     }
-    return _safeBankCode;
+    final n = (widget.info['bank_name'] ?? '').toString().trim();
+    return n.isNotEmpty ? n : _bankCode;
+  }
+
+  String get _recipientName {
+    final n = _name.text.trim();
+    return n.isEmpty ? 'អ្នកទទួល' : n;
   }
 
   void _submit() {
@@ -4950,79 +5027,32 @@ class _ExternalQrSheetState extends State<_ExternalQrSheet> {
           child: Column(mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Container(
-                width: 52, height: 52,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(colors: [
-                    C.accentGold, C.accentRed,
-                  ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                  boxShadow: [BoxShadow(
-                      color: C.accentGold.withValues(alpha: 0.30),
-                      blurRadius: 18, offset: const Offset(0, 6))],
-                ),
-                child: const Icon(Icons.gpp_maybe_rounded,
-                    color: Colors.white, size: 26),
-              ),
+              BankLogo(code: _bankCode, size: 58),
               const SizedBox(width: 14),
               Expanded(child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('QR ខាងក្រៅ',
+                Text(_recipientName,
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800,
                         color: context.ink)),
-                const SizedBox(height: 2),
-                Text('QR នេះមិនមកពី Aura Bank — ត្រូវការផ្ទៀងផ្ទាត់ OTP',
-                    style: TextStyle(fontSize: 12.5, color: context.muted)),
+                const SizedBox(height: 4),
+                Row(children: [
+                  Icon(Icons.account_balance_outlined,
+                      size: 14, color: context.muted),
+                  const SizedBox(width: 5),
+                  Flexible(child: Text(_bankName,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12.5, color: context.muted))),
+                ]),
               ])),
             ]),
             const SizedBox(height: 16),
             NeuBox(inset: true, padding: const EdgeInsets.all(14),
                 child: Column(children: [
-                  _summaryRow('ធនាគារ', _bankName),
-                  const SizedBox(height: 10),
                   _summaryRow('លេខគណនី', _acc.text.trim().isEmpty
                       ? 'មិនទាន់ដឹង' : _acc.text.trim()),
-                  if (_name.text.trim().isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    _summaryRow('ឈ្មោះ', _name.text.trim()),
-                  ],
                 ])),
             const SizedBox(height: 16),
-            if (bank.rails.isNotEmpty) ...[
-              Text('ធនាគារអ្នកទទួល',
-                  style: TextStyle(fontSize: 12.5, color: context.muted,
-                      fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: context.isDark
-                      ? Colors.black.withValues(alpha: 0.18) : context.bg,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: context.border, width: 1.2),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _safeBankCode,
-                    isExpanded: true,
-                    dropdownColor: context.card,
-                    icon: Icon(Icons.expand_more_rounded,
-                        color: context.muted),
-                    style: TextStyle(color: context.ink, fontSize: 14,
-                        fontWeight: FontWeight.w600),
-                    items: [
-                      for (final r in bank.rails)
-                        DropdownMenuItem(value: r.code, child: Text(r.name,
-                            maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) setState(() => _bankCode = v);
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
             if (_acc.text.trim().isEmpty) ...[
               NeuField(controller: _acc, label: 'លេខគណនីអ្នកទទួល',
                   icon: Icons.account_balance_wallet_outlined,
@@ -6025,7 +6055,7 @@ class _QrScreenState extends State<QrScreen> {
                   children: [
                     for (final l in const [
                       'eCASH', 'CASHin', 'PAY', 'KHQR', 'Wing',
-                      'ABA', 'DuitNow', 'VietQR', 'VISA', 'Mastercard',
+                      'ABA', 'DuitNow', 'VietQR',
                     ])
                       Padding(
                         padding: const EdgeInsets.only(right: 8),

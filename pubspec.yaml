@@ -76,6 +76,7 @@ flutter:
   assets:
     - assets/data/
     - assets/icon/
+    - assets/banks/
 
   fonts:
     - family: NotoSansKhmer
