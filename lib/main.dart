@@ -2656,12 +2656,8 @@ class HomeScreen extends StatelessWidget {
                         () => _payBill(context, 'វិក្កយបត្រ', Icons.receipt_long)),
                     AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
                         () => tabIndex.value = 1),
-                    AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន', () async {
-                      final raw = await push(
-                          context, const QrScreen(startScan: true));
-                      if (!context.mounted || raw is! String) return;
-                      await payScannedQr(context, raw);
-                    }),
+                    AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
+                        () => push(context, const QrScreen(startScan: true))),
                     AbaCell(Icons.savings_outlined, 'សន្សំ',
                         () => push(context, const SavingsScreen())),
                     AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
@@ -4801,31 +4797,27 @@ class _NotificationScreenState extends State<NotificationScreen> {
 // ============================================================================
 //  QrPayScreen — ទូទាត់តាម QR (full-screen, keypad)
 // ============================================================================
-class QrPayResult {
-  final double amount;
-  final int cardId;
-  final String account;
-  const QrPayResult({required this.amount, required this.cardId,
-      required this.account});
-}
-
 class QrPayScreen extends StatefulWidget {
-  final String name, account, masked;
-  final String? bankCode;
-  final double? initialAmount;
-  const QrPayScreen({super.key, required this.name, this.account = '',
-      this.masked = '', this.bankCode, this.initialAmount});
+  final String rawQr;
+  const QrPayScreen({super.key, required this.rawQr});
   @override
   State<QrPayScreen> createState() => _QrPayScreenState();
 }
 
 class _QrPayScreenState extends State<QrPayScreen>
     with SingleTickerProviderStateMixin {
-  late final TextEditingController _acc =
-      TextEditingController(text: widget.account);
-  late String _amt = widget.initialAmount == null
-      ? '' : widget.initialAmount!.toStringAsFixed(2);
+  final _acc = TextEditingController();
+  String _amt = '';
   bool _obscure = false;
+  bool _loading = true;
+  bool _submitting = false;
+  String? _loadError;
+
+  String _name = '';
+  String _bankName = '';
+  String? _bankCode;
+  String _recipientId = '';
+  bool _external = false;
 
   late final AnimationController _pulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1600))
@@ -4836,13 +4828,90 @@ class _QrPayScreenState extends State<QrPayScreen>
   double? get _value => parseAmt(_amt);
 
   @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
   void dispose() {
     _pulse.dispose();
     _acc.dispose();
     super.dispose();
   }
 
+  /// កាមេរ៉ាបិទរួច → ទំព័រនេះបង្ហាញ skeleton ខណៈទាញព័ត៌មានអ្នកទទួលពី server
+  Future<void> _load() async {
+    setState(() { _loading = true; _loadError = null; });
+    final raw = widget.rawQr;
+    final u = Uri.tryParse(raw);
+    final token = (u != null && u.scheme == 'aurabank' && u.host == 'pay')
+        ? u.queryParameters['token']
+        : null;
+    var name = '';
+    var account = '';
+    String? bankCode;
+    var bankName = '';
+    var recipientId = '';
+    var external = false;
+    double? preset;
+    try {
+      if (token != null && token.isNotEmpty) {
+        final r = await ApiService.resolveQr(token);
+        if (!mounted) return;
+        recipientId = (r['recipient_id'] ?? '').toString();
+        name = (r['name'] ?? 'អ្នកទទួល').toString();
+        account = (r['masked_account'] ?? '').toString();
+        preset = (r['amount'] as num?)?.toDouble();
+      } else {
+        final info = await ApiService.inspectExternalQr(raw);
+        if (!mounted) return;
+        external = true;
+        var code = (info['bank_code'] ?? 'OTHER').toString().toUpperCase();
+        await bank.ensureRails();
+        if (!mounted) return;
+        if (bank.rails.isNotEmpty && !bank.rails.any((r) => r.code == code)) {
+          code = bank.rails.first.code;
+        }
+        for (final r in bank.rails) {
+          if (r.code == code) bankName = r.name;
+        }
+        if (bankName.isEmpty) {
+          bankName = (info['bank_name'] ?? code).toString();
+        }
+        final n = (info['name'] ?? '').toString().trim();
+        bankCode = code;
+        name = n.isEmpty ? 'អ្នកទទួល' : n;
+        account = (info['account'] ?? '').toString();
+        preset = (info['amount'] as num?)?.toDouble();
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e.message; });
+      return;
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = 'មិនអាចភ្ជាប់ទៅ server បានទេ';
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _external = external;
+      _recipientId = recipientId;
+      _bankCode = bankCode;
+      _bankName = bankName;
+      _name = name;
+      _acc.text = account;
+      _amt = preset == null ? '' : preset.toStringAsFixed(2);
+      _loading = false;
+    });
+  }
+
   void _key(String k) {
+    if (_submitting) return;
     setState(() {
       if (k == '⌫') {
         if (_amt.isNotEmpty) _amt = _amt.substring(0, _amt.length - 1);
@@ -4862,7 +4931,8 @@ class _QrPayScreenState extends State<QrPayScreen>
     });
   }
 
-  void _pay() {
+  Future<void> _pay() async {
+    if (_submitting) return;
     final a = _value;
     if (a == null || a <= 0) {
       toast(context, 'សូមបញ្ចូលទឹកប្រាក់', error: true);
@@ -4877,14 +4947,112 @@ class _QrPayScreenState extends State<QrPayScreen>
       toast(context, 'គ្មានគណនីសម្រាប់ទូទាត់', error: true);
       return;
     }
-    Navigator.pop(context,
-        QrPayResult(amount: a, cardId: _cardId, account: acc));
+    if (_external) {
+      await _payExternal(a, acc);
+    } else {
+      await _payAura(a);
+    }
+  }
+
+  Future<void> _payAura(double amt) async {
+    final pin = await bank.pinForTransfer(context);
+    if (pin == null || !mounted) return;
+    setState(() => _submitting = true);
+    final cid = _cardId;
+    try {
+      await bank.transferP2P(
+          recipientId: _recipientId, amount: amt, cardId: cid, pin: pin,
+          idempotencyKey: ApiService.newIdempotencyKey());
+      if (!mounted) return;
+      final card = bank.cards.firstWhere((c) => c.id == cid,
+          orElse: () => bank.cards.first);
+      Navigator.of(context).pushReplacement(PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, __, ___) => ReceiptScreen(
+            title: 'ផ្ទេរទៅ $_name (QR)', amount: amt, card: card),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
+          error: true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      toast(context, 'Network error', error: true);
+    }
+  }
+
+  Future<void> _payExternal(double amt, String acc) async {
+    final idem = ApiService.newIdempotencyKey();
+    Future<Map<String, dynamic>> start() => ApiService.startExternalQr(
+          bankCode: _bankCode ?? 'OTHER',
+          account: acc,
+          name: _name,
+          amount: amt,
+          cardId: _cardId,
+          rawQr: widget.rawQr,
+        );
+
+    setState(() => _submitting = true);
+    Map<String, dynamic> first;
+    try {
+      first = await start();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      toast(context, e.message, error: true);
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      toast(context, 'Network error', error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context, isScrollControlled: true, showDragHandle: true,
+      backgroundColor: context.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => _OtpSheet(
+        initial: first,
+        bankCode: _bankCode ?? 'OTHER',
+        bankName: _bankName,
+        recipient: _name,
+        account: acc,
+        amount: amt,
+        resend: start,
+        confirm: (requestId, otp) => ApiService.confirmExternalQr(
+            requestId: requestId, otp: otp, idempotencyKey: idem),
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    await bank.loadAll();
+    if (!mounted) return;
+    final cid = _cardId;
+    final card = bank.cards.firstWhere((c) => c.id == cid,
+        orElse: () => bank.cards.first);
+    Navigator.of(context).pushReplacement(PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 350),
+      pageBuilder: (_, __, ___) => ReceiptScreen(
+          title: 'ផ្ទេរទៅ $_name ($_bankName)', amount: amt, card: card),
+      transitionsBuilder: (_, anim, __, child) =>
+          FadeTransition(opacity: anim, child: child),
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
     final card = bank.cards.isEmpty ? null : bank.cards.first;
     final value = _value;
+    final enabled = !_loading && _loadError == null && !_submitting &&
+        value != null && value > 0;
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
@@ -4910,39 +5078,88 @@ class _QrPayScreenState extends State<QrPayScreen>
       ),
       body: SafeArea(
         top: false,
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Column(children: [
-              _bankAvatar(context),
-              const SizedBox(height: 8),
-              Text(widget.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
-                      color: context.ink)),
-              const SizedBox(height: 3),
-              if (widget.account.isEmpty)
-                SizedBox(width: 230,
-                    child: NeuField(controller: _acc,
-                        label: 'លេខគណនីអ្នកទទួល',
-                        icon: Icons.account_balance_wallet_outlined,
-                        onChanged: (_) => setState(() {})))
-              else
-                Text(widget.masked.isNotEmpty ? widget.masked : widget.account,
-                    style: TextStyle(fontSize: 12.5, letterSpacing: 0.4,
-                        color: context.muted)),
-              const SizedBox(height: 10),
-              _payFrom(context, card),
-            ]),
-          ),
-          const SizedBox(height: 10),
-          _amountBox(context, value),
-          const SizedBox(height: 8),
-          Expanded(child: _keypad(context)),
-          _payButton(context, value),
-        ]),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 320),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: _loading
+              ? const _QrPaySkeleton(key: ValueKey('skeleton'))
+              : (_loadError != null
+                  ? _errorView(context)
+                  : _content(context, card, value, enabled)),
+        ),
       ),
     );
   }
+
+  Widget _content(BuildContext context, BankCard? card, double? value,
+      bool enabled) => Column(key: const ValueKey('content'), children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+          child: Column(children: [
+            _bankAvatar(context),
+            const SizedBox(height: 8),
+            Text(_name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
+                    color: context.ink)),
+            const SizedBox(height: 3),
+            if (_acc.text.isEmpty)
+              SizedBox(width: 230,
+                  child: NeuField(controller: _acc,
+                      label: 'លេខគណនីអ្នកទទួល',
+                      icon: Icons.account_balance_wallet_outlined,
+                      onChanged: (_) => setState(() {})))
+            else
+              Text(_external ? _acc.text : _masked(_acc.text),
+                  style: TextStyle(fontSize: 12.5, letterSpacing: 0.4,
+                      color: context.muted)),
+            const SizedBox(height: 10),
+            _payFrom(context, card),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        _amountBox(context, value),
+        const SizedBox(height: 8),
+        Expanded(child: _keypad(context)),
+        _payButton(context, enabled, value),
+      ]);
+
+  String _masked(String acc) {
+    if (acc.length <= 4) return acc;
+    return '${'•' * (acc.length - 4)}${acc.substring(acc.length - 4)}';
+  }
+
+  Widget _errorView(BuildContext context) => Center(
+        key: const ValueKey('error'),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 74, height: 74,
+                decoration: BoxDecoration(
+                  color: C.accentRed.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.qr_code_2_rounded,
+                    color: C.accentRed, size: 34)),
+            const SizedBox(height: 16),
+            Text('មិនអាចទាញព័ត៌មាន QR',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800,
+                    color: context.ink)),
+            const SizedBox(height: 6),
+            Text(_loadError ?? '', textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12.5, height: 1.5,
+                    color: context.muted)),
+            const SizedBox(height: 22),
+            NeuButton(label: 'ព្យាយាមម្ដងទៀត', icon: Icons.refresh_rounded,
+                onPressed: _load),
+            const SizedBox(height: 6),
+            TextButton(onPressed: () => Navigator.pop(context),
+                child: Text('បិទ',
+                    style: TextStyle(fontWeight: FontWeight.w700,
+                        color: context.muted))),
+          ]),
+        ),
+      );
 
   Widget _bankAvatar(BuildContext context) => Container(
         width: 68, height: 68,
@@ -4956,14 +5173,14 @@ class _QrPayScreenState extends State<QrPayScreen>
               blurRadius: 20, offset: const Offset(0, 7))],
         ),
         child: ClipOval(
-          child: widget.bankCode == null
+          child: _bankCode == null
               ? Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(colors: [C.accent, C.bgDark],
                         begin: Alignment.topLeft, end: Alignment.bottomRight)),
                   child: const Icon(Icons.account_balance_rounded,
                       color: Colors.white, size: 28))
-              : BankLogo(code: widget.bankCode!, size: 56),
+              : BankLogo(code: _bankCode!, size: 56),
         ),
       );
 
@@ -5092,8 +5309,7 @@ class _QrPayScreenState extends State<QrPayScreen>
         ),
       );
 
-  Widget _payButton(BuildContext context, double? value) {
-    final enabled = value != null && value > 0;
+  Widget _payButton(BuildContext context, bool enabled, double? value) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
       child: AnimatedBuilder(
@@ -5125,10 +5341,14 @@ class _QrPayScreenState extends State<QrPayScreen>
               child: InkWell(
                 borderRadius: BorderRadius.circular(18),
                 onTap: enabled ? _pay : null,
-                child: const Center(
-                  child: Text('ទូទាត់ឥឡូវ',
-                      style: TextStyle(fontSize: 15.5,
-                          fontWeight: FontWeight.w800, color: Colors.white)),
+                child: Center(
+                  child: _submitting
+                      ? const SizedBox(width: 22, height: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2.4, color: Colors.white))
+                      : const Text('ទូទាត់ឥឡូវ',
+                          style: TextStyle(fontSize: 15.5,
+                              fontWeight: FontWeight.w800, color: Colors.white)),
                 ),
               ),
             ),
@@ -5137,6 +5357,111 @@ class _QrPayScreenState extends State<QrPayScreen>
       ),
     );
   }
+}
+
+// ============================================================================
+//  SKELETON  —  shimmer ខណៈទាញព័ត៌មាន QR
+// ============================================================================
+class _QrPaySkeleton extends StatefulWidget {
+  const _QrPaySkeleton({super.key});
+  @override
+  State<_QrPaySkeleton> createState() => _QrPaySkeletonState();
+}
+
+class _QrPaySkeletonState extends State<_QrPaySkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = context.isDark
+        ? const Color(0xFF0B2A42) : const Color(0xFFE4E9F0);
+    final hi = context.isDark
+        ? const Color(0xFF16435F) : const Color(0xFFF7F9FC);
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) => ShaderMask(
+        blendMode: BlendMode.srcATop,
+        shaderCallback: (bounds) => LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [base, hi, base],
+          stops: const [0.15, 0.5, 0.85],
+          transform: _SkeletonSlide(_c.value),
+        ).createShader(bounds),
+        child: child,
+      ),
+      child: _layout(context, base),
+    );
+  }
+
+  Widget _layout(BuildContext context, Color base) {
+    Widget box(double? w, double h, {double r = 10}) => Container(
+          width: w, height: h,
+          decoration: BoxDecoration(
+              color: base, borderRadius: BorderRadius.circular(r)),
+        );
+
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+        child: Column(children: [
+          Container(width: 68, height: 68,
+              decoration: BoxDecoration(color: base, shape: BoxShape.circle)),
+          const SizedBox(height: 12),
+          box(150, 18, r: 9),
+          const SizedBox(height: 8),
+          box(110, 12, r: 6),
+          const SizedBox(height: 14),
+          box(double.infinity, 52, r: 14),
+        ]),
+      ),
+      const SizedBox(height: 12),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: box(double.infinity, 86, r: 20),
+      ),
+      const SizedBox(height: 10),
+      Expanded(child: Padding(
+        padding: const EdgeInsets.fromLTRB(15, 0, 15, 6),
+        child: Column(children: [
+          for (var r = 0; r < 4; r++) ...[
+            Expanded(child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var c = 0; c < 3; c++) ...[
+                  if (c > 0) const SizedBox(width: 12),
+                  Expanded(child: box(double.infinity, double.infinity, r: 14)),
+                ],
+              ],
+            )),
+            if (r < 3) const SizedBox(height: 8),
+          ],
+        ]),
+      )),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+        child: box(double.infinity, 56, r: 18),
+      ),
+    ]);
+  }
+}
+
+class _SkeletonSlide extends GradientTransform {
+  final double t;
+  const _SkeletonSlide(this.t);
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) =>
+      Matrix4.translationValues(bounds.width * (t * 2.4 - 1.2), 0, 0);
 }
 
 // ============================================================================
@@ -5209,15 +5534,6 @@ class BankLogo extends StatelessWidget {
             ),
     );
   }
-}
-
-class _ExtQrIntent {
-  final String bankCode, bankName, account, name;
-  final double amount;
-  final int cardId;
-  const _ExtQrIntent({required this.bankCode, required this.bankName,
-      required this.account, required this.name, required this.amount,
-      required this.cardId});
 }
 
 class _OtpSheet extends StatefulWidget {
@@ -5524,177 +5840,6 @@ class _OtpSheetState extends State<_OtpSheet>
       );
 }
 
-// ============================================================================
-//  QR FLOW  —  ស្កេនរួច → ទំព័រទូទាត់ → OTP (ខាងក្រៅ) → receipt
-//  ទំព័រស្កេនត្រូវបានបិទមុនពេលចូល flow នេះ
-// ============================================================================
-Future<void> payScannedQr(BuildContext context, String raw) async {
-  final u = Uri.tryParse(raw);
-  final token = (u != null && u.scheme == 'aurabank' && u.host == 'pay')
-      ? u.queryParameters['token']
-      : null;
-  if (token == null || token.isEmpty) {
-    await _payExternalQr(context, raw);
-    return;
-  }
-  Map<String, dynamic> r;
-  try {
-    r = await ApiService.resolveQr(token);
-  } on ApiException catch (e) {
-    if (context.mounted) toast(context, e.message, error: true);
-    return;
-  } catch (_) {
-    if (context.mounted) toast(context, 'Network error', error: true);
-    return;
-  }
-  if (!context.mounted) return;
-  await _payAuraQr(context, r);
-}
-
-Future<void> _payAuraQr(BuildContext context, Map<String, dynamic> recipient) async {
-  if (bank.cards.isEmpty) {
-    toast(context, 'គ្មានកាត', error: true);
-    return;
-  }
-  final name = (recipient['name'] ?? 'អ្នកទទួល').toString();
-  final masked = (recipient['masked_account'] ?? '').toString();
-  final preAmt = (recipient['amount'] as num?)?.toDouble();
-  final res = await Navigator.of(context).push<QrPayResult>(
-    MaterialPageRoute(builder: (_) => QrPayScreen(
-        name: name, account: masked, masked: masked,
-        initialAmount: preAmt)),
-  );
-  if (!context.mounted || res == null) return;
-
-  final amt = res.amount;
-  final cid = res.cardId;
-  final pin = await bank.pinForTransfer(context);
-  if (pin == null || !context.mounted) return;
-  try {
-    await bank.transferP2P(
-        recipientId: recipient['recipient_id'].toString(),
-        amount: amt, cardId: cid, pin: pin,
-        idempotencyKey: ApiService.newIdempotencyKey());
-    if (!context.mounted) return;
-    final card = bank.cards.firstWhere((c) => c.id == cid,
-        orElse: () => bank.cards.first);
-    await Navigator.of(context).push(PageRouteBuilder(
-      transitionDuration: const Duration(milliseconds: 350),
-      pageBuilder: (_, __, ___) => ReceiptScreen(
-          title: 'ផ្ទេរទៅ $name (QR)', amount: amt, card: card),
-      transitionsBuilder: (_, anim, __, child) =>
-          FadeTransition(opacity: anim, child: child),
-    ));
-  } on ApiException catch (e) {
-    if (context.mounted) {
-      toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
-          error: true);
-    }
-  } catch (_) {
-    if (context.mounted) toast(context, 'Network error', error: true);
-  }
-}
-
-Future<void> _payExternalQr(BuildContext context, String raw) async {
-  Map<String, dynamic> info;
-  try {
-    info = await ApiService.inspectExternalQr(raw);
-  } on ApiException catch (e) {
-    if (context.mounted) toast(context, e.message, error: true);
-    return;
-  } catch (_) {
-    if (context.mounted) toast(context, 'Network error', error: true);
-    return;
-  }
-  if (!context.mounted) return;
-  if (bank.cards.isEmpty) {
-    toast(context, 'គ្មានកាតសម្រាប់ផ្ទេរ', error: true);
-    return;
-  }
-  await bank.ensureRails();
-  if (!context.mounted) return;
-
-  var code = (info['bank_code'] ?? 'OTHER').toString().toUpperCase();
-  if (bank.rails.isNotEmpty && !bank.rails.any((r) => r.code == code)) {
-    code = bank.rails.first.code;
-  }
-  var bankName = '';
-  for (final r in bank.rails) {
-    if (r.code == code) bankName = r.name;
-  }
-  if (bankName.isEmpty) {
-    bankName = (info['bank_name'] ?? code).toString();
-  }
-  final name = (info['name'] ?? '').toString().trim();
-  final res = await Navigator.of(context).push<QrPayResult>(
-    MaterialPageRoute(builder: (_) => QrPayScreen(
-        name: name.isEmpty ? 'អ្នកទទួល' : name,
-        account: (info['account'] ?? '').toString(),
-        bankCode: code,
-        initialAmount: (info['amount'] as num?)?.toDouble())),
-  );
-  if (!context.mounted || res == null) return;
-
-  final intent = _ExtQrIntent(
-      bankCode: code, bankName: bankName, account: res.account,
-      name: name.isEmpty ? 'អ្នកទទួល' : name, amount: res.amount,
-      cardId: res.cardId);
-  final idem = ApiService.newIdempotencyKey();
-
-  Future<Map<String, dynamic>> start() => ApiService.startExternalQr(
-        bankCode: intent.bankCode,
-        account: intent.account,
-        name: intent.name,
-        amount: intent.amount,
-        cardId: intent.cardId,
-        rawQr: raw,
-      );
-
-  Map<String, dynamic> first;
-  try {
-    first = await start();
-  } on ApiException catch (e) {
-    if (context.mounted) toast(context, e.message, error: true);
-    return;
-  } catch (_) {
-    if (context.mounted) toast(context, 'Network error', error: true);
-    return;
-  }
-  if (!context.mounted) return;
-
-  final result = await showModalBottomSheet<Map<String, dynamic>>(
-    context: context, isScrollControlled: true, showDragHandle: true,
-    backgroundColor: context.card,
-    shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-    builder: (_) => _OtpSheet(
-      initial: first,
-      bankCode: intent.bankCode,
-      bankName: intent.bankName,
-      recipient: intent.name,
-      account: intent.account,
-      amount: intent.amount,
-      resend: start,
-      confirm: (requestId, otp) => ApiService.confirmExternalQr(
-          requestId: requestId, otp: otp, idempotencyKey: idem),
-    ),
-  );
-  if (result == null || !context.mounted) return;
-
-  await bank.loadAll();
-  if (!context.mounted) return;
-  final card = bank.cards.firstWhere((c) => c.id == intent.cardId,
-      orElse: () => bank.cards.first);
-  await Navigator.of(context).push(PageRouteBuilder(
-    transitionDuration: const Duration(milliseconds: 350),
-    pageBuilder: (_, __, ___) => ReceiptScreen(
-        title: 'ផ្ទេរទៅ ${intent.name} (${intent.bankName})',
-        amount: intent.amount, card: card),
-    transitionsBuilder: (_, anim, __, child) =>
-        FadeTransition(opacity: anim, child: child),
-  ));
-}
-
 class QrScreen extends StatefulWidget {
   final bool startScan;
   const QrScreen({super.key, this.startScan = false});
@@ -5834,18 +5979,23 @@ class _QrScreenState extends State<QrScreen> {
     final raw = cap.barcodes.first.rawValue;
     if (raw == null) return;
     _busy = true;
-    // ស្កេនបាន = បិទកាមេរ៉ា និងចាកចេញពីទំព័រស្កេនភ្លាម
+    // ស្កេនបាន = បិទកាមេរ៉ា និងបិទទំព័រស្កេនភ្លាម → ទំព័រទូទាត់ (skeleton) ជំនួស
     _stopCamera();
+    final route = PageRouteBuilder<Object?>(
+      transitionDuration: const Duration(milliseconds: 300),
+      reverseTransitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (_, __, ___) => QrPayScreen(rawQr: raw),
+      transitionsBuilder: (_, anim, __, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+        child: child),
+    );
     if (widget.startScan) {
-      Navigator.of(context).pop(raw);
+      Navigator.of(context).pushReplacement(route);
       return;
     }
     _setScan(false);
-    try {
-      await payScannedQr(context, raw);
-    } finally {
-      _busy = false;
-    }
+    await Navigator.of(context).push(route);
+    if (mounted) _busy = false;
   }
 
   // ── build ──────────────────────────────────────────────────────────────────
