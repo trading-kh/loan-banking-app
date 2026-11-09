@@ -5218,18 +5218,19 @@ class _ExtQrIntent {
 
 class _OtpSheet extends StatefulWidget {
   final Map<String, dynamic> initial;
-  final String bankName, recipient, account;
+  final String bankCode, bankName, recipient, account;
   final double amount;
   final Future<Map<String, dynamic>> Function() resend;
   final Future<Map<String, dynamic>> Function(int requestId, String otp) confirm;
-  const _OtpSheet({required this.initial, required this.bankName,
-      required this.recipient, required this.account, required this.amount,
-      required this.resend, required this.confirm});
+  const _OtpSheet({required this.initial, required this.bankCode,
+      required this.bankName, required this.recipient, required this.account,
+      required this.amount, required this.resend, required this.confirm});
   @override
   State<_OtpSheet> createState() => _OtpSheetState();
 }
 
-class _OtpSheetState extends State<_OtpSheet> {
+class _OtpSheetState extends State<_OtpSheet>
+    with SingleTickerProviderStateMixin {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
   late int _requestId;
@@ -5240,6 +5241,10 @@ class _OtpSheetState extends State<_OtpSheet> {
   bool _busy = false, _resending = false;
   String? _error;
   String _code = '';
+
+  late final AnimationController _blink = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 900))
+    ..repeat(reverse: true);
 
   @override
   void initState() {
@@ -5270,6 +5275,7 @@ class _OtpSheetState extends State<_OtpSheet> {
   @override
   void dispose() {
     _timer?.cancel();
+    _blink.dispose();
     _ctrl.dispose();
     _focus.dispose();
     super.dispose();
@@ -5323,128 +5329,127 @@ class _OtpSheetState extends State<_OtpSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(20, 0, 20,
-            MediaQuery.of(context).viewInsets.bottom + 20),
-        child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Center(child: Container(
-              width: 60, height: 60,
-              decoration: BoxDecoration(
-                gradient: AuraGrad.button,
-                shape: BoxShape.circle,
-                boxShadow: [BoxShadow(
-                    color: C.accent.withValues(alpha: 0.35),
-                    blurRadius: 22, offset: const Offset(0, 8))],
-              ),
-              child: const Icon(Icons.shield_moon_rounded,
-                  color: Colors.white, size: 28),
-            )),
-            const SizedBox(height: 14),
-            Center(child: Text('ការផ្ទេរប្រាក់ត្រូវបានការពារ',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800,
-                    color: context.ink))),
-            const SizedBox(height: 6),
-            Center(child: Text(
-                'គណនីខាងក្រៅ Aura Bank · ត្រូវការលេខកូដ OTP',
-                style: TextStyle(fontSize: 12.5, color: context.muted))),
-            const SizedBox(height: 16),
-            NeuBox(inset: true, padding: const EdgeInsets.all(14),
-                child: Column(children: [
-                  Row(children: [
-                    Expanded(child: Text(widget.recipient,
-                        style: TextStyle(fontSize: 15,
-                            fontWeight: FontWeight.w800, color: context.ink),
-                        maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    Text(money(widget.amount),
-                        style: const TextStyle(fontSize: 17,
-                            fontWeight: FontWeight.w800, color: C.accent)),
-                  ]),
-                  const SizedBox(height: 6),
-                  Row(children: [
-                    Expanded(child: Text(
-                        '${widget.bankName} · ${widget.account}',
-                        style: TextStyle(fontSize: 12, color: context.muted),
-                        maxLines: 1, overflow: TextOverflow.ellipsis)),
-                  ]),
+  Widget build(BuildContext context) {
+    final active = _code.length < 6;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 0, 20,
+          MediaQuery.of(context).viewInsets.bottom + 20),
+      child: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [
+                C.accent.withValues(alpha: 0.16),
+                C.accentGold.withValues(alpha: 0.08),
+              ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                  color: C.accent.withValues(alpha: 0.28), width: 1.2),
+            ),
+            child: Column(children: [
+              Row(children: [
+                BankLogo(code: widget.bankCode, size: 44),
+                const SizedBox(width: 12),
+                Expanded(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min, children: [
+                  Text(widget.recipient, maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 15,
+                          fontWeight: FontWeight.w800, color: context.ink)),
+                  const SizedBox(height: 2),
+                  Text('${widget.bankName} · ${widget.account}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11.5, color: context.muted)),
                 ])),
-            const SizedBox(height: 18),
-            Text('បញ្ចូលលេខកូដ OTP ៦ ខ្ទង់',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
-                    color: context.ink)),
-            const SizedBox(height: 4),
-            Text('បានផ្ញើទៅ ${_hint.isEmpty ? 'ទូរស័ព្ទរបស់អ្នក' : _hint} · '
-                'ក្នុងការជូនដំណឹង Aura Bank',
-                style: TextStyle(fontSize: 12, color: context.muted)),
-            const SizedBox(height: 14),
-            _otpBoxes(context),
-            const SizedBox(height: 12),
-            Row(children: [
+              ]),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Container(height: 1,
+                    color: context.border.withValues(alpha: 0.6)),
+              ),
+              Row(children: [
+                Text('ទឹកប្រាក់ត្រូវទូទាត់',
+                    style: TextStyle(fontSize: 11.5, color: context.muted)),
+                const Spacer(),
+                Text(money(widget.amount),
+                    style: const TextStyle(fontSize: 20,
+                        fontWeight: FontWeight.w900, color: C.accent)),
+              ]),
+            ]),
+          ),
+          const SizedBox(height: 18),
+          Text('បញ្ចូលលេខកូដ OTP',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800,
+                  color: context.ink)),
+          const SizedBox(height: 4),
+          Text('បានផ្ញើទៅ ${_hint.isEmpty ? 'ទូរស័ព្ទរបស់អ្នក' : _hint}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: context.muted)),
+          const SizedBox(height: 16),
+          _otpBoxes(context, active),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 7, 10, 7),
+            decoration: BoxDecoration(
+              color: context.bg,
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: context.border),
+            ),
+            child: Row(children: [
               Icon(Icons.timer_outlined, size: 16,
                   color: _left <= 60 ? C.accentRed : context.muted),
               const SizedBox(width: 6),
-              Text(_left > 0 ? 'ផុតកំណត់ក្នុង $_mmss' : 'OTP ផុតកំណត់',
-                  style: TextStyle(fontSize: 12,
-                      fontWeight: FontWeight.w600,
+              Text(_left > 0 ? 'ផុតកំណត់ $_mmss' : 'OTP ផុតកំណត់',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
                       color: _left <= 60 ? C.accentRed : context.muted)),
               const Spacer(),
-              TextButton(
-                onPressed: (_resendIn > 0 || _resending) ? null : _resend,
-                style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 32)),
-                child: Text(_resending ? 'កំពុងផ្ញើ…'
-                    : (_resendIn > 0 ? 'ផ្ញើឡើងវិញ (${_resendIn}s)'
-                        : 'ផ្ញើឡើងវិញ'),
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
-                        color: _resendIn > 0 ? context.muted : C.accent)),
+              InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: (_resendIn > 0 || _resending) ? null : _resend,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _resendIn > 0
+                        ? Colors.transparent
+                        : C.accent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(_resending ? 'កំពុងផ្ញើ…'
+                      : (_resendIn > 0 ? 'ផ្ញើឡើងវិញ ${_resendIn}s'
+                          : 'ផ្ញើឡើងវិញ'),
+                      style: TextStyle(fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          color: _resendIn > 0 ? context.muted : C.accent)),
+                ),
               ),
             ]),
-            InkWell(
-              onTap: () => showModalBottomSheet(
-                context: context, isScrollControlled: true, showDragHandle: true,
-                backgroundColor: context.card,
-                shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-                builder: (_) => const _OtpHelpSheet(),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.help_outline_rounded,
-                      color: C.accentTeal, size: 16),
-                  const SizedBox(width: 6),
-                  Text('(របៀបយកលេខកូដ OTP)',
-                      style: TextStyle(fontSize: 12.5, color: C.accentTeal,
-                          fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
-                          decorationColor: C.accentTeal)),
-                ]),
-              ),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 6),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Icon(Icons.error_outline_rounded,
-                    color: C.accentRed, size: 17),
-                const SizedBox(width: 6),
-                Expanded(child: Text(_error!,
-                    style: const TextStyle(fontSize: 12.5,
-                        color: C.accentRed, height: 1.4))),
-              ]),
-            ],
-            const SizedBox(height: 14),
-            NeuButton(
-                label: _busy ? 'កំពុងផ្ទៀងផ្ទាត់…' : 'ផ្ទៀងផ្ទាត់ និងផ្ទេរប្រាក់',
-                icon: Icons.check_circle_outline_rounded,
-                accent: C.accentGreen,
-                onPressed: (_busy || _code.length != 6) ? null : _submit),
-          ]),
-        ),
-      );
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.error_outline_rounded,
+                  color: C.accentRed, size: 17),
+              const SizedBox(width: 6),
+              Expanded(child: Text(_error!,
+                  style: const TextStyle(fontSize: 12.5,
+                      color: C.accentRed, height: 1.4))),
+            ]),
+          ],
+          const SizedBox(height: 16),
+          NeuButton(
+              label: _busy ? 'កំពុងផ្ទៀងផ្ទាត់…' : 'ផ្ទៀងផ្ទាត់ និងទូទាត់',
+              icon: Icons.verified_rounded,
+              accent: C.accentGreen,
+              onPressed: (_busy || _code.length != 6) ? null : _submit),
+        ]),
+      ),
+    );
+  }
 
-  Widget _otpBoxes(BuildContext context) => GestureDetector(
+  Widget _otpBoxes(BuildContext context, bool active) => GestureDetector(
         onTap: () => _focus.requestFocus(),
         child: Stack(children: [
           Row(children: [
@@ -5455,23 +5460,39 @@ class _OtpSheetState extends State<_OtpSheet> {
                 height: 58,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: context.isDark
-                      ? Colors.black.withValues(alpha: 0.22) : context.bg,
-                  borderRadius: BorderRadius.circular(14),
+                  gradient: i < _code.length
+                      ? LinearGradient(colors: [
+                          C.accent.withValues(alpha: 0.18),
+                          C.accent.withValues(alpha: 0.05),
+                        ], begin: Alignment.topLeft, end: Alignment.bottomRight)
+                      : null,
+                  color: i < _code.length
+                      ? null
+                      : (context.isDark
+                          ? Colors.black.withValues(alpha: 0.22) : context.bg),
+                  borderRadius: BorderRadius.circular(15),
                   border: Border.all(
-                      color: i == _code.length
+                      color: i == _code.length && active
                           ? C.accent
                           : (i < _code.length
                               ? C.accent.withValues(alpha: 0.55)
                               : context.border),
-                      width: i == _code.length ? 1.8 : 1.2),
-                  boxShadow: i == _code.length ? [BoxShadow(
+                      width: i == _code.length && active ? 1.8 : 1.2),
+                  boxShadow: i == _code.length && active ? [BoxShadow(
                       color: C.accent.withValues(alpha: 0.22),
-                      blurRadius: 12)] : null,
+                      blurRadius: 14)] : null,
                 ),
-                child: Text(i < _code.length ? _code[i] : '',
-                    style: TextStyle(fontSize: 24,
-                        fontWeight: FontWeight.w800, color: context.ink)),
+                child: i < _code.length
+                    ? Text(_code[i], style: TextStyle(fontSize: 24,
+                        fontWeight: FontWeight.w800, color: context.ink))
+                    : (i == _code.length && active
+                        ? FadeTransition(
+                            opacity: _blink,
+                            child: Container(width: 2, height: 24,
+                                decoration: BoxDecoration(
+                                    color: C.accent,
+                                    borderRadius: BorderRadius.circular(1))))
+                        : const SizedBox.shrink()),
               )),
             ],
           ]),
@@ -5496,136 +5517,6 @@ class _OtpSheetState extends State<_OtpSheet> {
             ),
           )),
         ]),
-      );
-}
-
-class _OtpHelpSheet extends StatefulWidget {
-  const _OtpHelpSheet();
-  @override
-  State<_OtpHelpSheet> createState() => _OtpHelpSheetState();
-}
-
-class _OtpHelpSheetState extends State<_OtpHelpSheet> {
-  bool _loading = false;
-  String? _latest;
-
-  Future<void> _loadLatest() async {
-    setState(() => _loading = true);
-    try {
-      final list = await ApiService.getNotifications();
-      String? body;
-      for (final e in list) {
-        if (e is Map && (e['title'] ?? '').toString().contains('OTP')) {
-          body = (e['body'] ?? '').toString();
-          break;
-        }
-      }
-      if (!mounted) return;
-      setState(() => _latest = body ?? 'មិនទាន់មានសារ OTP ទេ');
-    } catch (_) {
-      if (mounted) {
-        setState(() => _latest =
-            'មិនអាចទាញយកបាន — សូមបើក Notification Bar ឬសារ "ជូនដំណឹង"');
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(20, 0, 20,
-            MediaQuery.of(context).viewInsets.bottom + 24),
-        child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Container(width: 48, height: 48,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(colors: [
-                      C.accentTeal.withValues(alpha: 0.9),
-                      C.accent.withValues(alpha: 0.9),
-                    ]),
-                  ),
-                  child: const Icon(Icons.help_outline_rounded,
-                      color: Colors.white, size: 24)),
-              const SizedBox(width: 12),
-              Expanded(child: Text('របៀបយកលេខកូដ OTP',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
-                      color: context.ink))),
-            ]),
-            const SizedBox(height: 16),
-            _helpStep(context, 1, Icons.notifications_active_outlined,
-                'OTP ត្រូវបានផ្ញើជា Notification ពី Aura Bank',
-                'វានឹងបង្ហាញនៅលើ Notification Bar និង Lock Screen នៃទូរស័ព្ទរបស់អ្នក។'),
-            const SizedBox(height: 12),
-            _helpStep(context, 2, Icons.inbox_outlined,
-                'បើមិនឃើញ សូមពិនិត្យសារ "ជូនដំណឹង" ក្នុង App',
-                'សារពី Aura Bank · OTP មានផ្ទុកលេខកូដ ៦ ខ្ទង់។'),
-            const SizedBox(height: 12),
-            _helpStep(context, 3, Icons.timer_outlined,
-                'OTP មានអាយុ ៥ នាទី និងប្រើបានតែម្តង',
-                'បើផុតកំណត់ សូមចុច "ផ្ញើឡើងវិញ" ដើម្បីទទួលលេខកូដថ្មី។'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: C.accentRed.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: C.accentRed.withValues(alpha: 0.3)),
-              ),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.warning_amber_rounded,
-                        color: C.accentRed, size: 19),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(
-                        'កុំចែករំលែកលេខកូដ OTP ទៅអ្នកណាម្នាក់ សូម្បីតែបុគ្គលិកធនាគារ',
-                        style: TextStyle(fontSize: 12.5, height: 1.5,
-                            color: context.ink))),
-                  ]),
-            ),
-            const SizedBox(height: 16),
-            NeuButton(
-                label: 'ពិនិត្យសារ OTP ចុងក្រោយ',
-                icon: Icons.search_rounded,
-                accent: C.accentTeal,
-                onPressed: _loading ? null : _loadLatest),
-            if (_loading) ...[
-              const SizedBox(height: 14),
-              const LinearProgressIndicator(minHeight: 3),
-            ],
-            if (_latest != null) ...[
-              const SizedBox(height: 14),
-              NeuBox(inset: true, padding: const EdgeInsets.all(14),
-                  child: Text(_latest!, style: TextStyle(fontSize: 13,
-                      height: 1.55, color: context.ink))),
-            ],
-          ]),
-        ),
-      );
-
-  Widget _helpStep(BuildContext context, int n, IconData icon,
-      String title, String body) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(width: 34, height: 34,
-              decoration: BoxDecoration(
-                color: C.accent.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: C.accent, size: 18)),
-          const SizedBox(width: 12),
-          Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('$n. $title', style: TextStyle(fontSize: 13.5,
-                fontWeight: FontWeight.w700, color: context.ink)),
-            const SizedBox(height: 2),
-            Text(body, style: TextStyle(fontSize: 12.5,
-                height: 1.5, color: context.muted)),
-          ])),
-        ],
       );
 }
 
@@ -5731,12 +5622,17 @@ class _QrScreenState extends State<QrScreen> {
     }
   }
 
-  void _restartCamera() {
-    if (!mounted || !_scan) return;
+  void _stopCamera() {
+    if (!mounted || _ctrl == null) return;
     final old = _ctrl;
+    setState(() { _ctrl = null; _torchOn = false; });
+    WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+  }
+
+  void _startCamera() {
+    if (!mounted || !_scan || _ctrl != null) return;
     setState(() => _ctrl = MobileScannerController(
         detectionSpeed: DetectionSpeed.noDuplicates));
-    old?.dispose();
   }
 
   /// បិទ: បើចូលមកជា full-screen route → pop; បើចូលពី tab ទទួលប្រាក់ → ត្រឡប់ទៅ tab នោះ
@@ -5769,6 +5665,8 @@ class _QrScreenState extends State<QrScreen> {
     final raw = cap.barcodes.first.rawValue;
     if (raw == null) return;
     _busy = true;
+    // ស្កេនបាន = បិទកាមេរ៉ាភ្លាម មុនបន្តទៅទំព័រទូទាត់/OTP
+    _stopCamera();
     final u = Uri.tryParse(raw);
     final token = (u != null && u.scheme == 'aurabank' && u.host == 'pay')
         ? u.queryParameters['token']
@@ -5788,9 +5686,15 @@ class _QrScreenState extends State<QrScreen> {
       if (!mounted) return;
       await _confirmSend(r);
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) {
+        toast(context, e.message, error: true);
+        _startCamera();
+      }
     } catch (_) {
-      if (mounted) toast(context, 'Network error', error: true);
+      if (mounted) {
+        toast(context, 'Network error', error: true);
+        _startCamera();
+      }
     } finally {
       _busy = false;
     }
@@ -5799,6 +5703,7 @@ class _QrScreenState extends State<QrScreen> {
   Future<void> _confirmSend(Map<String, dynamic> recipient) async {
     if (bank.cards.isEmpty) {
       toast(context, 'គ្មានកាត', error: true);
+      _startCamera();
       return;
     }
     final name = (recipient['name'] ?? 'អ្នកទទួល').toString();
@@ -5811,14 +5716,17 @@ class _QrScreenState extends State<QrScreen> {
     );
     if (!mounted) return;
     if (res == null) {
-      _restartCamera();
+      _startCamera();
       return;
     }
 
     final amt = res.amount;
     final cid = res.cardId;
     final pin = await bank.pinForTransfer(context);
-    if (pin == null || !mounted) return;
+    if (pin == null || !mounted) {
+      _startCamera();
+      return;
+    }
     try {
       await bank.transferP2P(
           recipientId: recipient['recipient_id'].toString(),
@@ -5827,38 +5735,50 @@ class _QrScreenState extends State<QrScreen> {
       if (!mounted) return;
       final card = bank.cards.firstWhere((c) => c.id == cid,
           orElse: () => bank.cards.first);
-      Navigator.of(context).push(PageRouteBuilder(
+      await Navigator.of(context).push(PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (_, __, ___) => ReceiptScreen(
             title: 'ផ្ទេរទៅ $name (QR)', amount: amt, card: card),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ));
+      _startCamera();
     } on ApiException catch (e) {
       if (mounted) {
         toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
             error: true);
+        _startCamera();
       }
     } catch (_) {
-      if (mounted) toast(context, 'Network error', error: true);
+      if (mounted) {
+        toast(context, 'Network error', error: true);
+        _startCamera();
+      }
     }
   }
 
-  // ── QR ខាងក្រៅ (មិនមែន Aura Bank) → ព្រមាន + OTP ───────────────────────
+  // ── QR ខាងក្រៅ (មិនមែន Aura Bank) → ទំព័រទូទាត់ + OTP ──────────────────
   Future<void> _handleExternalQr(String raw) async {
     Map<String, dynamic> info;
     try {
       info = await ApiService.inspectExternalQr(raw);
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) {
+        toast(context, e.message, error: true);
+        _startCamera();
+      }
       return;
     } catch (_) {
-      if (mounted) toast(context, 'Network error', error: true);
+      if (mounted) {
+        toast(context, 'Network error', error: true);
+        _startCamera();
+      }
       return;
     }
     if (!mounted) return;
     if (bank.cards.isEmpty) {
       toast(context, 'គ្មានកាតសម្រាប់ផ្ទេរ', error: true);
+      _startCamera();
       return;
     }
     await bank.ensureRails();
@@ -5885,7 +5805,7 @@ class _QrScreenState extends State<QrScreen> {
     );
     if (!mounted) return;
     if (res == null) {
-      _restartCamera();
+      _startCamera();
       return;
     }
     final intent = _ExtQrIntent(
@@ -5911,10 +5831,16 @@ class _QrScreenState extends State<QrScreen> {
     try {
       first = await start();
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) {
+        toast(context, e.message, error: true);
+        _startCamera();
+      }
       return;
     } catch (_) {
-      if (mounted) toast(context, 'Network error', error: true);
+      if (mounted) {
+        toast(context, 'Network error', error: true);
+        _startCamera();
+      }
       return;
     }
     if (!mounted) return;
@@ -5926,6 +5852,7 @@ class _QrScreenState extends State<QrScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (_) => _OtpSheet(
         initial: first,
+        bankCode: intent.bankCode,
         bankName: intent.bankName,
         recipient: intent.name,
         account: intent.account,
@@ -5935,13 +5862,16 @@ class _QrScreenState extends State<QrScreen> {
             requestId: requestId, otp: otp, idempotencyKey: idem),
       ),
     );
-    if (result == null || !mounted) return;
+    if (result == null || !mounted) {
+      _startCamera();
+      return;
+    }
 
     await bank.loadAll();
     if (!mounted) return;
     final card = bank.cards.firstWhere((c) => c.id == intent.cardId,
         orElse: () => bank.cards.first);
-    Navigator.of(context).push(PageRouteBuilder(
+    await Navigator.of(context).push(PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 350),
       pageBuilder: (_, __, ___) => ReceiptScreen(
           title: 'ផ្ទេរទៅ ${intent.name} (${intent.bankName})',
@@ -5949,6 +5879,7 @@ class _QrScreenState extends State<QrScreen> {
       transitionsBuilder: (_, anim, __, child) =>
           FadeTransition(opacity: anim, child: child),
     ));
+    _startCamera();
   }
 
   // ── build ──────────────────────────────────────────────────────────────────
@@ -6079,7 +6010,9 @@ class _QrScreenState extends State<QrScreen> {
             return Stack(fit: StackFit.expand, children: [
               // ── កាមេរ៉ា ──
               if (_ctrl != null)
-                MobileScanner(controller: _ctrl!, onDetect: _onDetect),
+                MobileScanner(controller: _ctrl!, onDetect: _onDetect)
+              else
+                const _ScannerProcessingBackdrop(),
 
               // ── overlay ងងឹត + ជ្រុងស ──
               const Positioned.fill(
@@ -6089,12 +6022,13 @@ class _QrScreenState extends State<QrScreen> {
               ),
 
               // ── បន្ទាត់ស្កេនរត់ ──
-              Center(
-                child: SizedBox(
-                  width: side, height: side,
-                  child: const IgnorePointer(child: _ScanLine()),
+              if (_ctrl != null)
+                Center(
+                  child: SizedBox(
+                    width: side, height: side,
+                    child: const IgnorePointer(child: _ScanLine()),
+                  ),
                 ),
-              ),
 
               // ── Top bar: ABA · ខ្ញុំស្កេន · X ──
               Positioned(
@@ -6144,7 +6078,10 @@ class _QrScreenState extends State<QrScreen> {
               // ── ចំណុចកណ្ដាល៖ អនុសាសន៍ ──
               Align(
                 alignment: const Alignment(0, 0.78),
-                child: Text('តម្រង់កាមេរ៉ាទៅ QR របស់អ្នកទទួល',
+                child: Text(
+                    _ctrl == null
+                        ? 'កំពុងដំណើរការព័ត៌មាន QR…'
+                        : 'តម្រង់កាមេរ៉ាទៅ QR របស់អ្នកទទួល',
                     style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 12.5, fontWeight: FontWeight.w500)),
@@ -6333,6 +6270,28 @@ class QrScannerOverlayPainter extends CustomPainter {
 // ============================================================================
 //  SCAN LINE  —  បន្ទាត់ក្រហមរត់ឡើងចុះ
 // ============================================================================
+// ============================================================================
+//  SCANNER PROCESSING BACKDROP  —  កាមេរ៉ាបិទ ពេលកំពុងដំណើរការ QR
+// ============================================================================
+class _ScannerProcessingBackdrop extends StatelessWidget {
+  const _ScannerProcessingBackdrop();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF02243A), Color(0xFF033553), Color(0xFF02243A)],
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+          ),
+        ),
+        child: const Center(child: SizedBox(
+          width: 34, height: 34,
+          child: CircularProgressIndicator(
+              strokeWidth: 2.6, color: Colors.white),
+        )),
+      );
+}
+
 class _ScanLine extends StatefulWidget {
   const _ScanLine();
   @override
