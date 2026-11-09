@@ -5152,6 +5152,15 @@ const _qrBankSuffix = <String, String>{
   'wing': 'WING', 'wingb': 'WING',
   'juntuor': 'JUNTUOR', 'jtrust': 'JUNTUOR',
   'lyf': 'LYF',
+  'chipmong': 'CHIPMONG', 'cmb': 'CHIPMONG', 'cmpb': 'CHIPMONG',
+  'sathapana': 'SATHAPANA', 'sathapanab': 'SATHAPANA', 'spn': 'SATHAPANA',
+  'vattanac': 'VATTANAC', 'vattanacb': 'VATTANAC', 'vtb': 'VATTANAC',
+  'cpb': 'CPB', 'cpbank': 'CPB', 'cambodiapostbank': 'CPB',
+  'ppcbank': 'PPCBANK', 'ppcb': 'PPCBANK',
+  'hattha': 'HATTHA', 'hatthab': 'HATTHA', 'htb': 'HATTHA',
+  'maybank': 'MAYBANK', 'mbb': 'MAYBANK',
+  'truemoney': 'TRUEMONEY', 'tmn': 'TRUEMONEY',
+  'bakong': 'BAKONG', 'nbc': 'BAKONG',
 };
 
 /// កំណត់ធនាគារពី QR ភ្លាមៗនៅលើទូរសព្ទ (មិនរង់ចាំ server) ដើម្បីបង្ហាញ logo
@@ -5876,6 +5885,13 @@ class BankLogo extends StatelessWidget {
     'CANADIA': 'assets/banks/canadia.png',
     'WING': 'assets/banks/wing.png',
     'JUNTUOR': 'assets/banks/jtrust.png',
+    'CHIPMONG': 'assets/banks/chipmong.png',
+    'SATHAPANA': 'assets/banks/sathapana.png',
+    'VATTANAC': 'assets/banks/vattanac.png',
+    'CPB': 'assets/banks/cpb.png',
+    'PPCBANK': 'assets/banks/ppcbank.png',
+    'HATTHA': 'assets/banks/hattha.png',
+    'TRUEMONEY': 'assets/banks/truemoney.png',
   };
 
   static const _fallbackColors = <String, List<Color>>{
