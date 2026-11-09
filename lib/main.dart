@@ -4775,6 +4775,621 @@ class _QrAmountSheetState extends State<_QrAmountSheet> {
       );
 }
 
+// ============================================================================
+//  QR ខាងក្រៅ — Alert ព្រមាន + OTP ៦ ខ្ទង់
+// ============================================================================
+class _ExtQrIntent {
+  final String bankCode, bankName, account, name;
+  final double amount;
+  final int cardId;
+  const _ExtQrIntent({required this.bankCode, required this.bankName,
+      required this.account, required this.name, required this.amount,
+      required this.cardId});
+}
+
+class _ExternalQrSheet extends StatefulWidget {
+  final Map<String, dynamic> info;
+  const _ExternalQrSheet({required this.info});
+  @override
+  State<_ExternalQrSheet> createState() => _ExternalQrSheetState();
+}
+
+class _ExternalQrSheetState extends State<_ExternalQrSheet> {
+  late final TextEditingController _amt = TextEditingController(
+      text: (widget.info['amount'] as num?)?.toStringAsFixed(2) ?? '');
+  late final TextEditingController _acc = TextEditingController(
+      text: (widget.info['account'] ?? '').toString());
+  late final TextEditingController _name = TextEditingController(
+      text: (widget.info['name'] ?? '').toString());
+  late String _bankCode = (widget.info['bank_code'] ?? 'OTHER').toString();
+  late int _cardId = bank.cards.first.id;
+
+  @override
+  void dispose() {
+    _amt.dispose();
+    _acc.dispose();
+    _name.dispose();
+    super.dispose();
+  }
+
+  String get _safeBankCode {
+    if (bank.rails.any((r) => r.code == _bankCode)) return _bankCode;
+    return bank.rails.isEmpty ? _bankCode : bank.rails.first.code;
+  }
+
+  String get _bankName {
+    for (final r in bank.rails) {
+      if (r.code == _safeBankCode) return r.name;
+    }
+    return _safeBankCode;
+  }
+
+  void _submit() {
+    final a = parseAmt(_amt.text);
+    final acc = _acc.text.trim();
+    if (a == null || a <= 0) {
+      toast(context, 'សូមបញ្ចូលទឹកប្រាក់', error: true);
+      return;
+    }
+    if (acc.length < 3) {
+      toast(context, 'សូមបញ្ចូលលេខគណនីអ្នកទទួល', error: true);
+      return;
+    }
+    final name = _name.text.trim().isEmpty ? 'អ្នកទទួល' : _name.text.trim();
+    Navigator.pop(context, _ExtQrIntent(
+        bankCode: _safeBankCode, bankName: _bankName, account: acc,
+        name: name, amount: a, cardId: _cardId));
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20,
+            MediaQuery.of(context).viewInsets.bottom + 20),
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(
+                width: 52, height: 52,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(colors: [
+                    C.accentGold, C.accentRed,
+                  ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  boxShadow: [BoxShadow(
+                      color: C.accentGold.withValues(alpha: 0.30),
+                      blurRadius: 18, offset: const Offset(0, 6))],
+                ),
+                child: const Icon(Icons.gpp_maybe_rounded,
+                    color: Colors.white, size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('QR ខាងក្រៅ',
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800,
+                        color: context.ink)),
+                const SizedBox(height: 2),
+                Text('QR នេះមិនមកពី Aura Bank — ត្រូវការផ្ទៀងផ្ទាត់ OTP',
+                    style: TextStyle(fontSize: 12.5, color: context.muted)),
+              ])),
+            ]),
+            const SizedBox(height: 16),
+            NeuBox(inset: true, padding: const EdgeInsets.all(14),
+                child: Column(children: [
+                  _summaryRow('ធនាគារ', _bankName),
+                  const SizedBox(height: 10),
+                  _summaryRow('លេខគណនី', _acc.text.trim().isEmpty
+                      ? 'មិនទាន់ដឹង' : _acc.text.trim()),
+                  if (_name.text.trim().isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _summaryRow('ឈ្មោះ', _name.text.trim()),
+                  ],
+                ])),
+            const SizedBox(height: 16),
+            if (bank.rails.isNotEmpty) ...[
+              Text('ធនាគារអ្នកទទួល',
+                  style: TextStyle(fontSize: 12.5, color: context.muted,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: context.isDark
+                      ? Colors.black.withValues(alpha: 0.18) : context.bg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: context.border, width: 1.2),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _safeBankCode,
+                    isExpanded: true,
+                    dropdownColor: context.card,
+                    icon: Icon(Icons.expand_more_rounded,
+                        color: context.muted),
+                    style: TextStyle(color: context.ink, fontSize: 14,
+                        fontWeight: FontWeight.w600),
+                    items: [
+                      for (final r in bank.rails)
+                        DropdownMenuItem(value: r.code, child: Text(r.name,
+                            maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _bankCode = v);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+            if (_acc.text.trim().isEmpty) ...[
+              NeuField(controller: _acc, label: 'លេខគណនីអ្នកទទួល',
+                  icon: Icons.account_balance_wallet_outlined,
+                  onChanged: (_) => setState(() {})),
+              const SizedBox(height: 14),
+            ],
+            NeuField(controller: _amt, label: 'ទឹកប្រាក់ (\$)',
+                icon: Icons.attach_money,
+                keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true)),
+            const SizedBox(height: 14),
+            CardPicker(selectedId: _cardId,
+                onChanged: (id) => setState(() => _cardId = id)),
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [
+                  C.accentGold.withValues(alpha: 0.16),
+                  C.accentRed.withValues(alpha: 0.08),
+                ]),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                    color: C.accentGold.withValues(alpha: 0.35)),
+              ),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.verified_user_outlined,
+                        color: C.accentGold, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(
+                        'ដើម្បីផ្ទេរប្រាក់ទៅកាន់គណនីនេះ លោកអ្នកត្រូវតែបំពេញលេខកូដ OTP',
+                        style: TextStyle(fontSize: 12.5, height: 1.5,
+                            color: context.ink))),
+                  ]),
+            ),
+            const SizedBox(height: 16),
+            NeuButton(
+                label: 'បន្ត · ទទួលលេខកូដ OTP',
+                icon: Icons.mark_email_unread_outlined,
+                accent: C.accentGold,
+                onPressed: _submit),
+          ]),
+        ),
+      );
+
+  Widget _summaryRow(String label, String value) => Row(children: [
+        SizedBox(width: 92, child: Text(label, style: TextStyle(
+            fontSize: 12.5, color: context.muted))),
+        Expanded(child: Text(value, style: TextStyle(fontSize: 13,
+            fontWeight: FontWeight.w700, color: context.ink),
+            maxLines: 1, overflow: TextOverflow.ellipsis)),
+      ]);
+}
+
+class _OtpSheet extends StatefulWidget {
+  final Map<String, dynamic> initial;
+  final String bankName, recipient, account;
+  final double amount;
+  final Future<Map<String, dynamic>> Function() resend;
+  final Future<Map<String, dynamic>> Function(int requestId, String otp) confirm;
+  const _OtpSheet({required this.initial, required this.bankName,
+      required this.recipient, required this.account, required this.amount,
+      required this.resend, required this.confirm});
+  @override
+  State<_OtpSheet> createState() => _OtpSheetState();
+}
+
+class _OtpSheetState extends State<_OtpSheet> {
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
+  late int _requestId;
+  late String _hint;
+  late int _left;
+  int _resendIn = 30;
+  Timer? _timer;
+  bool _busy = false, _resending = false;
+  String? _error;
+  String _code = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _apply(widget.initial);
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_left <= 0 && _resendIn <= 0) return;
+      setState(() {
+        if (_left > 0) _left--;
+        if (_resendIn > 0) _resendIn--;
+      });
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  void _apply(Map<String, dynamic> r) {
+    _requestId = int.tryParse('${r['request_id']}') ?? 0;
+    _hint = (r['hint'] ?? '').toString();
+    _left = int.tryParse('${r['expires_in']}') ?? 300;
+    _resendIn = 30;
+    _code = '';
+    _ctrl.clear();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy || _code.length != 6) return;
+    if (_left <= 0) {
+      setState(() => _error = 'OTP ផុតកំណត់ — សូមផ្ញើឡើងវិញ');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      final r = await widget.confirm(_requestId, _code);
+      if (!mounted) return;
+      Navigator.pop(context, r);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.message;
+        if (e.code == 'WRONG_OTP') { _code = ''; _ctrl.clear(); }
+      });
+      _focus.requestFocus();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() { _busy = false; _error = 'Network error'; });
+    }
+  }
+
+  Future<void> _resend() async {
+    if (_resending || _resendIn > 0) return;
+    setState(() { _resending = true; _error = null; });
+    try {
+      final r = await widget.resend();
+      if (!mounted) return;
+      setState(() { _apply(r); _resending = false; });
+      _focus.requestFocus();
+      toast(context, 'បានផ្ញើលេខកូដ OTP ថ្មី');
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _resending = false; _error = e.message; });
+    } catch (_) {
+      if (mounted) setState(() { _resending = false; _error = 'Network error'; });
+    }
+  }
+
+  String get _mmss {
+    final m = (_left ~/ 60).toString().padLeft(2, '0');
+    final s = (_left % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20,
+            MediaQuery.of(context).viewInsets.bottom + 20),
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Center(child: Container(
+              width: 60, height: 60,
+              decoration: BoxDecoration(
+                gradient: AuraGrad.button,
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(
+                    color: C.accent.withValues(alpha: 0.35),
+                    blurRadius: 22, offset: const Offset(0, 8))],
+              ),
+              child: const Icon(Icons.shield_moon_rounded,
+                  color: Colors.white, size: 28),
+            )),
+            const SizedBox(height: 14),
+            Center(child: Text('ការផ្ទេរប្រាក់ត្រូវបានការពារ',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800,
+                    color: context.ink))),
+            const SizedBox(height: 6),
+            Center(child: Text(
+                'គណនីខាងក្រៅ Aura Bank · ត្រូវការលេខកូដ OTP',
+                style: TextStyle(fontSize: 12.5, color: context.muted))),
+            const SizedBox(height: 16),
+            NeuBox(inset: true, padding: const EdgeInsets.all(14),
+                child: Column(children: [
+                  Row(children: [
+                    Expanded(child: Text(widget.recipient,
+                        style: TextStyle(fontSize: 15,
+                            fontWeight: FontWeight.w800, color: context.ink),
+                        maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    Text(money(widget.amount),
+                        style: const TextStyle(fontSize: 17,
+                            fontWeight: FontWeight.w800, color: C.accent)),
+                  ]),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Expanded(child: Text(
+                        '${widget.bankName} · ${widget.account}',
+                        style: TextStyle(fontSize: 12, color: context.muted),
+                        maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  ]),
+                ])),
+            const SizedBox(height: 18),
+            Text('បញ្ចូលលេខកូដ OTP ៦ ខ្ទង់',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
+                    color: context.ink)),
+            const SizedBox(height: 4),
+            Text('បានផ្ញើទៅ ${_hint.isEmpty ? 'ទូរស័ព្ទរបស់អ្នក' : _hint} · '
+                'ក្នុងការជូនដំណឹង Aura Bank',
+                style: TextStyle(fontSize: 12, color: context.muted)),
+            const SizedBox(height: 14),
+            _otpBoxes(context),
+            const SizedBox(height: 12),
+            Row(children: [
+              Icon(Icons.timer_outlined, size: 16,
+                  color: _left <= 60 ? C.accentRed : context.muted),
+              const SizedBox(width: 6),
+              Text(_left > 0 ? 'ផុតកំណត់ក្នុង $_mmss' : 'OTP ផុតកំណត់',
+                  style: TextStyle(fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _left <= 60 ? C.accentRed : context.muted)),
+              const Spacer(),
+              TextButton(
+                onPressed: (_resendIn > 0 || _resending) ? null : _resend,
+                style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 32)),
+                child: Text(_resending ? 'កំពុងផ្ញើ…'
+                    : (_resendIn > 0 ? 'ផ្ញើឡើងវិញ (${_resendIn}s)'
+                        : 'ផ្ញើឡើងវិញ'),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
+                        color: _resendIn > 0 ? context.muted : C.accent)),
+              ),
+            ]),
+            InkWell(
+              onTap: () => showModalBottomSheet(
+                context: context, isScrollControlled: true, showDragHandle: true,
+                backgroundColor: context.card,
+                shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+                builder: (_) => const _OtpHelpSheet(),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.help_outline_rounded,
+                      color: C.accentTeal, size: 16),
+                  const SizedBox(width: 6),
+                  Text('(របៀបយកលេខកូដ OTP)',
+                      style: TextStyle(fontSize: 12.5, color: C.accentTeal,
+                          fontWeight: FontWeight.w700,
+                          decoration: TextDecoration.underline,
+                          decorationColor: C.accentTeal)),
+                ]),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 6),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.error_outline_rounded,
+                    color: C.accentRed, size: 17),
+                const SizedBox(width: 6),
+                Expanded(child: Text(_error!,
+                    style: const TextStyle(fontSize: 12.5,
+                        color: C.accentRed, height: 1.4))),
+              ]),
+            ],
+            const SizedBox(height: 14),
+            NeuButton(
+                label: _busy ? 'កំពុងផ្ទៀងផ្ទាត់…' : 'ផ្ទៀងផ្ទាត់ និងផ្ទេរប្រាក់',
+                icon: Icons.check_circle_outline_rounded,
+                accent: C.accentGreen,
+                onPressed: (_busy || _code.length != 6) ? null : _submit),
+          ]),
+        ),
+      );
+
+  Widget _otpBoxes(BuildContext context) => GestureDetector(
+        onTap: () => _focus.requestFocus(),
+        child: Stack(children: [
+          Row(children: [
+            for (int i = 0; i < 6; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                height: 58,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: context.isDark
+                      ? Colors.black.withValues(alpha: 0.22) : context.bg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: i == _code.length
+                          ? C.accent
+                          : (i < _code.length
+                              ? C.accent.withValues(alpha: 0.55)
+                              : context.border),
+                      width: i == _code.length ? 1.8 : 1.2),
+                  boxShadow: i == _code.length ? [BoxShadow(
+                      color: C.accent.withValues(alpha: 0.22),
+                      blurRadius: 12)] : null,
+                ),
+                child: Text(i < _code.length ? _code[i] : '',
+                    style: TextStyle(fontSize: 24,
+                        fontWeight: FontWeight.w800, color: context.ink)),
+              )),
+            ],
+          ]),
+          Positioned.fill(child: Opacity(
+            opacity: 0.01,
+            child: TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              keyboardType: TextInputType.number,
+              showCursor: false,
+              enableInteractiveSelection: false,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(6),
+              ],
+              onChanged: (v) {
+                setState(() { _code = v; _error = null; });
+                if (v.length == 6) _submit();
+              },
+              decoration: const InputDecoration(
+                  border: InputBorder.none, counterText: ''),
+            ),
+          )),
+        ]),
+      );
+}
+
+class _OtpHelpSheet extends StatefulWidget {
+  const _OtpHelpSheet();
+  @override
+  State<_OtpHelpSheet> createState() => _OtpHelpSheetState();
+}
+
+class _OtpHelpSheetState extends State<_OtpHelpSheet> {
+  bool _loading = false;
+  String? _latest;
+
+  Future<void> _loadLatest() async {
+    setState(() => _loading = true);
+    try {
+      final list = await ApiService.getNotifications();
+      String? body;
+      for (final e in list) {
+        if (e is Map && (e['title'] ?? '').toString().contains('OTP')) {
+          body = (e['body'] ?? '').toString();
+          break;
+        }
+      }
+      if (!mounted) return;
+      setState(() => _latest = body ?? 'មិនទាន់មានសារ OTP ទេ');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _latest =
+            'មិនអាចទាញយកបាន — សូមបើក Notification Bar ឬសារ "ជូនដំណឹង"');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20,
+            MediaQuery.of(context).viewInsets.bottom + 24),
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(colors: [
+                      C.accentTeal.withValues(alpha: 0.9),
+                      C.accent.withValues(alpha: 0.9),
+                    ]),
+                  ),
+                  child: const Icon(Icons.help_outline_rounded,
+                      color: Colors.white, size: 24)),
+              const SizedBox(width: 12),
+              Expanded(child: Text('របៀបយកលេខកូដ OTP',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
+                      color: context.ink))),
+            ]),
+            const SizedBox(height: 16),
+            _helpStep(context, 1, Icons.notifications_active_outlined,
+                'OTP ត្រូវបានផ្ញើជា Notification ពី Aura Bank',
+                'វានឹងបង្ហាញនៅលើ Notification Bar និង Lock Screen នៃទូរស័ព្ទរបស់អ្នក។'),
+            const SizedBox(height: 12),
+            _helpStep(context, 2, Icons.inbox_outlined,
+                'បើមិនឃើញ សូមពិនិត្យសារ "ជូនដំណឹង" ក្នុង App',
+                'សារពី Aura Bank · OTP មានផ្ទុកលេខកូដ ៦ ខ្ទង់។'),
+            const SizedBox(height: 12),
+            _helpStep(context, 3, Icons.timer_outlined,
+                'OTP មានអាយុ ៥ នាទី និងប្រើបានតែម្តង',
+                'បើផុតកំណត់ សូមចុច "ផ្ញើឡើងវិញ" ដើម្បីទទួលលេខកូដថ្មី។'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: C.accentRed.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: C.accentRed.withValues(alpha: 0.3)),
+              ),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.warning_amber_rounded,
+                        color: C.accentRed, size: 19),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(
+                        'កុំចែករំលែកលេខកូដ OTP ទៅអ្នកណាម្នាក់ សូម្បីតែបុគ្គលិកធនាគារ',
+                        style: TextStyle(fontSize: 12.5, height: 1.5,
+                            color: context.ink))),
+                  ]),
+            ),
+            const SizedBox(height: 16),
+            NeuButton(
+                label: 'ពិនិត្យសារ OTP ចុងក្រោយ',
+                icon: Icons.search_rounded,
+                accent: C.accentTeal,
+                onPressed: _loading ? null : _loadLatest),
+            if (_loading) ...[
+              const SizedBox(height: 14),
+              const LinearProgressIndicator(minHeight: 3),
+            ],
+            if (_latest != null) ...[
+              const SizedBox(height: 14),
+              NeuBox(inset: true, padding: const EdgeInsets.all(14),
+                  child: Text(_latest!, style: TextStyle(fontSize: 13,
+                      height: 1.55, color: context.ink))),
+            ],
+          ]),
+        ),
+      );
+
+  Widget _helpStep(BuildContext context, int n, IconData icon,
+      String title, String body) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: C.accent.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: C.accent, size: 18)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('$n. $title', style: TextStyle(fontSize: 13.5,
+                fontWeight: FontWeight.w700, color: context.ink)),
+            const SizedBox(height: 2),
+            Text(body, style: TextStyle(fontSize: 12.5,
+                height: 1.5, color: context.muted)),
+          ])),
+        ],
+      );
+}
+
 class QrScreen extends StatefulWidget {
   final bool startScan;
   const QrScreen({super.key, this.startScan = false});
@@ -4912,8 +5527,12 @@ class _QrScreenState extends State<QrScreen> {
         ? u.queryParameters['token']
         : null;
     if (token == null || token.isEmpty) {
-      toast(context, 'QR នេះមិនត្រូវបានគាំទ្រ', error: true);
-      Future.delayed(const Duration(seconds: 2), () => _busy = false);
+      // QR ខាងក្រៅ → Alert + តម្រូវ OTP មុនផ្ទេរ
+      try {
+        await _handleExternalQr(raw);
+      } finally {
+        _busy = false;
+      }
       return;
     }
     try {
@@ -4976,6 +5595,93 @@ class _QrScreenState extends State<QrScreen> {
     } catch (_) {
       if (mounted) toast(context, 'Network error', error: true);
     }
+  }
+
+  // ── QR ខាងក្រៅ (មិនមែន Aura Bank) → ព្រមាន + OTP ───────────────────────
+  Future<void> _handleExternalQr(String raw) async {
+    Map<String, dynamic> info;
+    try {
+      info = await ApiService.inspectExternalQr(raw);
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+      return;
+    } catch (_) {
+      if (mounted) toast(context, 'Network error', error: true);
+      return;
+    }
+    if (!mounted) return;
+    if (bank.cards.isEmpty) {
+      toast(context, 'គ្មានកាតសម្រាប់ផ្ទេរ', error: true);
+      return;
+    }
+    await bank.ensureRails();
+    if (!mounted) return;
+
+    final intent = await showModalBottomSheet<_ExtQrIntent>(
+      context: context, isScrollControlled: true, showDragHandle: true,
+      backgroundColor: context.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => _ExternalQrSheet(info: info),
+    );
+    if (intent == null || !mounted) return;
+    await _sendExternalWithOtp(intent, raw);
+  }
+
+  Future<void> _sendExternalWithOtp(_ExtQrIntent intent, String raw) async {
+    final idem = ApiService.newIdempotencyKey();
+
+    Future<Map<String, dynamic>> start() => ApiService.startExternalQr(
+          bankCode: intent.bankCode,
+          account: intent.account,
+          name: intent.name,
+          amount: intent.amount,
+          cardId: intent.cardId,
+          rawQr: raw,
+        );
+
+    Map<String, dynamic> first;
+    try {
+      first = await start();
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+      return;
+    } catch (_) {
+      if (mounted) toast(context, 'Network error', error: true);
+      return;
+    }
+    if (!mounted) return;
+
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context, isScrollControlled: true, showDragHandle: true,
+      backgroundColor: context.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => _OtpSheet(
+        initial: first,
+        bankName: intent.bankName,
+        recipient: intent.name,
+        account: intent.account,
+        amount: intent.amount,
+        resend: start,
+        confirm: (requestId, otp) => ApiService.confirmExternalQr(
+            requestId: requestId, otp: otp, idempotencyKey: idem),
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    await bank.loadAll();
+    if (!mounted) return;
+    final card = bank.cards.firstWhere((c) => c.id == intent.cardId,
+        orElse: () => bank.cards.first);
+    Navigator.of(context).push(PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 350),
+      pageBuilder: (_, __, ___) => ReceiptScreen(
+          title: 'ផ្ទេរទៅ ${intent.name} (${intent.bankName})',
+          amount: intent.amount, card: card),
+      transitionsBuilder: (_, anim, __, child) =>
+          FadeTransition(opacity: anim, child: child),
+    ));
   }
 
   // ── build ──────────────────────────────────────────────────────────────────

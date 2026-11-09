@@ -217,6 +217,43 @@ class ApiService {
       Map<String, dynamic>.from(
           await _post('/qr/resolve', {'qr_token': qrToken}) as Map);
 
+  /// QR ខាងក្រៅ (មិនមែន Aura Bank) — Server បកស្រាយគណនី/ធនាគារបឋម
+  static Future<Map<String, dynamic>> inspectExternalQr(String rawQr) async =>
+      Map<String, dynamic>.from(
+          await _post('/qr/external/inspect', {'qr': rawQr}) as Map);
+
+  /// ស្នើ OTP សម្រាប់ផ្ទេរទៅ QR ខាងក្រៅ — OTP ផ្ញើតាម Notification/FCM
+  static Future<Map<String, dynamic>> startExternalQr({
+    required String bankCode,
+    required String account,
+    required String name,
+    required double amount,
+    required int cardId,
+    String? note,
+    String? rawQr,
+  }) async =>
+      Map<String, dynamic>.from(await _post('/qr/external/start', {
+        'bank_code': bankCode,
+        'account': account,
+        'name': name,
+        'amount': amount,
+        'card_id': cardId,
+        if (note != null && note.isNotEmpty) 'note': note,
+        if (rawQr != null && rawQr.isNotEmpty) 'raw_qr': rawQr,
+      }) as Map);
+
+  /// ផ្ទៀងផ្ទាត់ OTP → Server ផ្ទេរប្រាក់ភ្លាម
+  static Future<Map<String, dynamic>> confirmExternalQr({
+    required int requestId,
+    required String otp,
+    required String idempotencyKey,
+  }) async =>
+      Map<String, dynamic>.from(await _post(
+        '/qr/external/confirm',
+        {'request_id': requestId, 'otp': otp},
+        idempotencyKey: idempotencyKey,
+      ) as Map);
+
   /// ផ្ទេរចេញក្រៅ (ធនាគារ/MFIs/វ៉លឡេត)។ Server កាត់លុយ + fee ហើយកត់ត្រាតែម្ខាង។
   static Future<Map<String, dynamic>> transferExternal({
     required String bankCode,
