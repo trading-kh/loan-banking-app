@@ -5892,10 +5892,12 @@ class BankLogo extends StatelessWidget {
     'PPCBANK': 'assets/banks/ppcbank.png',
     'HATTHA': 'assets/banks/hattha.png',
     'TRUEMONEY': 'assets/banks/truemoney.png',
+    'LYF': 'assets/banks/lyf.png',
+    'MAYBANK': 'assets/banks/maybank.png',
+    'BAKONG': 'assets/banks/bakong.png',
   };
 
   static const _fallbackColors = <String, List<Color>>{
-    'LYF': [Color(0xFF1F8A70), Color(0xFF26B47F)],
     'OTHER': [Color(0xFF3B5BDB), Color(0xFF6C8CFF)],
   };
 
