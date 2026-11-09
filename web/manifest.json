@@ -1,11 +1,11 @@
 {
-    "name": "my_first_app",
-    "short_name": "my_first_app",
+    "name": "Aura Bank",
+    "short_name": "Aura Bank",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0B1F3A",
-    "theme_color": "#0B1F3A",
-    "description": "A new Flutter project.",
+    "background_color": "#033553",
+    "theme_color": "#033553",
+    "description": "Aura Bank — ធនាគារឌីជីថលរបស់អ្នក។ ផ្ទេរប្រាក់ បង់តាម QR និងគ្រប់គ្រងគណនីពីកន្លែងតែមួយ។",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
