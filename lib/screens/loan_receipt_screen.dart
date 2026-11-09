@@ -123,7 +123,7 @@ class LoanReceiptScreen extends StatelessWidget {
                   const Divider(height: 24),
                   _detailRow(context, 'រយៈពេល', '${formData.durationMonths ?? 0} ខែ'),
                   const Divider(height: 24),
-                  _detailRow(context, 'គោលបំណង', formData.purpose),
+                  _detailRow(context, 'គោលដៅឥណទាន', formData.loanTarget ?? 'កម្ចី'),
                 ],
               ),
             ),

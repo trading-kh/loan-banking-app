@@ -52,13 +52,7 @@ class LoanFormData {
     this.loanResponse,
   });
 
-  bool get isValid =>
-      amount > 0 &&
-      durationMonths != null &&
-      province != null &&
-      district != null &&
-      commune != null &&
-      village != null;
+  bool get isValid => amount > 0 && durationMonths != null;
 
   Map<String, dynamic> toKycPayload() {
     final dob = scannedId?.dob;
@@ -100,7 +94,7 @@ class LoanFormData {
       'district': district ?? '',
       'commune': commune ?? '',
       'village': village ?? '',
-      'purpose': '${loanTarget ?? ''}: $purpose'.trim(),
+      'purpose': loanTarget ?? '',
       'currency': currency,
     };
   }

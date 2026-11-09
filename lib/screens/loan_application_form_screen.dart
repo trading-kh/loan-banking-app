@@ -2,58 +2,12 @@
 //  LOAN APPLICATION FORM SCREEN — ទម្រង់ពាក្យស្នើសុំឥណទាន
 //  ACLEDA Bank style
 // ============================================================================
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../main.dart';
 import '../id_scan_screen.dart';
 import '../loan_form_data.dart';
 import 'loan_summary_screen.dart';
-
-// Region models (copied from loan_module.dart)
-class _RegionProvince {
-  final String code, name;
-  final List<_RegionDistrict> districts;
-  _RegionProvince(this.code, this.name, this.districts);
-  factory _RegionProvince.fromJson(Map<String, dynamic> j) => _RegionProvince(
-      j['c'] as String,
-      j['n'] as String,
-      [
-        for (final d in j['d'] as List)
-          _RegionDistrict.fromJson(Map<String, dynamic>.from(d as Map))
-      ]);
-}
-
-class _RegionDistrict {
-  final String code, name;
-  final List<_RegionCommune> communes;
-  _RegionDistrict(this.code, this.name, this.communes);
-  factory _RegionDistrict.fromJson(Map<String, dynamic> j) => _RegionDistrict(
-      j['c'] as String,
-      j['n'] as String,
-      [
-        for (final m in j['m'] as List)
-          _RegionCommune.fromJson(Map<String, dynamic>.from(m as Map))
-      ]);
-}
-
-class _RegionCommune {
-  final String code, name;
-  final List<String> villages;
-  _RegionCommune(this.code, this.name, this.villages);
-  factory _RegionCommune.fromJson(Map<String, dynamic> j) => _RegionCommune(
-      j['c'] as String, j['n'] as String, List<String>.from(j['v'] as List));
-}
-
-Future<List<_RegionProvince>> _loadRegionData() async {
-  final raw = await rootBundle.loadString('assets/data/cambodia_admin.json');
-  final j = jsonDecode(raw) as Map<String, dynamic>;
-  return [
-    for (final p in j['p'] as List)
-      _RegionProvince.fromJson(Map<String, dynamic>.from(p as Map))
-  ];
-}
 
 class LoanApplicationFormScreen extends StatefulWidget {
   const LoanApplicationFormScreen({super.key});
@@ -65,40 +19,13 @@ class LoanApplicationFormScreen extends StatefulWidget {
 class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
   final _formData = LoanFormData();
   final _amountController = TextEditingController();
-  final _purposeController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  List<_RegionProvince> _provinces = [];
-  bool _loadingRegions = true;
   IdCardData? _scannedId;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadRegions();
-  }
 
   @override
   void dispose() {
     _amountController.dispose();
-    _purposeController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadRegions() async {
-    try {
-      final regions = await _loadRegionData();
-      if (mounted) {
-        setState(() {
-          _provinces = regions;
-          _loadingRegions = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _loadingRegions = false);
-        toast(context, 'មិនអាចផ្ទុកទិន្នន័យខេត្តបាន', error: true);
-      }
-    }
   }
 
   Future<void> _scanId() async {
@@ -112,69 +39,6 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
       });
       toast(context, 'បានស្កេនអត្តសញ្ញាបណ្ណដោយជោគជ័យ');
     }
-  }
-
-  List<_RegionDistrict> _getDistricts() {
-    if (_formData.province == null) return [];
-    try {
-      return _provinces
-          .firstWhere((p) => p.name == _formData.province)
-          .districts;
-    } catch (e) {
-      return [];
-    }
-  }
-
-  List<_RegionCommune> _getCommunes() {
-    if (_formData.district == null) return [];
-    try {
-      return _getDistricts()
-          .firstWhere((d) => d.name == _formData.district)
-          .communes;
-    } catch (e) {
-      return [];
-    }
-  }
-
-  List<String> _getVillages() {
-    if (_formData.commune == null) return [];
-    try {
-      return _getCommunes()
-          .firstWhere((c) => c.name == _formData.commune)
-          .villages;
-    } catch (e) {
-      return [];
-    }
-  }
-
-  void _onProvinceChanged(String? value) {
-    setState(() {
-      _formData.province = value;
-      _formData.district = null;
-      _formData.commune = null;
-      _formData.village = null;
-    });
-  }
-
-  void _onDistrictChanged(String? value) {
-    setState(() {
-      _formData.district = value;
-      _formData.commune = null;
-      _formData.village = null;
-    });
-  }
-
-  void _onCommuneChanged(String? value) {
-    setState(() {
-      _formData.commune = value;
-      _formData.village = null;
-    });
-  }
-
-  void _onVillageChanged(String? value) {
-    setState(() {
-      _formData.village = value;
-    });
   }
 
   void _onContinue() {
@@ -206,10 +70,6 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           children: [
-            // Currency Toggle
-            _buildCurrencyToggle(),
-            const SizedBox(height: 20),
-
             // ID Scan
             _buildIdScanCard(),
             const SizedBox(height: 20),
@@ -252,21 +112,6 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Purpose
-            NeuField(
-              controller: _purposeController,
-              label: 'គោលបំណង',
-              icon: Icons.description,
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'សូមបញ្ចូលគោលបំណង';
-                return null;
-              },
-              onChanged: (v) {
-                _formData.purpose = v;
-              },
-            ),
-            const SizedBox(height: 16),
-
             // Loan Target
             _buildDropdown(
               label: 'គោលដៅឥណទាន',
@@ -279,66 +124,6 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
                 });
               },
             ),
-            const SizedBox(height: 24),
-
-            // Location Section
-            Text(
-              'ទីតាំង',
-              style: TextStyle(
-                color: context.ink,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            if (_loadingRegions)
-              const Center(child: CircularProgressIndicator())
-            else ...[
-              _buildDropdown(
-                label: 'ខេត្ត/ក្រុង',
-                value: _formData.province,
-                items: _provinces.map((p) => p.name).toList(),
-                labels: _provinces.map((p) => p.name).toList(),
-                onChanged: _onProvinceChanged,
-              ),
-              const SizedBox(height: 16),
-
-              _buildDropdown(
-                label: 'ស្រុក/ខណ្ឌ',
-                value: _formData.district,
-                items: _getDistricts().map((d) => d.name).toList(),
-                labels: _getDistricts().map((d) => d.name).toList(),
-                onChanged: _onDistrictChanged,
-              ),
-              const SizedBox(height: 16),
-
-              _buildDropdown(
-                label: 'ឃុំ/សង្កាត់',
-                value: _formData.commune,
-                items: _getCommunes().map((c) => c.name).toList(),
-                labels: _getCommunes().map((c) => c.name).toList(),
-                onChanged: _onCommuneChanged,
-              ),
-              const SizedBox(height: 16),
-
-              _buildDropdown(
-                label: 'ភូមិ',
-                value: _formData.village,
-                items: _getVillages(),
-                labels: _getVillages(),
-                onChanged: _onVillageChanged,
-              ),
-              const SizedBox(height: 16),
-
-              NeuField(
-                label: 'អាសយដ្ឋាន',
-                icon: Icons.location_on,
-                onChanged: (v) {
-                  _formData.address = v;
-                },
-              ),
-            ],
           ],
         ),
       ),
@@ -359,39 +144,6 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
           icon: Icons.arrow_forward,
           accent: C.accent,
           onPressed: _onContinue,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCurrencyToggle() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.border, width: 1.2),
-      ),
-      padding: const EdgeInsets.all(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: C.accent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset('assets/icon/usd_icon.png', width: 20, height: 20),
-            const SizedBox(width: 8),
-            const Text(
-              'ដុល្លារ (USD)',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
         ),
       ),
     );

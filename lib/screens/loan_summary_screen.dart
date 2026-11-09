@@ -32,7 +32,7 @@ class _LoanSummaryScreenState extends State<LoanSummaryScreen> {
         district: widget.formData.district ?? '',
         commune: widget.formData.commune ?? '',
         village: widget.formData.village ?? '',
-        purpose: '${widget.formData.loanTarget ?? ''}: ${widget.formData.purpose}'.trim(),
+        purpose: widget.formData.loanTarget ?? '',
       );
       final ref = 'LN${DateTime.now().millisecondsSinceEpoch % 1000000000}';
       widget.formData.referenceNumber = ref;
@@ -118,7 +118,7 @@ class _LoanSummaryScreenState extends State<LoanSummaryScreen> {
                 _divider(),
                 _detailRow('រយៈពេល', '${data.durationMonths ?? 0} ខែ'),
                 _divider(),
-                _detailRow('គោលបំណង', data.purpose),
+                _detailRow('គោលដៅឥណទាន', data.loanTarget ?? 'កម្ចី'),
               ],
             ),
           ),
@@ -239,7 +239,7 @@ class _LoanSummaryScreenState extends State<LoanSummaryScreen> {
             const SizedBox(height: 20),
             _shareOption(Icons.copy, 'ចម្លងលេខយោង', () { _copyToClipboard(context, refNumber); Navigator.pop(context); }),
             _shareOption(Icons.receipt_long, 'ចម្លងព័ត៌មានកម្ចី', () {
-              final info = 'AURA Bank - ព័ត៌មានកម្ចី\nលេខយោង: $refNumber\nចំនួន: $amountStr\nរយៈពេល: ${data.durationMonths ?? 0} ខែ\nគោលបំណង: ${data.purpose}';
+              final info = 'AURA Bank - ព័ត៌មានកម្ចី\nលេខយោង: $refNumber\nចំនួន: $amountStr\nរយៈពេល: ${data.durationMonths ?? 0} ខែ\nគោលដៅឥណទាន: ${data.loanTarget ?? 'កម្ចី'}';
               _copyToClipboard(context, info);
               Navigator.pop(context);
             }),
