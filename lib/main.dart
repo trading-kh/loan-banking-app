@@ -568,36 +568,8 @@ class AppNotif {
   /// ធនាគារសម្រាប់បង្ហាញ logo — ឆ្លាតបីជាន់៖
   /// ① bank_code ច្បាស់ពី server → ② ស្គាល់ឈ្មោះធនាគារក្នុងសារ
   /// → ③ suffix `@abaa` ក្នុងសារ → ④ ផ្ទេរក្នុង Aura (គ្មានឈ្មោះធនាគារក្រៅ)
-  String? get bankLogoCode {
-    final explicit = (bankCode ?? '').trim().toUpperCase();
-    if (explicit.isNotEmpty && explicit != 'OTHER') return explicit;
-
-    final text = '$title $body'.toLowerCase();
-
-    // suffix QR ដែលអាចនៅសល់ក្នុងសារ (`0123@abaa`)
-    final keys = _qrBankSuffix.keys.toList()
-      ..sort((a, b) => b.length.compareTo(a.length));
-    for (final k in keys) {
-      if (text.contains('@$k')) return _qrBankSuffix[k];
-    }
-
-    // ឈ្មោះធនាគារពី rail directory (វែងមុន ដើម្បីកុំចាប់ខុស)
-    final rails = [...bank.rails]
-      ..sort((a, b) => b.name.length.compareTo(a.name.length));
-    for (final r in rails) {
-      if (r.code == 'OTHER') continue;
-      if (_containsWord(text, r.name)) return r.code;
-    }
-
-    // ឈ្មោះហៅក្រៅដែលអ្នកប្រើស្គាល់
-    for (final e in _bankAliases.entries) {
-      if (_containsWord(text, e.key)) return e.value;
-    }
-
-    // សារផ្ទេរក្នុង Aura (body គ្មានឈ្មោះធនាគារក្នុងវង់ក្រចក)
-    if (isTransferMessage && !body.contains('(')) return 'AURA';
-    return null;
-  }
+  String? get bankLogoCode =>
+      resolveBankCode(explicit: bankCode, title: title, body: body);
 
   String? get bankLogoName {
     final code = bankLogoCode;
@@ -607,22 +579,58 @@ class AppNotif {
     }
     return code;
   }
+}
 
-  /// ពាក្យដាច់ដោយឡែក (ខ្លួនឯង) — កុំអោយ 'aba' ចាប់ក្នុង 'abay'
-  static bool _containsWord(String haystack, String word) {
-    final w = word.toLowerCase().trim();
-    if (w.isEmpty) return false;
-    var i = haystack.indexOf(w);
-    while (i >= 0) {
-      final before = i == 0 ? '' : haystack[i - 1];
-      final end = i + w.length;
-      final after = end >= haystack.length ? '' : haystack[end];
-      bool edge(String c) => c.isEmpty || !RegExp(r'[a-z]').hasMatch(c);
-      if (edge(before) && edge(after)) return true;
-      i = haystack.indexOf(w, i + 1);
-    }
-    return false;
+/// ស្វែងរកធនាគារពីសារ — ប្រើទាំងបញ្ជីជូនដំណឹងក្នុង app និង push notification
+String? resolveBankCode(
+    {String? explicit, required String title, required String body}) {
+  final code = (explicit ?? '').trim().toUpperCase();
+  if (code.isNotEmpty && code != 'OTHER') return code;
+
+  final text = '$title $body'.toLowerCase();
+
+  // suffix QR ដែលអាចនៅសល់ក្នុងសារ (`0123@abaa`)
+  final keys = _qrBankSuffix.keys.toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
+  for (final k in keys) {
+    if (text.contains('@$k')) return _qrBankSuffix[k];
   }
+
+  // ឈ្មោះធនាគារពី rail directory (វែងមុន ដើម្បីកុំចាប់ខុស)
+  final rails = [...bank.rails]
+    ..sort((a, b) => b.name.length.compareTo(a.name.length));
+  for (final r in rails) {
+    if (r.code == 'OTHER') continue;
+    if (_containsWord(text, r.name)) return r.code;
+  }
+
+  // ឈ្មោះហៅក្រៅដែលអ្នកប្រើស្គាល់
+  for (final e in _bankAliases.entries) {
+    if (_containsWord(text, e.key)) return e.value;
+  }
+
+  // សារផ្ទេរក្នុង Aura (body គ្មានឈ្មោះធនាគារក្នុងវង់ក្រចក)
+  final isTransfer =
+      (title.contains('ផ្ទេរ') || title.contains('ទទួល')) &&
+      RegExp(r'\$\s*[0-9]').hasMatch(body);
+  if (isTransfer && !body.contains('(')) return 'AURA';
+  return null;
+}
+
+/// ពាក្យដាច់ដោយឡែក (ខ្លួនឯង) — កុំអោយ 'aba' ចាប់ក្នុង 'abay'
+bool _containsWord(String haystack, String word) {
+  final w = word.toLowerCase().trim();
+  if (w.isEmpty) return false;
+  var i = haystack.indexOf(w);
+  while (i >= 0) {
+    final before = i == 0 ? '' : haystack[i - 1];
+    final end = i + w.length;
+    final after = end >= haystack.length ? '' : haystack[end];
+    bool edge(String c) => c.isEmpty || !RegExp(r'[a-z]').hasMatch(c);
+    if (edge(before) && edge(after)) return true;
+    i = haystack.indexOf(w, i + 1);
+  }
+  return false;
 }
 
 /// ឈ្មោះហៅក្រៅ → code (បំពេញពេលឈ្មោះ rail មិនច្បាស់)
@@ -842,7 +850,8 @@ class AppState extends ChangeNotifier {
       final fresh = notifs.where((n) => n.id > last).toList().reversed.toList();
       final from = fresh.length > 5 ? fresh.length - 5 : 0;
       for (final n in fresh.sublist(from)) {
-        await NotificationService.showLocal(n.title, n.body, id: n.id);
+        await NotificationService.showLocal(n.title, n.body,
+            id: n.id, bankCode: n.bankLogoCode);
       }
       await sp.setInt(_notifSeenKey, maxId);
     } catch (_) {
@@ -6075,6 +6084,9 @@ class BankLogo extends StatelessWidget {
     'BAKONG': 'assets/banks/bakong.png',
   };
 
+  /// Asset របស់ធនាគារ (សម្រាប់រូបក្នុង notification ផងដែរ)
+  static String? assetFor(String code) => _assets[code.trim().toUpperCase()];
+
   static const _fallbackColors = <String, List<Color>>{
     'OTHER': [Color(0xFF3B5BDB), Color(0xFF6C8CFF)],
   };
@@ -7971,18 +7983,20 @@ class NotificationService {
   static bool _ready = false;
   static int _seq = 0;
 
-  static const AndroidNotificationDetails _androidDetails =
+  static AndroidNotificationDetails _details(
+          AndroidBitmap<Object>? large, String body) =>
       AndroidNotificationDetails(
-    channelId,
-    channelName,
-    channelDescription: channelDesc,
-    importance: Importance.max,
-    priority: Priority.high,
-    playSound: true,
-    enableVibration: true,
-    category: AndroidNotificationCategory.message,
-    styleInformation: BigTextStyleInformation(''),
-  );
+        channelId,
+        channelName,
+        channelDescription: channelDesc,
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        category: AndroidNotificationCategory.message,
+        styleInformation: BigTextStyleInformation(body),
+        largeIcon: large,
+      );
 
   static Future<void> initialize() async {
     if (kIsWeb) return;
@@ -8014,10 +8028,17 @@ class NotificationService {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       final n = message.notification;
       if (n != null) {
+        final title = n.title ?? 'Aura Bank';
+        final body = n.body ?? '';
         showLocal(
-          n.title ?? 'Aura Bank',
-          n.body ?? '',
+          title,
+          body,
           id: int.tryParse(message.data['notification_id']?.toString() ?? ''),
+          bankCode: resolveBankCode(
+            explicit: message.data['bank_code']?.toString(),
+            title: title,
+            body: body,
+          ),
         );
       }
       // សារមកពី backend (admin) → ធ្វើបច្ចុប្បន្នភាពទិន្នន័យថ្មីភ្លាម
@@ -8052,12 +8073,23 @@ class NotificationService {
   }
 
   /// បង្ហាញ notification ក្នុងទូរស័ព្ទ (FCM ផ្ទាល់ ឬ polling fallback)
-  static Future<void> showLocal(String title, String body, {int? id}) async {
+  /// bankCode → រូប Logo ធនាគារជា large icon ជំនួស Logo កម្មវិធី
+  static Future<void> showLocal(String title, String body,
+      {int? id, String? bankCode}) async {
     if (kIsWeb) return;
     try {
       if (!_ready) {
         await _ensureChannel();
         _ready = true;
+      }
+      AndroidBitmap<Object>? large;
+      final asset = BankLogo.assetFor(bankCode ?? '');
+      if (asset != null) {
+        try {
+          final d = await rootBundle.load(asset);
+          large = ByteArrayAndroidBitmap(
+              d.buffer.asUint8List(d.offsetInBytes, d.lengthInBytes));
+        } catch (_) {}
       }
       final notifId = id ??
           (DateTime.now().millisecondsSinceEpoch.remainder(1 << 30) + (_seq++));
@@ -8065,7 +8097,7 @@ class NotificationService {
         notifId,
         title,
         body,
-        const NotificationDetails(android: _androidDetails),
+        NotificationDetails(android: _details(large, body)),
       );
     } catch (e) {
       print('❌ showLocal failed: $e');
