@@ -522,6 +522,24 @@ class AppNotif {
         icon: AppIcons.get(j['icon_code'] as int? ?? 0),
         read: j['read'] == 1,
       );
+
+  /// សារផ្ទេរប្រាក់ចេញ (body ផ្ទេរ $x ទៅ ...) — មិនរាប់សារប្រាក់ចូល
+  bool get isTransferOut =>
+      title.contains('ផ្ទេរ') && body.trimLeft().startsWith('ផ្ទេរ');
+
+  double? get transferAmount {
+    final m = RegExp(r'\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)').firstMatch(body);
+    if (m == null) return null;
+    return double.tryParse(m.group(1)!.replaceAll(',', ''));
+  }
+
+  String? get transferRecipient {
+    final m = RegExp(r'\sទៅ\s+(.+)$').firstMatch(body.trim());
+    return m?.group(1)?.trim();
+  }
+
+  String get transferRef =>
+      'TXN${time.millisecondsSinceEpoch % 1000000000}';
 }
 
 class Budget {
@@ -1952,8 +1970,11 @@ class ReceiptScreen extends StatefulWidget {
   final String title;
   final double amount;
   final String? recipient;
+  final String? ref;
+  final DateTime? when;
+  final String? appBarTitle;
   const ReceiptScreen({super.key, required this.title, required this.amount,
-      this.recipient});
+      this.recipient, this.ref, this.when, this.appBarTitle});
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
 }
@@ -1963,9 +1984,9 @@ class _ReceiptScreenState extends State<ReceiptScreen>
   late final AnimationController _c = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1150))..forward();
 
-  final String _ref =
+  late final String _ref = widget.ref ??
       'TXN${DateTime.now().millisecondsSinceEpoch % 1000000000}';
-  final String _time = fmtTime(DateTime.now());
+  late final String _time = fmtTime(widget.when ?? DateTime.now());
 
   @override
   void dispose() {
@@ -1991,8 +2012,8 @@ class _ReceiptScreenState extends State<ReceiptScreen>
       );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        body: SafeArea(
+  Widget build(BuildContext context) {
+    final body = SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(children: [
@@ -2038,13 +2059,20 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                 ),
                 const SizedBox(height: 4),
                 NeuButton(label: 'រួចរាល់', icon: Icons.done,
-                    onPressed: () =>
-                        Navigator.of(context).popUntil((r) => r.isFirst)),
+                    onPressed: () => widget.appBarTitle != null
+                        ? Navigator.of(context).pop()
+                        : Navigator.of(context)
+                            .popUntil((r) => r.isFirst)),
               ])),
             ]),
           ),
-        ),
-      );
+        );
+    if (widget.appBarTitle == null) return Scaffold(body: body);
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.appBarTitle!)),
+      body: body,
+    );
+  }
 
   Widget _actionRow(BuildContext context) {
     final text = widget.recipient == null
@@ -4897,6 +4925,26 @@ class _NotificationScreenState extends State<NotificationScreen> {
           ),
         ]),
       );
+  void _openMessage(AppNotif n) {
+    final amt = n.transferAmount;
+    if (amt == null) return;
+    Navigator.of(context).push(PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 320),
+      reverseTransitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (_, __, ___) => ReceiptScreen(
+        title: n.title,
+        amount: amt,
+        recipient: n.transferRecipient,
+        ref: n.transferRef,
+        when: n.time,
+        appBarTitle: 'សារប្រតិបត្តិការ',
+      ),
+      transitionsBuilder: (_, a, __, c) => FadeTransition(
+          opacity: CurvedAnimation(parent: a, curve: Curves.easeOutCubic),
+          child: c),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) => sb(() => Scaffold(
         appBar: AppBar(title: const Text('ជូនដំណឹង')),
@@ -4920,8 +4968,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   itemCount: bank.notifs.length,
                   itemBuilder: (_, i) {
                     final n = bank.notifs[i];
+                    final tappable = n.isTransferOut && n.transferAmount != null;
                     return Padding(padding: const EdgeInsets.only(bottom: 12),
-                        child: NeuBox(padding: const EdgeInsets.all(14), radius: 14,
+                        child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: tappable ? () => _openMessage(n) : null,
+                            child: NeuBox(padding: const EdgeInsets.all(14), radius: 14,
                             child: Row(children: [
                               Container(width: 42, height: 42,
                                   decoration: BoxDecoration(
@@ -4944,7 +4996,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                   decoration: const BoxDecoration(
                                       color: C.accentRed,
                                       shape: BoxShape.circle)),
-                            ])));
+                              if (tappable) ...[
+                                const SizedBox(width: 4),
+                                Icon(Icons.chevron_right_rounded,
+                                    size: 20, color: context.muted),
+                              ],
+                            ]))));
                   }),
             ),
           ),
