@@ -1932,11 +1932,10 @@ Future<void> confirmAndPay(BuildContext context, {
         category: category, icon: icon, pin: pin);
     onSuccess?.call();
     if (!context.mounted) return;
-    final card = bank.cards.firstWhere((c) => c.id == cardId);
     Navigator.of(context).push(PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 350),
       pageBuilder: (_, __, ___) =>
-          ReceiptScreen(title: title, amount: amount, card: card),
+          ReceiptScreen(title: title, amount: amount),
       transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
     ));
   } on ApiException catch (e) {
@@ -1949,62 +1948,223 @@ Future<void> confirmAndPay(BuildContext context, {
   }
 }
 
-class ReceiptScreen extends StatelessWidget {
+class ReceiptScreen extends StatefulWidget {
   final String title;
   final double amount;
-  final BankCard card;
-  const ReceiptScreen({super.key, required this.title,
-      required this.amount, required this.card});
+  final String? recipient;
+  const ReceiptScreen({super.key, required this.title, required this.amount,
+      this.recipient});
+  @override
+  State<ReceiptScreen> createState() => _ReceiptScreenState();
+}
+
+class _ReceiptScreenState extends State<ReceiptScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1150))..forward();
+
+  final String _ref =
+      'TXN${DateTime.now().millisecondsSinceEpoch % 1000000000}';
+  final String _time = fmtTime(DateTime.now());
 
   @override
-  Widget build(BuildContext context) {
-    final ref = 'TXN${DateTime.now().millisecondsSinceEpoch % 1000000000}';
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(children: [
-            const Spacer(),
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 700),
-              curve: Curves.elasticOut,
-              builder: (_, v, __) => Transform.scale(
-                scale: v,
-                child: Container(
-                  padding: const EdgeInsets.all(22),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [
-                      C.accentGreen.withValues(alpha: 0.2),
-                      C.accentGreen.withValues(alpha: 0.1),
-                    ]),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.check_rounded,
-                      color: C.accentGreen, size: 52),
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  String get _sender {
+    final n = bank.userName.trim();
+    return n.isEmpty ? bank.userEmail : n;
+  }
+
+  Widget _fadeIn(Widget child) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) {
+          final t = ((_c.value - 0.3) / 0.7).clamp(0.0, 1.0);
+          final v = Curves.easeOutCubic.transform(t);
+          return Opacity(
+              opacity: v,
+              child: Transform.translate(
+                  offset: Offset(0, 16 * (1 - v)), child: child));
+        },
+      );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(children: [
+              const Spacer(),
+              _badge(),
+              const SizedBox(height: 20),
+              _fadeIn(Column(children: [
+                Text('ប្រតិបត្តិការជោគជ័យ!',
+                    style: TextStyle(color: context.ink, fontSize: 20,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: widget.amount),
+                  duration: const Duration(milliseconds: 900),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, v, __) => Text(money(v),
+                      style: const TextStyle(color: C.accent,
+                          fontSize: 34, fontWeight: FontWeight.w800)),
                 ),
-              ),
-            ),
-            const SizedBox(height: 22),
-            Text('ប្រតិបត្តិការជោគជ័យ!', style: TextStyle(
-                color: context.ink, fontSize: 20, fontWeight: FontWeight.w800)),
-            Text(money(amount), style: const TextStyle(color: C.accent,
-                fontSize: 34, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 24),
-            NeuBox(inset: true, child: Column(children: [
-              InfoRow('ប្រតិបត្តិការ', title),
-              InfoRow('ពីកាត', '${card.name} • ${card.last4}'),
-              InfoRow('លេខយោង', ref),
-              InfoRow('កាលបរិច្ឆេទ', fmtTime(DateTime.now())),
-            ])),
-            const Spacer(),
-            NeuButton(label: 'រួចរាល់', icon: Icons.done,
-                onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst)),
-          ]),
+              ])),
+              const SizedBox(height: 24),
+              _fadeIn(NeuBox(inset: true, child: Column(children: [
+                _actionRow(context),
+                InfoRow('ពីគណនី', _sender),
+                InfoRow('លេខយោង', _ref),
+                InfoRow('កាលបរិច្ឆេទ', _time),
+              ]))),
+              const Spacer(),
+              _fadeIn(Column(children: [
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(PageRouteBuilder(
+                    transitionDuration: const Duration(milliseconds: 300),
+                    pageBuilder: (_, __, ___) => const _MissingMoneyScreen(),
+                    transitionsBuilder: (_, a, __, c) =>
+                        FadeTransition(opacity: a, child: c),
+                  )),
+                  icon: const Icon(Icons.help_outline_rounded, size: 17),
+                  label: const Text('បើមិនឃើញប្រាក់ចូលទេ ចុចទីនេះ'),
+                  style: TextButton.styleFrom(
+                      foregroundColor: C.accent,
+                      textStyle: const TextStyle(fontSize: 12.5,
+                          fontWeight: FontWeight.w700)),
+                ),
+                const SizedBox(height: 4),
+                NeuButton(label: 'រួចរាល់', icon: Icons.done,
+                    onPressed: () =>
+                        Navigator.of(context).popUntil((r) => r.isFirst)),
+              ])),
+            ]),
+          ),
         ),
-      ),
+      );
+
+  Widget _actionRow(BuildContext context) {
+    final text = widget.recipient == null
+        ? widget.title
+        : 'បានផ្ទេរទៅ ${widget.recipient}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Row(children: [
+        Text('ប្រតិបត្តិការ',
+            style: TextStyle(color: context.muted, fontSize: 13.5)),
+        const SizedBox(width: 12),
+        Expanded(child: Text(text, textAlign: TextAlign.right,
+            maxLines: 2, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontWeight: FontWeight.w700,
+                fontSize: 13.5, color: context.ink))),
+        if (widget.recipient != null) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+                color: C.accentGreen.withValues(alpha: 0.14),
+                shape: BoxShape.circle),
+            child: const Icon(Icons.verified_user_rounded,
+                size: 14, color: C.accentGreen),
+          ),
+        ],
+      ]),
     );
   }
+
+  Widget _badge() => SizedBox(
+        width: 136, height: 136,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (_, __) {
+            final ring = Curves.easeOutCubic
+                .transform((_c.value / 0.45).clamp(0.0, 1.0));
+            final burst = ((_c.value - 0.1) / 0.65).clamp(0.0, 1.0);
+            final check = Curves.easeOutBack
+                .transform(((_c.value - 0.22) / 0.45).clamp(0.0, 1.0));
+            return Stack(alignment: Alignment.center, children: [
+              CustomPaint(size: const Size(136, 136),
+                  painter: _SuccessPainter(ring: ring, burst: burst)),
+              Transform.scale(
+                scale: 0.35 + 0.65 * check,
+                child: Opacity(
+                  opacity: check.clamp(0.0, 1.0),
+                  child: Container(
+                    width: 80, height: 80,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                          colors: [C.accentGreen, Color(0xFF1C9C73)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight),
+                      boxShadow: [BoxShadow(
+                          color: C.accentGreen.withValues(alpha: 0.38),
+                          blurRadius: 24, offset: const Offset(0, 9))],
+                    ),
+                    child: const Icon(Icons.check_rounded,
+                        color: Colors.white, size: 46),
+                  ),
+                ),
+              ),
+            ]);
+          },
+        ),
+      );
+}
+
+class _SuccessPainter extends CustomPainter {
+  final double ring, burst;
+  const _SuccessPainter({required this.ring, required this.burst});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final r = size.width / 2 - 8;
+
+    final glow = Paint()
+      ..shader = RadialGradient(colors: [
+        C.accentGreen.withValues(alpha: 0.22 * ring),
+        C.accentGreen.withValues(alpha: 0.0),
+      ]).createShader(Rect.fromCircle(center: center, radius: r * 1.5));
+    canvas.drawCircle(center, r * 1.5, glow);
+
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round
+      ..color = C.accentGreen.withValues(alpha: 0.85);
+    canvas.drawArc(Rect.fromCircle(center: center, radius: r),
+        -math.pi / 2, 2 * math.pi * ring, false, ringPaint);
+
+    if (burst <= 0) return;
+    const n = 12;
+    for (var i = 0; i < n; i++) {
+      final a = (i / n) * 2 * math.pi - math.pi / 2;
+      final d = r * (0.95 + 0.5 * burst);
+      final p = center + Offset(math.cos(a) * d, math.sin(a) * d);
+      final paint = Paint()
+        ..color = (i.isEven ? C.accentGreen : C.accent)
+            .withValues(alpha: (1 - burst) * 0.85);
+      canvas.drawCircle(p, 1.2 + 2.6 * (1 - burst), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SuccessPainter old) =>
+      old.ring != ring || old.burst != burst;
+}
+
+// កន្លែងទទេសិន — នឹងរៀបចំនៅពេលក្រោយ
+class _MissingMoneyScreen extends StatelessWidget {
+  const _MissingMoneyScreen();
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('បើមិនឃើញប្រាក់ចូលទេ')),
+        body: const SizedBox.shrink(),
+      );
 }
 
 // ============================================================================
@@ -3556,15 +3716,16 @@ class _TransferScreenState extends State<TransferScreen> {
               note: nt.isEmpty ? null : nt, idempotencyKey: key);
       _retrySig = null; _retryKey = null;
       if (!mounted) return;
+      final rName = p2pMode
+          ? ((found?['name']) ?? 'អ្នកទទួល').toString()
+          : name.text.trim();
       _clearForm();
-      final card = bank.cards.firstWhere((c) => c.id == cid,
-          orElse: () => bank.cards.first);
       final tx = r['transaction'];
       Navigator.of(context).push(PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (_, __, ___) => ReceiptScreen(
             title: (tx is Map ? tx['title'] : null)?.toString() ?? 'ផ្ទេរប្រាក់',
-            amount: a, card: card),
+            amount: a, recipient: rName.isEmpty ? null : rName),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ));
@@ -4964,12 +5125,10 @@ class _QrPayScreenState extends State<QrPayScreen>
           recipientId: _recipientId, amount: amt, cardId: cid, pin: pin,
           idempotencyKey: ApiService.newIdempotencyKey());
       if (!mounted) return;
-      final card = bank.cards.firstWhere((c) => c.id == cid,
-          orElse: () => bank.cards.first);
       Navigator.of(context).pushReplacement(PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (_, __, ___) => ReceiptScreen(
-            title: 'ផ្ទេរទៅ $_name (QR)', amount: amt, card: card),
+            title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ));
@@ -5035,13 +5194,10 @@ class _QrPayScreenState extends State<QrPayScreen>
 
     await bank.loadAll();
     if (!mounted) return;
-    final cid = _cardId;
-    final card = bank.cards.firstWhere((c) => c.id == cid,
-        orElse: () => bank.cards.first);
     Navigator.of(context).pushReplacement(PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 350),
       pageBuilder: (_, __, ___) => ReceiptScreen(
-          title: 'ផ្ទេរទៅ $_name ($_bankName)', amount: amt, card: card),
+          title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt),
       transitionsBuilder: (_, anim, __, child) =>
           FadeTransition(opacity: anim, child: child),
     ));
