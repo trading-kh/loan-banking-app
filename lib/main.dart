@@ -512,15 +512,18 @@ class AppNotif {
   final String title, body;
   final DateTime time;
   final IconData icon;
+  final String? bankCode;
   bool read;
   AppNotif({required this.id, required this.title, required this.body,
-      required this.time, required this.icon, required this.read});
+      required this.time, required this.icon, required this.read,
+      this.bankCode});
   factory AppNotif.fromJson(Map<String, dynamic> j) => AppNotif(
         id: j['id'] as int, title: j['title'] as String,
         body: j['body'] as String,
         time: DateTime.parse(j['created_at'] as String).toLocal(),
         icon: AppIcons.get(j['icon_code'] as int? ?? 0),
         read: j['read'] == 1,
+        bankCode: (j['bank_code'] as String?)?.trim(),
       );
 
   /// សារផ្ទេរប្រាក់ចេញ (body ផ្ទេរ $x ទៅ ...) — មិនរាប់សារប្រាក់ចូល
@@ -561,7 +564,78 @@ class AppNotif {
 
   String get transferRef =>
       'TXN${time.millisecondsSinceEpoch % 1000000000}';
+
+  /// ធនាគារសម្រាប់បង្ហាញ logo — ឆ្លាតបីជាន់៖
+  /// ① bank_code ច្បាស់ពី server → ② ស្គាល់ឈ្មោះធនាគារក្នុងសារ
+  /// → ③ suffix `@abaa` ក្នុងសារ → ④ ផ្ទេរក្នុង Aura (គ្មានឈ្មោះធនាគារក្រៅ)
+  String? get bankLogoCode {
+    final explicit = (bankCode ?? '').trim().toUpperCase();
+    if (explicit.isNotEmpty && explicit != 'OTHER') return explicit;
+
+    final text = '$title $body'.toLowerCase();
+
+    // suffix QR ដែលអាចនៅសល់ក្នុងសារ (`0123@abaa`)
+    final keys = _qrBankSuffix.keys.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    for (final k in keys) {
+      if (text.contains('@$k')) return _qrBankSuffix[k];
+    }
+
+    // ឈ្មោះធនាគារពី rail directory (វែងមុន ដើម្បីកុំចាប់ខុស)
+    final rails = [...bank.rails]
+      ..sort((a, b) => b.name.length.compareTo(a.name.length));
+    for (final r in rails) {
+      if (r.code == 'OTHER') continue;
+      if (_containsWord(text, r.name)) return r.code;
+    }
+
+    // ឈ្មោះហៅក្រៅដែលអ្នកប្រើស្គាល់
+    for (final e in _bankAliases.entries) {
+      if (_containsWord(text, e.key)) return e.value;
+    }
+
+    // សារផ្ទេរក្នុង Aura (body គ្មានឈ្មោះធនាគារក្នុងវង់ក្រចក)
+    if (isTransferMessage && !body.contains('(')) return 'AURA';
+    return null;
+  }
+
+  String? get bankLogoName {
+    final code = bankLogoCode;
+    if (code == null) return null;
+    for (final r in bank.rails) {
+      if (r.code == code) return r.name;
+    }
+    return code;
+  }
+
+  /// ពាក្យដាច់ដោយឡែក (ខ្លួនឯង) — កុំអោយ 'aba' ចាប់ក្នុង 'abay'
+  static bool _containsWord(String haystack, String word) {
+    final w = word.toLowerCase().trim();
+    if (w.isEmpty) return false;
+    var i = haystack.indexOf(w);
+    while (i >= 0) {
+      final before = i == 0 ? '' : haystack[i - 1];
+      final end = i + w.length;
+      final after = end >= haystack.length ? '' : haystack[end];
+      bool edge(String c) => c.isEmpty || !RegExp(r'[a-z]').hasMatch(c);
+      if (edge(before) && edge(after)) return true;
+      i = haystack.indexOf(w, i + 1);
+    }
+    return false;
+  }
 }
+
+/// ឈ្មោះហៅក្រៅ → code (បំពេញពេលឈ្មោះ rail មិនច្បាស់)
+const _bankAliases = <String, String>{
+  'aba bank': 'ABA', 'aba': 'ABA', 'acleda': 'ACLEDA', 'canadia': 'CANADIA',
+  'wing': 'WING', 'j trust': 'JUNTUOR', 'jtrust': 'JUNTUOR',
+  'juntuor': 'JUNTUOR', 'chip mong': 'CHIPMONG', 'chipmong': 'CHIPMONG',
+  'sathapana': 'SATHAPANA', 'vattanac': 'VATTANAC',
+  'cambodia post bank': 'CPB', 'cambodia post': 'CPB', 'cpbank': 'CPB',
+  'ppcbank': 'PPCBANK', 'ppc bank': 'PPCBANK', 'hattha': 'HATTHA',
+  'maybank': 'MAYBANK', 'may bank': 'MAYBANK', 'truemoney': 'TRUEMONEY',
+  'true money': 'TRUEMONEY', 'lyf': 'LYF', 'bakong': 'BAKONG',
+};
 
 class Budget {
   final int id;
@@ -1995,8 +2069,10 @@ class ReceiptScreen extends StatefulWidget {
   final DateTime? when;
   final String? appBarTitle;
   final String? actionText;
+  final String? bankCode;
   const ReceiptScreen({super.key, required this.title, required this.amount,
-      this.recipient, this.ref, this.when, this.appBarTitle, this.actionText});
+      this.recipient, this.ref, this.when, this.appBarTitle, this.actionText,
+      this.bankCode});
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
 }
@@ -2057,6 +2133,10 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                 ),
               ])),
               const SizedBox(height: 24),
+              if (widget.bankCode != null) ...[
+                _fadeIn(_bankChip(context)),
+                const SizedBox(height: 16),
+              ],
               _fadeIn(NeuBox(inset: true, child: Column(children: [
                 _actionRow(context),
                 InfoRow('ពីគណនី', _sender),
@@ -2083,8 +2163,23 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     );
   }
 
-  Widget _actionRow(BuildContext context) {
-    final text = widget.actionText ??
+  /// ធនាគាររបស់ QR ដែលស្កេន — logo + ឈ្មោះ
+  Widget _bankChip(BuildContext context) {
+    final code = widget.bankCode!;
+    var name = code;
+    for (final r in bank.rails) {
+      if (r.code == code) name = r.name;
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      BankLogo(code: code, size: 22),
+      const SizedBox(width: 7),
+      Text(name,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
+              color: context.muted)),
+    ]);
+  }
+
+  Widget _actionRow(BuildContext context) {    final text = widget.actionText ??
         (widget.recipient == null
             ? widget.title
             : 'បានផ្ទេរទៅ ${widget.recipient}');
@@ -4988,6 +5083,41 @@ class _HistoryScreenState extends State<HistoryScreen> {
 // ============================================================================
 //  NOTIFICATIONS
 // ============================================================================
+// ============================================================================
+//  NOTIF BANK AVATAR  —  logo ធនាគារ + ផ្កាយ "រកឃើញដោយស្វ័យប្រវត្តិ"
+// ============================================================================
+class _NotifBankAvatar extends StatelessWidget {
+  final String code;
+  const _NotifBankAvatar({required this.code});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 44, height: 44,
+        child: Stack(clipBehavior: Clip.none, alignment: Alignment.center,
+            children: [
+          BankLogo(code: code, size: 42),
+          Positioned(
+            right: -2, bottom: -2,
+            child: Container(
+              width: 17, height: 17,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                    colors: [C.accentGold, Color(0xFFE0A93B)],
+                    begin: Alignment.topLeft, end: Alignment.bottomRight),
+                border: Border.all(color: Colors.white, width: 1.4),
+                boxShadow: [BoxShadow(
+                    color: C.accentGold.withValues(alpha: 0.45),
+                    blurRadius: 6)],
+              ),
+              child: const Icon(Icons.auto_awesome_rounded,
+                  size: 9, color: Colors.white),
+            ),
+          ),
+        ]),
+      );
+}
+
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({super.key});
   @override
@@ -5000,6 +5130,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   void initState() {
     super.initState();
+    // ផ្ទុកបញ្ជីធនាគារ → ស្គាល់ឈ្មោះក្នុងសារ ដើម្បីបង្ហាញ logo
+    bank.ensureRails();
     _checkNotifPermission();
     Future.delayed(const Duration(milliseconds: 600), () async {
       try { await bank.markRead(); } catch (_) {}
@@ -5067,6 +5199,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         when: n.time,
         appBarTitle: 'សារប្រតិបត្តិការ',
         actionText: action,
+        bankCode: n.bankLogoCode,
       ),
       transitionsBuilder: (_, a, __, c) => FadeTransition(
           opacity: CurvedAnimation(parent: a, curve: Curves.easeOutCubic),
@@ -5098,17 +5231,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   itemBuilder: (_, i) {
                     final n = bank.notifs[i];
                     final tappable = n.isTransferMessage;
+                    final bankLogo = n.bankLogoCode;
                     return Padding(padding: const EdgeInsets.only(bottom: 12),
                         child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: tappable ? () => _openMessage(n) : null,
                             child: NeuBox(padding: const EdgeInsets.all(14), radius: 14,
                             child: Row(children: [
-                              Container(width: 42, height: 42,
-                                  decoration: BoxDecoration(
-                                      color: C.accent.withValues(alpha: 0.15),
-                                      shape: BoxShape.circle),
-                                  child: Icon(n.icon, color: C.accent, size: 20)),
+                              if (bankLogo == null)
+                                Container(width: 42, height: 42,
+                                    decoration: BoxDecoration(
+                                        color: C.accent.withValues(alpha: 0.15),
+                                        shape: BoxShape.circle),
+                                    child: Icon(n.icon, color: C.accent, size: 20))
+                              else
+                                _NotifBankAvatar(code: bankLogo),
                               const SizedBox(width: 12),
                               Expanded(child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
