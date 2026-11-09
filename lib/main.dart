@@ -37,6 +37,7 @@ import 'onboarding.dart';
 import 'ui_extras.dart';
 import 'loan_module.dart';
 import 'screens/account_screen.dart';
+import 'screens/receive_money_screen.dart';
 import 'device_services.dart';
 import 'device_command_handler.dart';
 
@@ -2605,8 +2606,8 @@ class HomeScreen extends StatelessWidget {
                         () => push(context, const SavingsScreen())),
                     AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
                         () => push(context, const LoanModuleScreen())),
-                    AbaCell(Icons.pie_chart_outline, 'ថវិកា',
-                        () => push(context, const BudgetsScreen())),
+                    AbaCell(Icons.south_west_rounded, 'ទទួលប្រាក់',
+                        () => push(context, const ReceiveMoneyScreen())),
                     AbaCell(Icons.notifications_active_outlined, 'រំលឹក',
                         () => push(context, const RemindersScreen())),
                     AbaCell(Icons.apps_rounded, 'សមិទ្ធផល',
