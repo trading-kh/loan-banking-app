@@ -6452,7 +6452,7 @@ class _QrScreenState extends State<QrScreen> {
     final guessed = bankCodeFromQr(raw);
     if (guessed != null) {
       setState(() => _detectedBank = guessed);
-      await Future.delayed(const Duration(milliseconds: 750));
+      await Future.delayed(const Duration(milliseconds: 1200));
       if (!mounted) return;
     }
     // ស្កេនបាន = បិទកាមេរ៉ា និងបិទទំព័រស្កេនភ្លាម → ទំព័រទូទាត់ (skeleton) ជំនួស
@@ -6634,9 +6634,10 @@ class _QrScreenState extends State<QrScreen> {
 
               // ── avatar logo ធនាគារ ពេលស្កេនឃើញ ──
               if (_detectedBank != null)
-                Center(
+                Positioned.fill(
                   child: IgnorePointer(
-                    child: _DetectedBankAvatar(
+                    child: _DetectedBankReveal(
+                      key: ValueKey(_detectedBank),
                       code: _detectedBank!,
                       label: _bankNameFor(_detectedBank!),
                     ),
@@ -6782,11 +6783,16 @@ class _QrScreenState extends State<QrScreen> {
               blurRadius: 18, offset: const Offset(0, 8))],
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          _bankLogoRow(_scannerBanks.sublist(0, 8)),
+          _bankLogoRow([
+            for (final c in _scannerBanks.sublist(0, 8)) BankLogo(code: c, size: 28),
+          ]),
           const SizedBox(height: 7),
-          _bankLogoRow([..._scannerBanks.sublist(8), null]),
+          _bankLogoRow([
+            for (final c in _scannerBanks.sublist(8)) BankLogo(code: c, size: 28),
+            const _SecuritySeal(),
+          ]),
           const SizedBox(height: 9),
-          Text('ធនាគារ និងកាបូបឌីជីថលដែលគាំទ្រ',
+          Text('ធនាគារ និងកាបូបឌីជីថល · សុវត្ថិភាពខ្ពស់',
               style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.5),
                   fontSize: 9.5, fontWeight: FontWeight.w600,
@@ -6794,14 +6800,8 @@ class _QrScreenState extends State<QrScreen> {
         ]),
       );
 
-  Widget _bankLogoRow(List<String?> codes) => Row(children: [
-        for (final c in codes)
-          Expanded(
-            child: Center(
-              child: c == null ? const SizedBox(height: 28)
-                  : BankLogo(code: c, size: 28),
-            ),
-          ),
+  Widget _bankLogoRow(List<Widget> cells) => Row(children: [
+        for (final w in cells) Expanded(child: Center(child: w)),
       ]);
 }
 
@@ -6966,47 +6966,317 @@ class _ScanLineState extends State<_ScanLine>
 }
 
 // ============================================================================
-//  DETECTED BANK AVATAR  —  logo ធនាគារដែលទើបស្កេនឃើញ
+//  SECURITY SEAL  —  ត្រាសុវត្ថិភាពខ្ពស់ (ពន្លឺរត់ជុំវិញ)
 // ============================================================================
-class _DetectedBankAvatar extends StatelessWidget {
-  final String code;
-  final String label;
-  const _DetectedBankAvatar({required this.code, required this.label});
+class _SecuritySeal extends StatefulWidget {
+  const _SecuritySeal();
+  @override
+  State<_SecuritySeal> createState() => _SecuritySealState();
+}
+
+class _SecuritySealState extends State<_SecuritySeal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
 
   @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 340),
-        curve: Curves.easeOutBack,
-        builder: (_, t, child) => Opacity(
-          opacity: t.clamp(0.0, 1.0),
-          child: Transform.scale(scale: 0.72 + 0.28 * t, child: child),
-        ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 108, height: 108,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.12),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
-              boxShadow: [BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 24, offset: const Offset(0, 8))],
-            ),
-            child: BankLogo(code: code, size: 78),
-          ),
-          const SizedBox(height: 12),
-          Text(label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 13.5,
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(height: 3),
-          Text('បានរកឃើញ QR',
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72), fontSize: 11)),
-        ]),
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) {
+          final t = _c.value;
+          final glow = 0.5 + 0.5 * math.sin(t * 2 * math.pi);
+          return SizedBox(
+            width: 36, height: 36,
+            child: Stack(alignment: Alignment.center, children: [
+              CustomPaint(
+                size: const Size(36, 36),
+                painter: _CometRingPainter(t, C.accentGold, width: 2.4),
+              ),
+              Container(
+                width: 27, height: 27,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(9),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0E5E86), Color(0xFF033553)],
+                    begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  border: Border.all(
+                      color: C.accentGold.withValues(alpha: 0.55), width: 1),
+                  boxShadow: [BoxShadow(
+                      color: C.accentGold.withValues(alpha: 0.20 + 0.25 * glow),
+                      blurRadius: 10, spreadRadius: 1)],
+                ),
+                child: ShaderMask(
+                  blendMode: BlendMode.srcATop,
+                  shaderCallback: (r) => LinearGradient(
+                    colors: [
+                      Colors.white.withValues(alpha: 0.45),
+                      Colors.white,
+                      Colors.white,
+                      Colors.white.withValues(alpha: 0.45),
+                    ],
+                    stops: const [0.0, 0.38, 0.55, 1.0],
+                    transform: _SkeletonSlide(t),
+                  ).createShader(r),
+                  child: const Icon(Icons.gpp_good_rounded, size: 15,
+                      color: Colors.white),
+                ),
+              ),
+            ]),
+          );
+        },
       );
+}
+
+// ============================================================================
+//  DETECTED BANK REVEAL  —  magic reveal ពេលស្កេនឃើញធនាគារ
+// ============================================================================
+class _DetectedBankReveal extends StatefulWidget {
+  final String code;
+  final String label;
+  const _DetectedBankReveal({super.key, required this.code, required this.label});
+  @override
+  State<_DetectedBankReveal> createState() => _DetectedBankRevealState();
+}
+
+class _DetectedBankRevealState extends State<_DetectedBankReveal>
+    with TickerProviderStateMixin {
+  late final AnimationController _in = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 620))..forward();
+  late final AnimationController _spin = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2400))..repeat();
+  late final AnimationController _pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1500))
+    ..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _in.dispose();
+    _spin.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: Listenable.merge([_in, _spin, _pulse]),
+        builder: (_, __) {
+          final inT = _in.value;
+          final e = Curves.easeOutCubic.transform(inT);
+          final pop = Curves.easeOutBack.transform(inT);
+          final check = inT < 0.45
+              ? 0.0
+              : Curves.easeOutBack.transform((inT - 0.45) / 0.55);
+          final spin = _spin.value;
+          final beat = 0.5 + 0.5 * math.sin(_pulse.value * math.pi);
+          return Container(
+            color: const Color(0xFF021C2C).withValues(alpha: 0.72 * e),
+            alignment: Alignment.center,
+            child: Transform.translate(
+              offset: Offset(0, 18 * (1 - e)),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                SizedBox(
+                  width: 190, height: 190,
+                  child: Stack(alignment: Alignment.center, children: [
+                    // ពន្លឺ halo ដកដង្ហើម
+                    Opacity(
+                      opacity: e,
+                      child: Container(
+                        width: 132 + 12 * beat,
+                        height: 132 + 12 * beat,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(colors: [
+                            C.accentGold.withValues(alpha: 0.34),
+                            C.accent.withValues(alpha: 0.10),
+                            Colors.transparent,
+                          ], stops: const [0.0, 0.55, 1.0]),
+                        ),
+                      ),
+                    ),
+                    // រង្វង់ពន្លឺរត់
+                    Opacity(
+                      opacity: e,
+                      child: CustomPaint(
+                        size: const Size(176, 176),
+                        painter: _CometRingPainter(spin, C.accentGold, width: 3),
+                      ),
+                    ),
+                    Opacity(
+                      opacity: e * 0.5,
+                      child: Container(
+                        width: 176, height: 176,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.12),
+                              width: 1),
+                        ),
+                      ),
+                    ),
+                    // ផ្កាយតូចៗលេចធ្លោ
+                    for (var i = 0; i < 6; i++)
+                      Transform.rotate(
+                        angle: spin * 2 * math.pi + i * math.pi / 3,
+                        child: Transform.translate(
+                          offset: const Offset(0, -88),
+                          child: Opacity(
+                            opacity: e *
+                                (0.25 + 0.5 * ((_pulse.value + i / 6) % 1.0)),
+                            child: Container(
+                              width: i.isEven ? 3.5 : 2.5,
+                              height: i.isEven ? 3.5 : 2.5,
+                              decoration: const BoxDecoration(
+                                  color: C.accentGold, shape: BoxShape.circle),
+                            ),
+                          ),
+                        ),
+                      ),
+                    // កាត logo + ពន្លឺរអិល + សញ្ញាធីក
+                    Opacity(
+                      opacity: e,
+                      child: Transform.rotate(
+                        angle: -0.10 * (1 - e),
+                        child: Transform.scale(
+                          scale: 0.55 + 0.45 * pop,
+                          child: SizedBox(
+                            width: 124, height: 124,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(26),
+                                  child: Stack(children: [
+                                    BankLogo(code: widget.code, size: 104),
+                                    Positioned.fill(
+                                      child: IgnorePointer(
+                                        child: Transform.translate(
+                                          offset: Offset(-170 + 340 * e, 0),
+                                          child: Transform.rotate(
+                                            angle: 0.5,
+                                            child: Center(
+                                              child: Container(
+                                                width: 46, height: 240,
+                                                decoration: BoxDecoration(
+                                                  gradient: LinearGradient(
+                                                    colors: [
+                                                      Colors.transparent,
+                                                      Colors.white.withValues(
+                                                          alpha: 0.55),
+                                                      Colors.transparent,
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ]),
+                                ),
+                                Positioned(
+                                  right: 0, bottom: 0,
+                                  child: Transform.scale(
+                                    scale: check,
+                                    child: Container(
+                                      width: 34, height: 34,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: const LinearGradient(
+                                          colors: [C.accentGold,
+                                              Color(0xFFE0A93B)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight),
+                                        border: Border.all(
+                                            color: Colors.white, width: 2),
+                                        boxShadow: [BoxShadow(
+                                            color: Colors.black.withValues(
+                                                alpha: 0.35),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4))],
+                                      ),
+                                      child: const Icon(Icons.check_rounded,
+                                          color: Colors.white, size: 19),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 6),
+                Opacity(
+                  opacity: e,
+                  child: Transform.translate(
+                    offset: Offset(0, 12 * (1 - e)),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(widget.label,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white,
+                              fontSize: 17, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 5),
+                      Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.verified_user_rounded,
+                            size: 12, color: C.accentGold),
+                        const SizedBox(width: 5),
+                        Text('បានរកឃើញ QR ដោយសុវត្ថិភាព',
+                            style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.75),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600)),
+                      ]),
+                    ]),
+                  ),
+                ),
+              ]),
+            ),
+          );
+        },
+      );
+}
+
+/// រង្វង់ comet — ពន្លឺមួយកំណាត់រត់ជុំវិញ
+class _CometRingPainter extends CustomPainter {
+  final double t;
+  final Color color;
+  final double width;
+  const _CometRingPainter(this.t, this.color, {this.width = 3});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..strokeCap = StrokeCap.round
+      ..shader = SweepGradient(
+        colors: [
+          color.withValues(alpha: 0.0),
+          color.withValues(alpha: 0.0),
+          color.withValues(alpha: 0.35),
+          color.withValues(alpha: 0.95),
+          Colors.white.withValues(alpha: 0.95),
+          color.withValues(alpha: 0.0),
+        ],
+        stops: const [0.0, 0.60, 0.74, 0.88, 0.93, 1.0],
+        transform: GradientRotation(t * 2 * math.pi),
+      ).createShader(rect);
+    canvas.drawCircle(rect.center, (size.shortestSide - width) / 2, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CometRingPainter old) =>
+      old.t != t || old.color != color || old.width != width;
 }
 
 // ============================================================================
