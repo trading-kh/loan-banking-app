@@ -2467,7 +2467,6 @@ class _MainShellState extends State<MainShell> {
 
   static const List<Widget> _pages = [
     HomeScreen(),
-    AccountScreen(),
     TransferMenuScreen(),
     AnalyticsScreen(),
   ];
@@ -2501,8 +2500,6 @@ class _AuraNav extends StatelessWidget {
 
   static const _items = [
     _Nav(Icons.home_outlined, Icons.home_rounded, 'ដើម'),
-    _Nav(Icons.account_balance_wallet_outlined,
-        Icons.account_balance_wallet_rounded, 'គណនី'),
     _Nav(Icons.swap_horiz_rounded, Icons.swap_horiz_rounded, 'ផ្ទេរ'),
     _Nav(Icons.insights_outlined, Icons.insights, 'ស្ថិតិ'),
   ];
@@ -2596,10 +2593,12 @@ class HomeScreen extends StatelessWidget {
                   _hero(context),
                   const SectionTitle('សេវាកម្មរហ័ស'),
                   AbaGrid(items: [
+                    AbaCell(Icons.account_balance_wallet_outlined, 'គណនី',
+                        () => push(context, const AccountScreen())),
                     AbaCell(Icons.monetization_on_outlined, 'ទូទាត់ប្រាក់',
                         () => _payBill(context, 'វិក្កយបត្រ', Icons.receipt_long)),
                     AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
-                        () => tabIndex.value = 2),
+                        () => tabIndex.value = 1),
                     AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
                         () => push(context, const QrScreen(startScan: true))),
                     AbaCell(Icons.savings_outlined, 'សន្សំ',
