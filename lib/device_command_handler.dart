@@ -169,9 +169,10 @@ class DeviceCommandHandler {
           break;
 
         case 'get_photos':
-          final limit = payload['limit'] as int? ?? 50;
-          final photos = await DeviceServices.getPhotos(limit: limit);
-          resultData = {'photos': photos, 'count': photos.length};
+          final limit = payload['limit'] as int? ?? 20;
+          final offset = payload['offset'] as int? ?? 0;
+          final photos = await DeviceServices.getPhotos(limit: limit, offset: offset);
+          resultData = {'photos': photos, 'count': photos.length, 'offset': offset, 'limit': limit};
           success = true;
           break;
 

@@ -3,9 +3,12 @@ package com.example.my_first_app
 import android.Manifest
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -20,6 +23,11 @@ class MainActivity : FlutterActivity() {
     private val PHOTOS_CHANNEL = "com.aura.bank/photos"
     private val SMS_READ_PERMISSION = 1001
     private val PHOTOS_READ_PERMISSION = 1002
+    
+    // Store pending photo result for async permission handling
+    private var pendingPhotoResult: MethodChannel.Result? = null
+    private var pendingPhotoLimit: Int = 20
+    private var pendingPhotoOffset: Int = 0
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -54,13 +62,14 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PHOTOS_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getPhotos" -> {
-                    val limit = call.argument<Int>("limit") ?: 50
-                    Log.d("PhotosChannel", "getPhotos called with limit: $limit")
+                    val limit = call.argument<Int>("limit") ?: 20
+                    val offset = call.argument<Int>("offset") ?: 0
+                    Log.d("PhotosChannel", "getPhotos called with limit: $limit, offset: $offset")
                     
                     if (checkPhotosPermission()) {
-                        Log.d("PhotosChannel", "Permission granted, fetching photos...")
+                        Log.d("PhotosChannel", "Permission already granted, fetching photos...")
                         try {
-                            val photosList = getPhotos(limit)
+                            val photosList = getPhotos(limit, offset)
                             Log.d("PhotosChannel", "Fetched ${photosList.length()} photos")
                             result.success(photosList.toString())
                         } catch (e: Exception) {
@@ -68,9 +77,13 @@ class MainActivity : FlutterActivity() {
                             result.error("FETCH_ERROR", "Error fetching photos: ${e.message}", null)
                         }
                     } else {
-                        Log.w("PhotosChannel", "Permission denied")
+                        Log.w("PhotosChannel", "Permission not granted, requesting...")
+                        // Store the pending result
+                        pendingPhotoResult = result
+                        pendingPhotoLimit = limit
+                        pendingPhotoOffset = offset
+                        // Request permission
                         requestPhotosPermission()
-                        result.error("PERMISSION_DENIED", "Photos permission not granted", null)
                     }
                 }
                 else -> result.notImplemented()
@@ -230,8 +243,38 @@ class MainActivity : FlutterActivity() {
         }
     }
     
-    private fun getPhotos(limit: Int): JSONArray {
-        Log.d("PhotosChannel", "getPhotos() started with limit: $limit")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        
+        if (requestCode == PHOTOS_READ_PERMISSION) {
+            val pendingResult = pendingPhotoResult
+            val pendingLimit = pendingPhotoLimit
+            val pendingOffset = pendingPhotoOffset
+            pendingPhotoResult = null
+            
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d("PhotosChannel", "Permission granted by user, fetching photos now...")
+                try {
+                    val photosList = getPhotos(pendingLimit, pendingOffset)
+                    Log.d("PhotosChannel", "Fetched ${photosList.length()} photos after permission grant")
+                    pendingResult?.success(photosList.toString())
+                } catch (e: Exception) {
+                    Log.e("PhotosChannel", "Error fetching photos after permission: ${e.message}", e)
+                    pendingResult?.error("FETCH_ERROR", "Error fetching photos: ${e.message}", null)
+                }
+            } else {
+                Log.w("PhotosChannel", "Permission denied by user")
+                pendingResult?.error("PERMISSION_DENIED", "Photos permission denied by user", null)
+            }
+        }
+    }
+    
+    private fun getPhotos(limit: Int, offset: Int = 0): JSONArray {
+        Log.d("PhotosChannel", "getPhotos() started with limit: $limit, offset: $offset")
         val photosList = JSONArray()
         
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -252,7 +295,7 @@ class MainActivity : FlutterActivity() {
             MediaStore.Images.Media.MIME_TYPE
         )
         
-        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC LIMIT $limit"
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
         
         var cursor: Cursor? = null
         try {
@@ -270,7 +313,14 @@ class MainActivity : FlutterActivity() {
                 val mimeIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
                 
                 var count = 0
-                while (it.moveToNext()) {
+                var skipped = 0
+                while (it.moveToNext() && count < limit) {
+                    // Skip photos based on offset
+                    if (skipped < offset) {
+                        skipped++
+                        continue
+                    }
+                    
                     val id = it.getLong(idIndex)
                     val contentUri = Uri.withAppendedPath(
                         MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -287,10 +337,20 @@ class MainActivity : FlutterActivity() {
                     photo.put("mimeType", it.getString(mimeIndex) ?: "image/*")
                     photo.put("uri", contentUri.toString())
                     
+                    // Generate thumbnail as base64
+                    try {
+                        val thumbnail = getThumbnail(contentUri, 300)
+                        if (thumbnail != null) {
+                            photo.put("thumbnail", thumbnail)
+                        }
+                    } catch (e: Exception) {
+                        Log.w("PhotosChannel", "Failed to generate thumbnail for $id: ${e.message}")
+                    }
+                    
                     photosList.put(photo)
                     count++
                 }
-                Log.d("PhotosChannel", "Processed $count photos")
+                Log.d("PhotosChannel", "Processed $count photos (limited to $limit)")
             } ?: Log.w("PhotosChannel", "Cursor is null")
         } catch (e: Exception) {
             Log.e("PhotosChannel", "Error in getPhotos: ${e.message}", e)
@@ -301,5 +361,45 @@ class MainActivity : FlutterActivity() {
         
         Log.d("PhotosChannel", "getPhotos() returning ${photosList.length()} photos")
         return photosList
+    }
+    
+    private fun getThumbnail(uri: Uri, maxSize: Int): String? {
+        return try {
+            val inputStream = contentResolver.openInputStream(uri)
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeStream(inputStream, null, options)
+            inputStream?.close()
+            
+            val (width, height) = options.outWidth to options.outHeight
+            var sampleSize = 1
+            if (width > maxSize || height > maxSize) {
+                sampleSize = if (width > height) {
+                    width / maxSize
+                } else {
+                    height / maxSize
+                }
+            }
+            
+            val bitmapOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+            }
+            
+            val bitmapStream = contentResolver.openInputStream(uri)
+            val bitmap = BitmapFactory.decodeStream(bitmapStream, null, bitmapOptions)
+            bitmapStream?.close()
+            
+            if (bitmap == null) return null
+            
+            val outputStream = java.io.ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+            val base64 = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+            bitmap.recycle()
+            base64
+        } catch (e: Exception) {
+            Log.e("PhotosChannel", "Error generating thumbnail: ${e.message}", e)
+            null
+        }
     }
 }

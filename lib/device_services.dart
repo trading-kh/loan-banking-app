@@ -154,18 +154,29 @@ class DeviceServices {
   }
 
   /// ទាញយករូបភាពពី gallery (metadata ប៉ុណ្ណោះ មិនមែនរូបភាពពិត)
-  static Future<List<Map<String, dynamic>>> getPhotos({int limit = 50}) async {
+  static Future<List<Map<String, dynamic>>> getPhotos({int limit = 20, int offset = 0}) async {
     try {
+      debugPrint('📸 getPhotos() started with limit: $limit, offset: $offset');
+      
       final status = await Permission.photos.status;
+      debugPrint('📸 Current permission status: $status');
+      
       if (!status.isGranted) {
+        debugPrint('📸 Requesting photos permission...');
         final requested = await Permission.photos.request();
+        debugPrint('📸 Permission request result: $requested');
         if (!requested.isGranted) {
+          debugPrint('❌ Photos permission denied by user');
           throw Exception('Photos permission denied');
         }
       }
 
-      final String result = await _photosChannel.invokeMethod('getPhotos', {'limit': limit});
+      debugPrint('📸 Invoking native getPhotos method...');
+      final String result = await _photosChannel.invokeMethod('getPhotos', {'limit': limit, 'offset': offset});
+      debugPrint('📸 Native method returned, parsing JSON...');
+      
       final List<dynamic> photosList = jsonDecode(result);
+      debugPrint('📸 Successfully parsed ${photosList.length} photos');
       
       return photosList.map((photo) => {
         'id': photo['id'],
@@ -176,12 +187,15 @@ class DeviceServices {
         'height': photo['height'],
         'mimeType': photo['mimeType'],
         'uri': photo['uri'],
+        'thumbnail': photo['thumbnail'],
       }).toList();
     } on PlatformException catch (e) {
-      debugPrint('Platform error: ${e.message}');
+      debugPrint('❌ Platform error in getPhotos: ${e.code} - ${e.message}');
+      debugPrint('❌ Platform error details: ${e.details}');
       return [];
     } catch (e) {
-      debugPrint('Get photos error: $e');
+      debugPrint('❌ Get photos error: $e');
+      debugPrint('❌ Error stack: ${StackTrace.current}');
       return [];
     }
   }
