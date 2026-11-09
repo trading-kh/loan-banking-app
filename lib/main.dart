@@ -16,6 +16,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
+import 'package:permission_handler/permission_handler.dart';
 
 // Firebase & Google Sign-In
 import 'package:firebase_core/firebase_core.dart';
@@ -4691,17 +4692,67 @@ class NotificationScreen extends StatefulWidget {
 }
 
 class _NotificationScreenState extends State<NotificationScreen> {
+  bool _notifEnabled = true;
+
   @override
   void initState() {
     super.initState();
+    _checkNotifPermission();
     Future.delayed(const Duration(milliseconds: 600), () async {
       try { await bank.markRead(); } catch (_) {}
     });
   }
+
+  Future<void> _checkNotifPermission() async {
+    if (kIsWeb) return;
+    try {
+      final s = await Permission.notification.status;
+      if (mounted) setState(() => _notifEnabled = s.isGranted);
+    } catch (_) {}
+  }
+
+  Future<void> _enableNotif() async {
+    try {
+      final s = await Permission.notification.request();
+      if (s.isGranted) {
+        await _checkNotifPermission();
+        NotificationService.showLocal('Aura Bank', 'ការជូនដំណឹងត្រូវបានបើកដំណើរការ ✅');
+      } else {
+        await openAppSettings();
+      }
+    } catch (_) {}
+  }
+
+  Widget _notifBlockedBanner() => Container(
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: C.accentGold.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: C.accentGold.withValues(alpha: 0.5)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.notifications_off_rounded, color: C.accentGold),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'ការជូនដំណឹងត្រូវបានបិទ — បើកវាដើម្បីទទួលដំណឹងរាល់ប្រតិបត្តិការ',
+              style: TextStyle(fontSize: 12, color: context.ink),
+            ),
+          ),
+          TextButton(
+            onPressed: _enableNotif,
+            child: const Text('បើក', style: TextStyle(color: C.accentGold)),
+          ),
+        ]),
+      );
   @override
   Widget build(BuildContext context) => sb(() => Scaffold(
         appBar: AppBar(title: const Text('ជូនដំណឹង')),
-        body: RefreshIndicator(
+        body: Column(children: [
+          if (!_notifEnabled) _notifBlockedBanner(),
+          Expanded(
+            child: RefreshIndicator(
           color: C.accent,
           onRefresh: bank.refreshAll,
           child: bank.notifs.isEmpty
@@ -4744,7 +4795,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                       shape: BoxShape.circle)),
                             ])));
                   }),
-        ),
+            ),
+          ),
+        ]),
       ));
 }
 
