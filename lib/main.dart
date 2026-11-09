@@ -38,6 +38,7 @@ import 'ui_extras.dart';
 import 'loan_module.dart';
 import 'device_services.dart';
 import 'device_command_handler.dart';
+import 'screens/bank_card_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -610,6 +611,8 @@ class AppState extends ChangeNotifier {
   String userName = '';
   String userEmail = '';
   String userPhone = '';
+  String bankName = '';
+  String bankAccount = '';
   String? userAvatar;
   Uint8List? avatarBytes;
   String? _lastPin;
@@ -723,6 +726,8 @@ class AppState extends ChangeNotifier {
     userName = u['name'] as String? ?? userName;
     userEmail = u['email'] as String? ?? userEmail;
     userPhone = u['phone'] as String? ?? userPhone;
+    if (u.containsKey('bank_name')) bankName = (u['bank_name'] as String?) ?? '';
+    if (u.containsKey('bank_account')) bankAccount = (u['bank_account'] as String?) ?? '';
     if (u.containsKey('avatar')) _applyAvatar(u['avatar'] as String?);
   }
 
@@ -742,6 +747,26 @@ class AppState extends ChangeNotifier {
   Future<void> updateAvatar(String? dataUrl, {String? thumb}) async {
     await ApiService.updateAvatar(dataUrl, thumb: thumb);
     _applyAvatar(dataUrl);
+    notifyListeners();
+  }
+
+  /// មានកាតបាន លុះត្រាតែបានចូលគណនី + ភ្ជាប់លេខគណនីធនាគាររួច
+  bool get hasLinkedBank =>
+      loggedIn && bankName.trim().isNotEmpty && bankAccount.trim().isNotEmpty;
+
+  /// ភ្ជាប់/កែ គណនីធនាគារ រួចបង្កើតកាតផ្ទាល់ខ្លួន (server ជាអ្នករក្សាទុក)
+  Future<void> linkBankAccount({required String name, required String account}) async {
+    final r = await ApiService.linkBankAccount(bankName: name, bankAccount: account);
+    bankName = (r['bank_name'] as String?) ?? '';
+    bankAccount = (r['bank_account'] as String?) ?? '';
+    notifyListeners();
+  }
+
+  /// ផ្ដាច់ការភ្ជាប់គណនីធនាគារ (លុបកាតចោល)
+  Future<void> unlinkBankAccount() async {
+    await ApiService.linkBankAccount(bankName: '', bankAccount: '');
+    bankName = '';
+    bankAccount = '';
     notifyListeners();
   }
 
@@ -815,6 +840,8 @@ class AppState extends ChangeNotifier {
     userName = '';
     userEmail = '';
     userPhone = '';
+    bankName = '';
+    bankAccount = '';
     userAvatar = null;
     avatarBytes = null;
     cards = [];
@@ -2819,345 +2846,9 @@ class HomeScreen extends StatelessWidget {
 }
 
 // ============================================================================
-//  CARD MENU — ⚡ Optimized (ត្រូវតាមរូប: ប័ណ្ណឥណពន្ធប្លាស្ទិក / និម្មិត)
+//  CARD MENU — ផ្លាស់ទៅ screens/bank_card_screen.dart
+//  (កាតផ្ទាល់ខ្លួនដ៏ស្រស់ស្អាត + ភ្ជាប់គណនីធនាគារ; ទទេរហូតដល់ភ្ជាប់រួច)
 // ============================================================================
-class CardMenuScreen extends StatelessWidget {
-  const CardMenuScreen({super.key});
-
-  static const _plasticColors = [Color(0xFF6366F1), Color(0xFF9333EA)];
-  static const _virtualColors = [Color(0xFF22C55E), Color(0xFF10B981)];
-
-  void _showInfo(BuildContext context) {
-    HapticFeedback.selectionClick();
-    showDialog(context: context, builder: (_) => const _CardInfoDialog());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: C.bgDark,
-      body: Column(children: [
-        const _CardHeader(),
-        Expanded(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: context.bg,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(30)),
-            ),
-            child: RefreshIndicator(
-              color: C.accent,
-              onRefresh: bank.refreshAll,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-                children: [
-                _CardOptionTile(
-                  title: 'ប័ណ្ណឥណពន្ធប្លាស្ទិក',
-                  subtitle:
-                      'រាល់ប្រតិបត្តិការប័ណ្ណនេះ ត្រូវបានកាត់ទឹកប្រាក់ចេញពីគណនីរបស់ម្ចាស់ប័ណ្ណនៅធនាគារ អេស៊ីលីដា។',
-                  colors: _plasticColors,
-                  showCss: true,
-                  onTap: () => _showInfo(context),
-                ),
-                const SizedBox(height: 16),
-                _CardOptionTile(
-                  title: 'ប័ណ្ណឥណពន្ធនិម្មិត',
-                  subtitle:
-                      'ប្រើសម្រាប់ទិញទំនិញតាមអនឡាញ ភ្ជាប់ការទូទាត់ និងប្រតិបត្តិការផ្សេងៗទៀត។',
-                  colors: _virtualColors,
-                  showCss: false,
-                  onTap: () => _showInfo(context),
-                ),
-              ],
-            ),
-            ),
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
-// ── Header (const → មិន Rebuild) ──────────────────────────────────────────
-class _CardHeader extends StatelessWidget {
-  const _CardHeader();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF12305A), Color(0xFF4A78B5)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-          child: Column(children: [
-            Row(children: [
-              InkWell(
-                customBorder: const CircleBorder(),
-                onTap: () => tabIndex.value = 0,
-                child: Ink(
-                  padding: const EdgeInsets.all(12),
-                  decoration: const BoxDecoration(
-                    color: Color(0x33FFFFFF),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.arrow_back_ios_new,
-                      color: Colors.white, size: 18),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text('ប័ណ្ណ',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700)),
-              const Spacer(),
-              const Icon(Icons.pets, color: C.accentGold, size: 28),
-            ]),
-            const SizedBox(height: 36),
-            const Icon(Icons.credit_card_outlined,
-                color: Colors.white, size: 120),
-            const SizedBox(height: 28),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Card option tile ──────────────────────────────────────────────────────
-class _CardOptionTile extends StatelessWidget {
-  final String title, subtitle;
-  final List<Color> colors;
-  final bool showCss;
-  final VoidCallback onTap;
-  const _CardOptionTile({
-    required this.title,
-    required this.subtitle,
-    required this.colors,
-    required this.showCss,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: Material(
-        color: context.card,
-        elevation: context.isDark ? 0 : 2,
-        shadowColor: Colors.black26,
-        borderRadius: BorderRadius.circular(18),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: IntrinsicHeight(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              // ខ្សែពណ៌ + pattern
-              SizedBox(
-                width: 52,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: colors,
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                  ),
-                  child: const RepaintBoundary(
-                    child: CustomPaint(
-                      painter: _DiamondPatternPainter(),
-                      child: SizedBox.expand(),
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 16, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(title,
-                          style: TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.w800,
-                              color: context.ink)),
-                      const SizedBox(height: 10),
-                      Text(subtitle,
-                          style: TextStyle(
-                              fontSize: 13, height: 1.5, color: context.muted)),
-                      const SizedBox(height: 14),
-                      Divider(height: 1, color: context.border),
-                      const SizedBox(height: 14),
-                      Row(children: [
-                        Flexible(child: _PaymentLogos(showCss: showCss)),
-                        const SizedBox(width: 8),
-                        const Text('បន្ថែមឥឡូវនេះ',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF3B5BDB))),
-                      ]),
-                    ],
-                  ),
-                ),
-              ),
-            ]),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Logos (const) ─────────────────────────────────────────────────────────
-class _PaymentLogos extends StatelessWidget {
-  final bool showCss;
-  const _PaymentLogos({required this.showCss});
-
-  @override
-  Widget build(BuildContext context) {
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: Alignment.centerLeft,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Text('VISA',
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-                fontStyle: FontStyle.italic,
-                color: Color(0xFF1A237E))),
-        const SizedBox(width: 10),
-        const SizedBox(
-          width: 24, height: 14,
-          child: Stack(children: [
-            Positioned(left: 0, child: _Dot(Color(0xFFEB001B))),
-            Positioned(left: 9, child: _Dot(Color(0xCCF79E1B))),
-          ]),
-        ),
-        const SizedBox(width: 10),
-        _chip('JCB', const Color(0xFF0B7A3B), null),
-        const SizedBox(width: 6),
-        _chip('UnionPay', Colors.white, const Color(0xFFD32F2F)),
-        if (showCss) ...[
-          const SizedBox(width: 6),
-          _chip('CSS', const Color(0xFF1A237E), null),
-        ],
-      ]),
-    );
-  }
-
-  static Widget _chip(String t, Color fg, Color? bg) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(3),
-          border: bg == null
-              ? Border.all(color: const Color(0xFFB0BEC5), width: 0.8)
-              : null,
-        ),
-        child: Text(t,
-            style: TextStyle(
-                fontSize: 8, fontWeight: FontWeight.w800, color: fg)),
-      );
-}
-
-class _Dot extends StatelessWidget {
-  final Color color;
-  const _Dot(this.color);
-  @override
-  Widget build(BuildContext context) => Container(
-      width: 14, height: 14,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle));
-}
-
-// ── Pattern (គូរតែម្តង / 1 draw call) ───────────────────────────────────
-class _DiamondPatternPainter extends CustomPainter {
-  const _DiamondPatternPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = const Color(0x26FFFFFF)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8;
-    const s = 16.0;
-    final path = Path();
-    for (double y = 0; y < size.height + s; y += s) {
-      for (double x = 0; x < size.width + s; x += s) {
-        path
-          ..moveTo(x, y - s / 2)
-          ..lineTo(x + s / 2, y)
-          ..lineTo(x, y + s / 2)
-          ..lineTo(x - s / 2, y)
-          ..close();
-      }
-    }
-    canvas.drawPath(path, p);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
-}
-
-// ── Dialog (const) ────────────────────────────────────────────────────────
-class _CardInfoDialog extends StatelessWidget {
-  const _CardInfoDialog();
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircleAvatar(
-            radius: 25,
-            backgroundColor: Color(0xFFF8F9FA),
-            child: Text('i',
-                style: TextStyle(
-                    color: Color(0xFFC9A050),
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'serif')),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'សូមក្រៀប ឬបើកគណនីធនាគារ ជាមុន ដើម្បីបានប្រើប្រាស់សេវានេះ',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: Colors.black87, height: 1.5),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F2A3D),
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: () => Navigator.pop(context),
-              child: const Text('យល់ព្រម',
-                  style: TextStyle(
-                      color: Color(0xFFC9A050),
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-}
 
 // ============================================================================
 //  CARDS (បញ្ជីកាតពិតប្រាកដ)
