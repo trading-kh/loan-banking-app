@@ -1,6 +1,6 @@
 // ============================================================================
-//  BANK CARD — កាតផ្ទាល់ខ្លួនដ៏ស្រស់ស្អាត + ភ្ជាប់គណនីធនាគារ
-//  ទទេ រហូតទាល់តែអ្នកប្រើចូលគណនី + ភ្ជាប់លេខគណនីធនាគារ ទើបបង្កើតកាតមួយ។
+//  BANK CARD — កាតផ្ទាល់ខ្លួនដ៏ស្រស់ស្អាត + សមតុល្យពិតប្រាកដ
+//  ចូលគណនីភ្លាម → បង្ហាញកាតតែម្ដង ជាមួយចំនួនទឹកប្រាក់ដែលអ្នកប្រើមានជាក់ស្ដែង។
 // ============================================================================
 import 'dart:async';
 import 'dart:math' as math;
@@ -22,12 +22,7 @@ class CardMenuScreen extends StatelessWidget {
   Widget build(BuildContext context) => sb(() {
         final Widget body = !bank.loggedIn
             ? const _LoginPrompt()
-            : !bank.hasLinkedBank
-                ? _EmptyCardState(
-                    onLink: () =>
-                        push(context, const LinkBankAccountScreen()))
-                : _LinkedCardView(
-                    onManage: () => _showManageSheet(context));
+            : _CardView(onManage: () => _showManageSheet(context));
         return Scaffold(
           backgroundColor: C.bgDark,
           body: Column(children: [
@@ -93,32 +88,7 @@ class _CardTopBar extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.3)),
                 const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0x22FFFFFF),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0x33FFFFFF)),
-                  ),
-                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.verified_user_outlined,
-                        color: C.accentGold, size: 15),
-                    SizedBox(width: 5),
-                    Text('សុវត្ថិភាព',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600)),
-                  ]),
-                ),
               ]),
-              const SizedBox(height: 12),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('គ្រប់គ្រងកាត និងគណនីធនាគាររបស់អ្នក',
-                    style: TextStyle(color: Color(0xB3FFFFFF), fontSize: 12.5)),
-              ),
             ]),
           ),
         ),
@@ -133,68 +103,11 @@ class _LoginPrompt extends StatelessWidget {
         icon: Icons.lock_outline_rounded,
         title: 'សូមចូលគណនីជាមុន',
         subtitle:
-            'ចូលគណនី Aura Bank របស់អ្នក ដើម្បីភ្ជាប់ធនាគារ និងបង្កើតកាតផ្ទាល់ខ្លួន។',
+            'ចូលគណនី Aura Bank របស់អ្នក ដើម្បីមើលកាត និងសមតុល្យពិតប្រាកដរបស់អ្នក។',
         action: NeuButton(
             label: 'ចូលគណនី',
             icon: Icons.login_rounded,
             onPressed: () => tabIndex.value = 0),
-      );
-}
-
-// ── ទទេ (មិនទាន់ភ្ជាប់គណនីធនាគារ) ──────────────────────────────────────────
-class _EmptyCardState extends StatelessWidget {
-  final VoidCallback onLink;
-  const _EmptyCardState({required this.onLink});
-  @override
-  Widget build(BuildContext context) => Column(children: [
-        const _GhostCard(),
-        const SizedBox(height: 26),
-        Text('មិនទាន់មានកាតនៅឡើយទេ',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-                color: context.ink)),
-        const SizedBox(height: 10),
-        Text(
-            'ភ្ជាប់គណនីធនាគាររបស់អ្នក ដើម្បីបង្កើតកាតផ្ទាល់ខ្លួនដ៏ស្រស់ស្អាត មានឈ្មោះអ្នក និងឈ្មោះធនាគារដែលអ្នកបានជ្រើសរើស។',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13.5, height: 1.6, color: context.muted)),
-        const SizedBox(height: 24),
-        NeuButton(
-            label: 'ភ្ជាប់គណនីធនាគារ',
-            icon: Icons.add_link_rounded,
-            onPressed: onLink),
-        const SizedBox(height: 24),
-        Row(children: [
-          _featurePill(context, Icons.shield_outlined, 'សុវត្ថិភាពខ្ពស់'),
-          const SizedBox(width: 10),
-          _featurePill(context, Icons.bolt_rounded, 'បង្កើតភ្លាមៗ'),
-          const SizedBox(width: 10),
-          _featurePill(context, Icons.badge_outlined, 'ផ្ទាល់ខ្លួន'),
-        ]),
-      ]);
-
-  Widget _featurePill(BuildContext context, IconData icon, String label) =>
-      Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: context.card,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: context.border),
-          ),
-          child: Column(children: [
-            Icon(icon, color: C.accent, size: 22),
-            const SizedBox(height: 7),
-            Text(label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: context.muted)),
-          ]),
-        ),
       );
 }
 
@@ -233,58 +146,34 @@ class _EmptyShell extends StatelessWidget {
       ]);
 }
 
-// ── កាតខ្មោច (placeholder ទទេ) ──────────────────────────────────────────────
-class _GhostCard extends StatelessWidget {
-  const _GhostCard();
-  @override
-  Widget build(BuildContext context) => AspectRatio(
-        aspectRatio: 1.586,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Stack(fit: StackFit.expand, children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: context.isDark
-                      ? [const Color(0xFF07293F), const Color(0xFF0A3A57)]
-                      : [const Color(0xFFE9EFF4), const Color(0xFFDCE6EE)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-            ),
-            CustomPaint(painter: _DashedRRectPainter(context.border)),
-            Center(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.credit_card_rounded,
-                  size: 46, color: context.muted.withValues(alpha: 0.55)),
-              const SizedBox(height: 12),
-              Text('កាតរបស់អ្នកនឹងបង្ហាញនៅទីនេះ',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: context.muted.withValues(alpha: 0.8))),
-            ])),
-          ]),
-        ),
-      );
-}
-
 // ============================================================================
-//  ជាវកាតដែលបានភ្ជាប់ (កាត + សកម្មភាព + ព័ត៌មាន)
+//  ទិដ្ឋភាពកាត (កាត + សមតុល្យពិត + ព័ត៌មាន) — បង្ហាញភ្លាមៗពេលចូលគណនី
 // ============================================================================
-class _LinkedCardView extends StatelessWidget {
+class _CardView extends StatelessWidget {
   final VoidCallback onManage;
-  const _LinkedCardView({required this.onManage});
+  const _CardView({required this.onManage});
+
+  String get _bankName =>
+      bank.bankName.trim().isNotEmpty ? bank.bankName.trim() : 'AURA BANK';
+
+  String get _account {
+    if (bank.bankAccount.trim().isNotEmpty) return bank.bankAccount.trim();
+    if (bank.cards.isNotEmpty) return bank.cards.first.number;
+    final id = (bank.userId ?? 0).toString();
+    return '4${id.padLeft(15, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) => Column(children: [
         AuraBankCard(
           holderName: bank.userName,
-          bankName: bank.bankName,
-          accountNumber: bank.bankAccount,
+          bankName: _bankName,
+          accountNumber: _account,
           onManage: onManage,
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
+        const _BalancePanel(),
+        const SizedBox(height: 16),
         NeuBox(
           inset: true,
           child: Column(children: [
@@ -297,50 +186,201 @@ class _LinkedCardView extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       color: context.ink)),
               const Spacer(),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: C.accentGreen.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
+              if (bank.hasLinkedBank)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: C.accentGreen.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.check_circle, color: C.accentGreen, size: 13),
+                    SizedBox(width: 4),
+                    Text('បានភ្ជាប់',
+                        style: TextStyle(
+                            color: C.accentGreen,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700)),
+                  ]),
                 ),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.check_circle, color: C.accentGreen, size: 13),
-                  SizedBox(width: 4),
-                  Text('បានភ្ជាប់',
-                      style: TextStyle(
-                          color: C.accentGreen,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700)),
-                ]),
-              ),
             ]),
             const SizedBox(height: 8),
-            InfoRow('ធនាគារ', bank.bankName),
-            InfoRow('លេខគណនី', _maskNumber(bank.bankAccount)),
+            InfoRow('ធនាគារ', _bankName),
+            InfoRow('លេខគណនី', _maskNumber(_account)),
             InfoRow('ម្ចាស់កាត',
                 bank.userName.isEmpty ? '—' : bank.userName.toUpperCase()),
           ]),
         ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: C.accent.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: C.accent.withValues(alpha: 0.2)),
-          ),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Icon(Icons.info_outline, color: C.accent, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-                child: Text(
-                    'កាតនេះជាតំណាងនិម្មិតនៃគណនីធនាគារដែលអ្នកបានភ្ជាប់ សម្រាប់ប្រើប្រាស់ក្នុង Aura Bank។ ចុចលើកាតដើម្បីបត់មើលខាងក្រោយ។',
-                    style: TextStyle(
-                        fontSize: 12, height: 1.55, color: context.muted))),
-          ]),
-        ),
       ]);
+}
+
+// ── សមតុល្យពិតប្រាកដ (ភ្ជាប់ជាមួយកាត) ──────────────────────────────────────
+class _BalancePanel extends StatelessWidget {
+  const _BalancePanel();
+
+  static String _khr(double v) =>
+      '៛${v.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final isKhr = bank.currencyMode == 'KHR';
+    final value = isKhr ? bank.total * bank.khrRate : bank.total;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0E3B57), Color(0xFF12507C), Color(0xFF0A2A4A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        boxShadow: [
+          BoxShadow(
+              color: const Color(0xFF061A2F).withValues(alpha: 0.28),
+              blurRadius: 18,
+              offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Stack(children: [
+        Positioned(
+          right: -24,
+          top: -34,
+          child: Container(
+            width: 130,
+            height: 130,
+            decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: C.accentTeal.withValues(alpha: 0.12)),
+          ),
+        ),
+        Positioned(
+          left: -20,
+          bottom: -40,
+          child: Container(
+            width: 110,
+            height: 110,
+            decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: C.accentGold.withValues(alpha: 0.08)),
+          ),
+        ),
+        Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: C.accentGold.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: const Icon(Icons.account_balance_wallet_rounded,
+                      color: C.accentGold, size: 17),
+                ),
+                const SizedBox(width: 10),
+                Text('សមតុល្យដែលអាចប្រើបាន',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.82),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    bank.setHide(!bank.hideBalance);
+                  },
+                  child: Icon(
+                      bank.hideBalance
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: Colors.white.withValues(alpha: 0.85),
+                      size: 20),
+                ),
+              ]),
+              const SizedBox(height: 14),
+              bank.hideBalance
+                  ? const Text('••••••••',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1))
+                  : AnimatedCounter(
+                      value: value,
+                      formatter: isKhr ? _khr : money,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -1,
+                          fontFeatures: [FontFeature.tabularFigures()]),
+                    ),
+              const SizedBox(height: 16),
+              Row(children: [
+                _CurrencySeg(
+                  isKhr: isKhr,
+                  onChanged: (m) {
+                    HapticFeedback.selectionClick();
+                    bank.setCurrency(m);
+                  },
+                ),
+                const Spacer(),
+                Text(
+                    isKhr
+                        ? '≈ ${money(bank.total)}'
+                        : '≈ ${_khr(bank.total * bank.khrRate)}',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500)),
+              ]),
+            ]),
+      ]),
+    );
+  }
+}
+
+class _CurrencySeg extends StatelessWidget {
+  final bool isKhr;
+  final ValueChanged<String> onChanged;
+  const _CurrencySeg({required this.isKhr, required this.onChanged});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          _seg('\$ USD', !isKhr, () => onChanged('USD')),
+          _seg('៛ KHR', isKhr, () => onChanged('KHR')),
+        ]),
+      );
+
+  Widget _seg(String label, bool selected, VoidCallback onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? C.accentGold : Colors.transparent,
+            borderRadius: BorderRadius.circular(17),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: selected
+                      ? const Color(0xFF0A2740)
+                      : Colors.white.withValues(alpha: 0.75),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800)),
+        ),
+      );
 }
 
 // ============================================================================
@@ -978,20 +1018,30 @@ void _showManageSheet(BuildContext context) {
           const Icon(Icons.account_balance_rounded, color: C.accent, size: 20),
           const SizedBox(width: 10),
           Expanded(
-              child: Text(bank.bankName,
+              child: Text(
+                  bank.bankName.trim().isEmpty
+                      ? 'AURA BANK'
+                      : bank.bankName,
                   style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                       color: ctx.ink))),
-          Text(_maskNumber(bank.bankAccount),
+          Text(
+              bank.bankAccount.trim().isEmpty
+                  ? 'កាត Aura Bank'
+                  : _maskNumber(bank.bankAccount),
               style: TextStyle(fontSize: 12.5, color: ctx.muted)),
         ]),
       ),
       const SizedBox(height: 12),
       ListTile(
           leading: const Icon(Icons.edit_outlined, color: C.accent),
-          title: const Text('កែប្រែគណនីធនាគារ'),
-          subtitle: const Text('ប្ដូរឈ្មោះធនាគារ ឬលេខគណនី'),
+          title: Text(bank.hasLinkedBank
+              ? 'កែប្រែគណនីធនាគារ'
+              : 'ភ្ជាប់គណនីធនាគារ'),
+          subtitle: Text(bank.hasLinkedBank
+              ? 'ប្ដូរឈ្មោះធនាគារ ឬលេខគណនី'
+              : 'បញ្ចូលឈ្មោះធនាគារ និងលេខគណនីរបស់អ្នក'),
           trailing: const Icon(Icons.chevron_right),
           onTap: () {
             Navigator.pop(ctx);
@@ -1001,16 +1051,17 @@ void _showManageSheet(BuildContext context) {
                     initialBankName: bank.bankName,
                     initialAccount: bank.bankAccount));
           }),
-      ListTile(
-          leading: const Icon(Icons.link_off_rounded, color: C.accentRed),
-          title: const Text('ផ្ដាច់ការភ្ជាប់',
-              style: TextStyle(color: C.accentRed)),
-          subtitle: const Text('លុបកាតនេះចេញពីគណនីរបស់អ្នក'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () {
-            Navigator.pop(ctx);
-            _confirmUnlink(context);
-          }),
+      if (bank.hasLinkedBank)
+        ListTile(
+            leading: const Icon(Icons.link_off_rounded, color: C.accentRed),
+            title: const Text('ផ្ដាច់ការភ្ជាប់',
+                style: TextStyle(color: C.accentRed)),
+            subtitle: const Text('លុបកាតនេះចេញពីគណនីរបស់អ្នក'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.pop(ctx);
+              _confirmUnlink(context);
+            }),
       const SizedBox(height: 12),
     ])),
   );
@@ -1436,32 +1487,4 @@ class _SignaturePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter old) => false;
-}
-
-class _DashedRRectPainter extends CustomPainter {
-  final Color color;
-  _DashedRRectPainter(this.color);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6;
-    final path = Path()
-      ..addRRect(RRect.fromRectAndRadius(
-          Rect.fromLTWH(3, 3, size.width - 6, size.height - 6),
-          const Radius.circular(18)));
-    const dash = 9.0, gap = 7.0;
-    for (final metric in path.computeMetrics()) {
-      double dist = 0;
-      while (dist < metric.length) {
-        final len = math.min(dash, metric.length - dist);
-        canvas.drawPath(metric.extractPath(dist, dist + len), p);
-        dist += dash + gap;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DashedRRectPainter old) => old.color != color;
 }
