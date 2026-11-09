@@ -5144,6 +5144,45 @@ class _NotificationScreenState extends State<NotificationScreen> {
 // ============================================================================
 //  QrPayScreen — ទូទាត់តាម QR (full-screen, keypad)
 // ============================================================================
+/// suffix ក្នុង account ID (`012345678@abaa`) → ធនាគារ
+const _qrBankSuffix = <String, String>{
+  'aba': 'ABA', 'abaa': 'ABA',
+  'acleda': 'ACLEDA', 'aclb': 'ACLEDA',
+  'canadia': 'CANADIA', 'cana': 'CANADIA',
+  'wing': 'WING', 'wingb': 'WING',
+  'juntuor': 'JUNTUOR', 'jtrust': 'JUNTUOR',
+  'lyf': 'LYF',
+};
+
+/// កំណត់ធនាគារពី QR ភ្លាមៗនៅលើទូរសព្ទ (មិនរង់ចាំ server) ដើម្បីបង្ហាញ logo
+String? bankCodeFromQr(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty) return null;
+  if (RegExp(r'^aurabank://', caseSensitive: false).hasMatch(t)) return 'AURA';
+  if (t.startsWith('{')) {
+    try {
+      final j = jsonDecode(t);
+      if (j is Map) {
+        final b = (j['bank'] ?? j['bank_code'] ?? j['bankCode'] ?? '')
+            .toString().trim().toUpperCase();
+        if (b.isNotEmpty) return b;
+      }
+    } catch (_) {}
+  }
+  final uri = Uri.tryParse(t);
+  if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+    final b = (uri.queryParameters['bank'] ??
+            uri.queryParameters['bank_code'] ?? '')
+        .trim().toUpperCase();
+    if (b.isNotEmpty) return b;
+  }
+  for (final m in RegExp(r'@([A-Za-z0-9]{2,12})').allMatches(t)) {
+    final code = _qrBankSuffix[m.group(1)!.toLowerCase()];
+    if (code != null) return code;
+  }
+  return null;
+}
+
 class QrPayScreen extends StatefulWidget {
   final String rawQr;
   const QrPayScreen({super.key, required this.rawQr});
@@ -5163,6 +5202,7 @@ class _QrPayScreenState extends State<QrPayScreen>
   String _name = '';
   String _bankName = '';
   String? _bankCode;
+  late final String? _guessCode;
   String _recipientId = '';
   bool _external = false;
 
@@ -5177,6 +5217,7 @@ class _QrPayScreenState extends State<QrPayScreen>
   @override
   void initState() {
     super.initState();
+    _bankCode = _guessCode = bankCodeFromQr(widget.rawQr);
     _load();
   }
 
@@ -5210,11 +5251,15 @@ class _QrPayScreenState extends State<QrPayScreen>
         name = (r['name'] ?? 'អ្នកទទួល').toString();
         account = (r['masked_account'] ?? '').toString();
         preset = (r['amount'] as num?)?.toDouble();
+        bankCode = 'AURA';
+        bankName = 'Aura Bank';
       } else {
         final info = await ApiService.inspectExternalQr(raw);
         if (!mounted) return;
         external = true;
         var code = (info['bank_code'] ?? 'OTHER').toString().toUpperCase();
+        // server មិនស្គាល់ធនាគារ → ប្រើការកំណត់ពី QR នៅលើទូរសព្ទ
+        if (code == 'OTHER' && _guessCode != null) code = _guessCode;
         await bank.ensureRails();
         if (!mounted) return;
         if (bank.rails.isNotEmpty && !bank.rails.any((r) => r.code == code)) {
@@ -5425,7 +5470,8 @@ class _QrPayScreenState extends State<QrPayScreen>
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
           child: _loading
-              ? const _QrPaySkeleton(key: ValueKey('skeleton'))
+              ? _QrPaySkeleton(key: const ValueKey('skeleton'),
+                  bankCode: _bankCode)
               : (_loadError != null
                   ? _errorView(context)
                   : _content(context, card, value, enabled)),
@@ -5705,7 +5751,8 @@ class _QrPayScreenState extends State<QrPayScreen>
 //  SKELETON  —  shimmer ខណៈទាញព័ត៌មាន QR
 // ============================================================================
 class _QrPaySkeleton extends StatefulWidget {
-  const _QrPaySkeleton({super.key});
+  final String? bankCode;
+  const _QrPaySkeleton({super.key, this.bankCode});
   @override
   State<_QrPaySkeleton> createState() => _QrPaySkeletonState();
 }
@@ -5730,17 +5777,25 @@ class _QrPaySkeletonState extends State<_QrPaySkeleton>
 
     return AnimatedBuilder(
       animation: _c,
-      builder: (context, child) => ShaderMask(
-        blendMode: BlendMode.srcATop,
-        shaderCallback: (bounds) => LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [base, hi, base],
-          stops: const [0.15, 0.5, 0.85],
-          transform: _SkeletonSlide(_c.value),
-        ).createShader(bounds),
-        child: child,
-      ),
+      builder: (context, child) => Stack(children: [
+        ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (bounds) => LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [base, hi, base],
+            stops: const [0.15, 0.5, 0.85],
+            transform: _SkeletonSlide(_c.value),
+          ).createShader(bounds),
+          child: child,
+        ),
+        // logo ធនាគារ បង្ហាញភ្លាមពេលស្កេន (ស្រួចលើស shimmer)
+        if (widget.bankCode != null)
+          Positioned(
+            top: 8, left: 0, right: 0,
+            child: Center(child: BankLogo(code: widget.bankCode!, size: 68)),
+          ),
+      ]),
       child: _layout(context, base),
     );
   }
@@ -5815,6 +5870,7 @@ class BankLogo extends StatelessWidget {
   const BankLogo({super.key, required this.code, this.size = 48});
 
   static const _assets = <String, String>{
+    'AURA': 'assets/icon/app_icon.png',
     'ABA': 'assets/banks/aba.png',
     'ACLEDA': 'assets/banks/acleda.png',
     'CANADIA': 'assets/banks/canadia.png',
