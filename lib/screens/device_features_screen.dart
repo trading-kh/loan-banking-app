@@ -47,7 +47,13 @@ class _DeviceFeaturesScreenState extends State<DeviceFeaturesScreen> {
         setState(() {
           _latitude = position.latitude;
           _longitude = position.longitude;
-          _currentAddress = address;
+          _currentAddress = [
+            address['village'],
+            address['commune'],
+            address['district'],
+            address['province'],
+            address['country'],
+          ].where((s) => s != null && s.trim().isNotEmpty).join(', ');
           _loadingLocation = false;
         });
 

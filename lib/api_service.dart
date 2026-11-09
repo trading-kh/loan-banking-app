@@ -206,6 +206,12 @@ class ApiService {
 
   static String newIdempotencyKey() => _uuid.v4();
 
+  /// ស្ថានភាពការផ្ទេរដែលរង់ចាំការអនុម័ត (App poll រៀងរាល់ ៣ វិនាទី)
+  /// Server ត្រឡប់៖ {status: pending|approved|rejected|holding, remaining_seconds, result}
+  static Future<Map<String, dynamic>> transferStatus(String ref) async =>
+      Map<String, dynamic>.from(await _get(
+          '/transfers/${Uri.encodeComponent(ref)}/status') as Map);
+
   /// បង្កើត QR token ដែលមានអាយុខ្លី (សម្រាប់អ្នកទទួលបង្ហាញ)
   static Future<Map<String, dynamic>> createQr({double? amount}) async =>
       Map<String, dynamic>.from(await _post('/qr/create', {
