@@ -4860,8 +4860,7 @@ class _QrAmountSheetState extends State<_QrAmountSheet> {
                 keyboardType: const TextInputType.numberWithOptions(
                     decimal: true)),
             const SizedBox(height: 14),
-            CardPicker(selectedId: _cardId,
-                onChanged: (id) => setState(() => _cardId = id)),
+            AccountTile(cardId: _cardId),
             const SizedBox(height: 20),
             NeuButton(label: 'បន្ត', icon: Icons.send_rounded, onPressed: () {
               final a = parseAmt(_amt.text);
@@ -4943,6 +4942,80 @@ class BankLogo extends StatelessWidget {
             style: const TextStyle(color: Colors.white,
                 fontWeight: FontWeight.w800, letterSpacing: 0.5))),
       ),
+    );
+  }
+}
+
+// ============================================================================
+//  AccountTile — គណនីកម្ចីផ្ទាល់ខ្លួន តែមួយ (ជំនួស CardPicker ក្នុងផ្ទាំងស្កេន QR)
+// ============================================================================
+class AccountTile extends StatelessWidget {
+  final int? cardId;
+  const AccountTile({super.key, this.cardId});
+
+  BankCard? get _account {
+    if (bank.cards.isEmpty) return null;
+    for (final c in bank.cards) {
+      if (c.id == cardId) return c;
+    }
+    return bank.cards.first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _account;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            C.accent.withValues(alpha: 0.16),
+            C.accentGold.withValues(alpha: 0.09),
+          ],
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: C.accent.withValues(alpha: 0.28), width: 1.2),
+        boxShadow: [BoxShadow(
+            color: C.accent.withValues(alpha: 0.10),
+            blurRadius: 14, offset: const Offset(0, 6))],
+      ),
+      child: Row(children: [
+        Container(
+          width: 46, height: 46,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+                colors: [C.accent, C.bgDark],
+                begin: Alignment.topLeft, end: Alignment.bottomRight),
+            borderRadius: BorderRadius.circular(13),
+            boxShadow: [BoxShadow(
+                color: C.accent.withValues(alpha: 0.32),
+                blurRadius: 10, offset: const Offset(0, 4))],
+          ),
+          child: const Icon(Icons.account_balance_wallet_rounded,
+              color: Colors.white, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min, children: [
+          Text('គណនីកម្ចីផ្ទាល់ខ្លួន',
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700,
+                  color: context.ink)),
+          const SizedBox(height: 3),
+          Text(c == null ? 'មិនមានគណនី' : 'សមតុល្យអាចប្រើប្រាស់',
+              style: TextStyle(fontSize: 11.5, color: context.muted)),
+        ])),
+        if (c != null) ...[
+          const SizedBox(width: 10),
+          Text(money(c.balance),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800,
+                  color: context.ink)),
+          const SizedBox(width: 6),
+          const Icon(Icons.check_circle_rounded,
+              color: C.accentGreen, size: 18),
+        ],
+      ]),
     );
   }
 }
@@ -5061,8 +5134,7 @@ class _ExternalQrSheetState extends State<_ExternalQrSheet> {
                 keyboardType: const TextInputType.numberWithOptions(
                     decimal: true)),
             const SizedBox(height: 14),
-            CardPicker(selectedId: _cardId,
-                onChanged: (id) => setState(() => _cardId = id)),
+            AccountTile(cardId: _cardId),
             const SizedBox(height: 18),
             Container(
               padding: const EdgeInsets.all(14),
