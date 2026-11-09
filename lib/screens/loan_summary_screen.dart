@@ -44,7 +44,7 @@ class _LoanSummaryScreenState extends State<LoanSummaryScreen> {
     }
     setState(() => _submitting = true);
     try {
-      await ApiService.saveLoanKyc(widget.formData.toKycPayload(), submit: true);
+      await _syncKyc();
       final response = await ApiService.applyLoan(
         principal: widget.formData.amount,
         months: widget.formData.durationMonths ?? 12,
@@ -68,6 +68,19 @@ class _LoanSummaryScreenState extends State<LoanSummaryScreen> {
       if (mounted) toast(context, 'មានកំហុស: $e', error: true);
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  /// KYC ដែលផ្ទៀងផ្ទាត់រួចត្រូវចាក់សោរ — មិនត្រូវរក្សាទុកម្តងទៀតទេ
+  Future<void> _syncKyc() async {
+    try {
+      final current = await ApiService.getLoanKyc();
+      if (current != null && current['status'] == 'verified') return;
+    } catch (_) {}
+    try {
+      await ApiService.saveLoanKyc(widget.formData.toKycPayload(), submit: true);
+    } on ApiException catch (e) {
+      if (e.code != 'KYC_LOCKED') rethrow;
     }
   }
 
