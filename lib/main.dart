@@ -4268,16 +4268,6 @@ String? _avatarThumb(Uint8List bytes) {
   return base64Encode(img.encodeJpg(resized, quality: 60));
 }
 
-/// បម្លែង base64 (thumbnail) ទៅទិន្នន័យរូប — null បើមិនមាន
-Uint8List? _thumbBytes(Object? v) {
-  if (v is! String || v.isEmpty) return null;
-  try {
-    return base64Decode(v);
-  } catch (_) {
-    return null;
-  }
-}
-
 /// រូប Profile — បង្ហាញរូបដែលរក្សាទុក ឬ icon បើមិនទាន់មាន
 class UserAvatar extends StatelessWidget {
   const UserAvatar({super.key, this.radius = 46,
@@ -4804,73 +4794,387 @@ class _NotificationScreenState extends State<NotificationScreen> {
 // ============================================================================
 //  QR / KHQR  —  Full-screen ABA-style scanner + Receive tab
 // ============================================================================
-class _QrAmountSheet extends StatefulWidget {
-  final String name;
-  final String masked;
-  final double? initialAmount;
-  final Uint8List? thumb;
-  const _QrAmountSheet({
-    required this.name, required this.masked, this.initialAmount, this.thumb,
-  });
-  @override
-  State<_QrAmountSheet> createState() => _QrAmountSheetState();
+// ============================================================================
+//  QrPayScreen — ទូទាត់តាម QR (full-screen, keypad)
+// ============================================================================
+class QrPayResult {
+  final double amount;
+  final int cardId;
+  final String note, account;
+  const QrPayResult({required this.amount, required this.cardId,
+      required this.note, required this.account});
 }
 
-class _QrAmountSheetState extends State<_QrAmountSheet> {
-  late final TextEditingController _amt = TextEditingController(
-      text: widget.initialAmount?.toStringAsFixed(2) ?? '');
-  late int _cardId = bank.cards.first.id;
+class QrPayScreen extends StatefulWidget {
+  final String name, account, masked;
+  final String? bankCode, bankName;
+  final double? initialAmount;
+  const QrPayScreen({super.key, required this.name, this.account = '',
+      this.masked = '', this.bankCode, this.bankName, this.initialAmount});
+  @override
+  State<QrPayScreen> createState() => _QrPayScreenState();
+}
+
+class _QrPayScreenState extends State<QrPayScreen> {
+  late final TextEditingController _acc =
+      TextEditingController(text: widget.account);
+  late String _amt = widget.initialAmount == null
+      ? '' : widget.initialAmount!.toStringAsFixed(2);
+  String _note = '';
+  bool _obscure = false;
+
+  int get _cardId => bank.cards.isEmpty ? 0 : bank.cards.first.id;
+
+  double? get _value => parseAmt(_amt);
 
   @override
   void dispose() {
-    _amt.dispose();
+    _acc.dispose();
     super.dispose();
   }
 
+  void _key(String k) {
+    setState(() {
+      if (k == '⌫') {
+        if (_amt.isNotEmpty) _amt = _amt.substring(0, _amt.length - 1);
+        return;
+      }
+      if (k == '.') {
+        if (_amt.contains('.')) return;
+        _amt = _amt.isEmpty ? '0.' : '$_amt.';
+        return;
+      }
+      if (_amt.contains('.')) {
+        if (_amt.split('.').last.length >= 2) return;
+      } else if (_amt.length >= 9) {
+        return;
+      }
+      _amt = _amt == '0' ? k : _amt + k;
+    });
+  }
+
+  Future<void> _editNote() async {
+    final c = TextEditingController(text: _note);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('គោលបំណង'),
+        content: TextField(
+          controller: c, autofocus: true, maxLength: 60,
+          decoration: const InputDecoration(hintText: 'ឧ. បង់ថ្លៃអាហារ'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('បោះបង់')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('រក្សាទុក')),
+        ],
+      ),
+    );
+    if (ok == true) setState(() => _note = c.text.trim());
+    c.dispose();
+  }
+
+  void _pay() {
+    final a = _value;
+    if (a == null || a <= 0) {
+      toast(context, 'សូមបញ្ចូលទឹកប្រាក់', error: true);
+      return;
+    }
+    final acc = _acc.text.trim();
+    if (acc.length < 3) {
+      toast(context, 'សូមបញ្ចូលលេខគណនីអ្នកទទួល', error: true);
+      return;
+    }
+    if (bank.cards.isEmpty) {
+      toast(context, 'គ្មានគណនីសម្រាប់ទូទាត់', error: true);
+      return;
+    }
+    Navigator.pop(context, QrPayResult(
+        amount: a, cardId: _cardId, note: _note, account: acc));
+  }
+
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(20, 0, 20,
-            MediaQuery.of(context).viewInsets.bottom + 20),
-        child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('ផ្ញើប្រាក់ទៅ',
-                style: TextStyle(fontSize: 12.5, color: context.muted)),
-            Row(children: [
-              RecipientThumb(bytes: widget.thumb, name: widget.name, size: 44),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(widget.name, style: TextStyle(fontSize: 20,
-                          fontWeight: FontWeight.w800, color: context.ink)),
-                      if (widget.masked.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(widget.masked,
-                              style: TextStyle(
-                                  fontSize: 12.5, color: context.muted)),
-                        ),
-                    ]),
+  Widget build(BuildContext context) {
+    final card = bank.cards.isEmpty ? null : bank.cards.first;
+    final value = _value;
+    return Scaffold(
+      appBar: AppBar(
+        centerTitle: true,
+        title: const Text('ទូទាត់តាម QR'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded),
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('ទូទាត់តាម QR'),
+                content: const Text(
+                    'ព័ត៌មានអ្នកទទួលត្រូវបានផ្ទៀងផ្ទាត់ជាមួយ server រួចហើយ។ '
+                    'សូមពិនិត្យឈ្មោះ និងទឹកប្រាក់មុនចុចទូទាត់។'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(_),
+                      child: const Text('យល់ព្រម')),
+                ],
               ),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+              child: Column(children: [
+                _bankAvatar(context),
+                const SizedBox(height: 14),
+                Text(widget.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+                        color: context.ink)),
+                const SizedBox(height: 5),
+                if (widget.account.isEmpty)
+                  SizedBox(width: 230,
+                      child: NeuField(controller: _acc,
+                          label: 'លេខគណនីអ្នកទទួល',
+                          icon: Icons.account_balance_wallet_outlined,
+                          onChanged: (_) => setState(() {})))
+                else
+                  Text(widget.masked.isNotEmpty ? widget.masked : widget.account,
+                      style: TextStyle(fontSize: 13, letterSpacing: 0.4,
+                          color: context.muted)),
+                const SizedBox(height: 12),
+                _bankPill(context),
+                const SizedBox(height: 18),
+                Row(children: [
+                  _actionBtn(context,
+                      icon: Icons.chat_bubble_outline_rounded,
+                      label: 'គោលបំណង', onTap: _editNote),
+                  const SizedBox(width: 10),
+                  _actionBtn(context,
+                      icon: Icons.favorite_border_rounded,
+                      label: 'កំណត់ត្រា',
+                      onTap: () => toast(context, 'បានកត់ត្រាអ្នកទទួលនេះ')),
+                ]),
+                if (_note.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('គោលបំណង៖ $_note',
+                          style: TextStyle(fontSize: 11.5, color: context.muted)),
+                    ),
+                  ),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('ទូទាត់ពី',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
+                          color: context.muted)),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [
+                      C.accent.withValues(alpha: 0.16),
+                      C.accentGold.withValues(alpha: 0.09),
+                    ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: C.accent.withValues(alpha: 0.28), width: 1.2),
+                  ),
+                  child: Row(children: [
+                    Container(width: 42, height: 42,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                              colors: [C.accent, C.bgDark],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.account_balance_wallet_rounded,
+                            color: Colors.white, size: 20)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min, children: [
+                      Text(bank.userPhone.isNotEmpty
+                              ? bank.userPhone
+                              : 'គណនីកម្ចីផ្ទាល់ខ្លួន',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
+                              color: context.ink)),
+                      const SizedBox(height: 2),
+                      Text(_obscure
+                              ? '••••••'
+                              : (card == null ? 'មិនមានគណនី' : money(card.balance)),
+                          style: TextStyle(fontSize: 12.5, color: context.muted)),
+                    ])),
+                    IconButton(
+                      icon: Icon(_obscure
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 20, color: context.muted),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  decoration: BoxDecoration(
+                    color: context.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: C.accent.withValues(alpha: 0.30), width: 1.5),
+                    boxShadow: [BoxShadow(
+                        color: C.accent.withValues(alpha: 0.10),
+                        blurRadius: 18, offset: const Offset(0, 8))],
+                  ),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic, children: [
+                    Text(_amt.isEmpty ? '0' : _amt,
+                        style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800,
+                            color: value == null ? context.muted : context.ink)),
+                    const SizedBox(width: 6),
+                    Text('\$', style: TextStyle(fontSize: 20,
+                        fontWeight: FontWeight.w700, color: context.muted)),
+                  ]),
+                ),
+              ]),
+            ),
+          ),
+          _keypad(context),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 12),
+            child: SizedBox(
+              width: double.infinity, height: 54,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: C.bgDark,
+                  disabledBackgroundColor: C.bgDark.withValues(alpha: 0.35),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                ),
+                onPressed: (value == null || value <= 0) ? null : _pay,
+                child: const Text('ទូទាត់ឥឡូវ',
+                    style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800,
+                        color: Colors.white)),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _bankAvatar(BuildContext context) => Container(
+        width: 82, height: 82,
+        padding: const EdgeInsets.all(7),
+        decoration: BoxDecoration(
+          color: context.card,
+          shape: BoxShape.circle,
+          border: Border.all(color: C.accent.withValues(alpha: 0.25), width: 1.5),
+          boxShadow: [BoxShadow(
+              color: C.accent.withValues(alpha: 0.18),
+              blurRadius: 22, offset: const Offset(0, 8))],
+        ),
+        child: ClipOval(
+          child: widget.bankCode == null
+              ? Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(colors: [C.accent, C.bgDark],
+                        begin: Alignment.topLeft, end: Alignment.bottomRight)),
+                  child: const Icon(Icons.account_balance_rounded,
+                      color: Colors.white, size: 32))
+              : BankLogo(code: widget.bankCode!, size: 68),
+        ),
+      );
+
+  Widget _bankPill(BuildContext context) {
+    final label = widget.bankName ?? 'Aura Bank';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 6, 14, 6),
+      decoration: BoxDecoration(
+        color: C.accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: C.accent.withValues(alpha: 0.25)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (widget.bankCode != null)
+          BankLogo(code: widget.bankCode!, size: 20)
+        else
+          const Icon(Icons.verified_rounded, size: 18, color: C.accent),
+        const SizedBox(width: 7),
+        Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700,
+            color: context.ink)),
+      ]),
+    );
+  }
+
+  Widget _actionBtn(BuildContext context, {required IconData icon,
+      required String label, required VoidCallback onTap}) =>
+      Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+              color: context.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: context.border),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(icon, size: 18, color: C.accent),
+              const SizedBox(width: 7),
+              Text(label, style: TextStyle(fontSize: 12.5,
+                  fontWeight: FontWeight.w600, color: context.ink)),
             ]),
-            const SizedBox(height: 16),
-            NeuField(controller: _amt, label: 'ទឹកប្រាក់ (\$)',
-                icon: Icons.attach_money,
-                keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true)),
-            const SizedBox(height: 14),
-            AccountTile(cardId: _cardId),
-            const SizedBox(height: 20),
-            NeuButton(label: 'បន្ត', icon: Icons.send_rounded, onPressed: () {
-              final a = parseAmt(_amt.text);
-              if (a == null) {
-                toast(context, 'សូមបញ្ចូលទឹកប្រាក់', error: true);
-                return;
-              }
-              Navigator.pop(context, {'a': a, 'c': _cardId});
-            }),
+          ),
+        ),
+      );
+
+  Widget _keypad(BuildContext context) {
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 2, 14, 4),
+      child: Column(children: [
+        for (var r = 0; r < 4; r++) ...[
+          Row(children: [
+            for (var c = 0; c < 3; c++)
+              Expanded(child: _keyBtn(context, keys[r * 3 + c])),
           ]),
+          if (r < 3) const SizedBox(height: 6),
+        ],
+      ]),
+    );
+  }
+
+  Widget _keyBtn(BuildContext context, String k) => Padding(
+        padding: const EdgeInsets.all(3),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _key(k),
+            child: Container(
+              height: 50,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: context.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: context.border),
+              ),
+              child: k == '⌫'
+                  ? Icon(Icons.backspace_outlined, size: 21, color: context.ink)
+                  : Text(k, style: TextStyle(fontSize: 21,
+                      fontWeight: FontWeight.w600, color: context.ink)),
+            ),
+          ),
         ),
       );
 }
@@ -4946,235 +5250,13 @@ class BankLogo extends StatelessWidget {
   }
 }
 
-// ============================================================================
-//  AccountTile — គណនីកម្ចីផ្ទាល់ខ្លួន តែមួយ (ជំនួស CardPicker ក្នុងផ្ទាំងស្កេន QR)
-// ============================================================================
-class AccountTile extends StatelessWidget {
-  final int? cardId;
-  const AccountTile({super.key, this.cardId});
-
-  BankCard? get _account {
-    if (bank.cards.isEmpty) return null;
-    for (final c in bank.cards) {
-      if (c.id == cardId) return c;
-    }
-    return bank.cards.first;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _account;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            C.accent.withValues(alpha: 0.16),
-            C.accentGold.withValues(alpha: 0.09),
-          ],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: C.accent.withValues(alpha: 0.28), width: 1.2),
-        boxShadow: [BoxShadow(
-            color: C.accent.withValues(alpha: 0.10),
-            blurRadius: 14, offset: const Offset(0, 6))],
-      ),
-      child: Row(children: [
-        Container(
-          width: 46, height: 46,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-                colors: [C.accent, C.bgDark],
-                begin: Alignment.topLeft, end: Alignment.bottomRight),
-            borderRadius: BorderRadius.circular(13),
-            boxShadow: [BoxShadow(
-                color: C.accent.withValues(alpha: 0.32),
-                blurRadius: 10, offset: const Offset(0, 4))],
-          ),
-          child: const Icon(Icons.account_balance_wallet_rounded,
-              color: Colors.white, size: 22),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min, children: [
-          Text('គណនីកម្ចីផ្ទាល់ខ្លួន',
-              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700,
-                  color: context.ink)),
-          const SizedBox(height: 3),
-          Text(c == null ? 'មិនមានគណនី' : 'សមតុល្យអាចប្រើប្រាស់',
-              style: TextStyle(fontSize: 11.5, color: context.muted)),
-        ])),
-        if (c != null) ...[
-          const SizedBox(width: 10),
-          Text(money(c.balance),
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800,
-                  color: context.ink)),
-          const SizedBox(width: 6),
-          const Icon(Icons.check_circle_rounded,
-              color: C.accentGreen, size: 18),
-        ],
-      ]),
-    );
-  }
-}
-
 class _ExtQrIntent {
-  final String bankCode, bankName, account, name;
+  final String bankCode, bankName, account, name, note;
   final double amount;
   final int cardId;
   const _ExtQrIntent({required this.bankCode, required this.bankName,
       required this.account, required this.name, required this.amount,
-      required this.cardId});
-}
-
-class _ExternalQrSheet extends StatefulWidget {
-  final Map<String, dynamic> info;
-  const _ExternalQrSheet({required this.info});
-  @override
-  State<_ExternalQrSheet> createState() => _ExternalQrSheetState();
-}
-
-class _ExternalQrSheetState extends State<_ExternalQrSheet> {
-  late final TextEditingController _amt = TextEditingController(
-      text: (widget.info['amount'] as num?)?.toStringAsFixed(2) ?? '');
-  late final TextEditingController _acc = TextEditingController(
-      text: (widget.info['account'] ?? '').toString());
-  late final TextEditingController _name = TextEditingController(
-      text: (widget.info['name'] ?? '').toString());
-  late String _bankCode = (widget.info['bank_code'] ?? 'OTHER').toString();
-  late int _cardId = bank.cards.first.id;
-
-  @override
-  void dispose() {
-    _amt.dispose();
-    _acc.dispose();
-    _name.dispose();
-    super.dispose();
-  }
-
-  String get _safeBankCode {
-    if (bank.rails.any((r) => r.code == _bankCode)) return _bankCode;
-    return bank.rails.isEmpty ? _bankCode : bank.rails.first.code;
-  }
-
-  String get _bankName {
-    for (final r in bank.rails) {
-      if (r.code == _bankCode) return r.name;
-    }
-    final n = (widget.info['bank_name'] ?? '').toString().trim();
-    return n.isNotEmpty ? n : _bankCode;
-  }
-
-  String get _recipientName {
-    final n = _name.text.trim();
-    return n.isEmpty ? 'អ្នកទទួល' : n;
-  }
-
-  void _submit() {
-    final a = parseAmt(_amt.text);
-    final acc = _acc.text.trim();
-    if (a == null || a <= 0) {
-      toast(context, 'សូមបញ្ចូលទឹកប្រាក់', error: true);
-      return;
-    }
-    if (acc.length < 3) {
-      toast(context, 'សូមបញ្ចូលលេខគណនីអ្នកទទួល', error: true);
-      return;
-    }
-    final name = _name.text.trim().isEmpty ? 'អ្នកទទួល' : _name.text.trim();
-    Navigator.pop(context, _ExtQrIntent(
-        bankCode: _safeBankCode, bankName: _bankName, account: acc,
-        name: name, amount: a, cardId: _cardId));
-  }
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(20, 0, 20,
-            MediaQuery.of(context).viewInsets.bottom + 20),
-        child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              BankLogo(code: _bankCode, size: 58),
-              const SizedBox(width: 14),
-              Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(_recipientName,
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800,
-                        color: context.ink)),
-                const SizedBox(height: 4),
-                Row(children: [
-                  Icon(Icons.account_balance_outlined,
-                      size: 14, color: context.muted),
-                  const SizedBox(width: 5),
-                  Flexible(child: Text(_bankName,
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12.5, color: context.muted))),
-                ]),
-              ])),
-            ]),
-            const SizedBox(height: 16),
-            NeuBox(inset: true, padding: const EdgeInsets.all(14),
-                child: Column(children: [
-                  _summaryRow('លេខគណនី', _acc.text.trim().isEmpty
-                      ? 'មិនទាន់ដឹង' : _acc.text.trim()),
-                ])),
-            const SizedBox(height: 16),
-            if (_acc.text.trim().isEmpty) ...[
-              NeuField(controller: _acc, label: 'លេខគណនីអ្នកទទួល',
-                  icon: Icons.account_balance_wallet_outlined,
-                  onChanged: (_) => setState(() {})),
-              const SizedBox(height: 14),
-            ],
-            NeuField(controller: _amt, label: 'ទឹកប្រាក់ (\$)',
-                icon: Icons.attach_money,
-                keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true)),
-            const SizedBox(height: 14),
-            AccountTile(cardId: _cardId),
-            const SizedBox(height: 18),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [
-                  C.accentGold.withValues(alpha: 0.16),
-                  C.accentRed.withValues(alpha: 0.08),
-                ]),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                    color: C.accentGold.withValues(alpha: 0.35)),
-              ),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.verified_user_outlined,
-                        color: C.accentGold, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(
-                        'ដើម្បីផ្ទេរប្រាក់ទៅកាន់គណនីនេះ លោកអ្នកត្រូវតែបំពេញលេខកូដ OTP',
-                        style: TextStyle(fontSize: 12.5, height: 1.5,
-                            color: context.ink))),
-                  ]),
-            ),
-            const SizedBox(height: 16),
-            NeuButton(
-                label: 'បន្ត · ទទួលលេខកូដ OTP',
-                icon: Icons.mark_email_unread_outlined,
-                accent: C.accentGold,
-                onPressed: _submit),
-          ]),
-        ),
-      );
-
-  Widget _summaryRow(String label, String value) => Row(children: [
-        SizedBox(width: 92, child: Text(label, style: TextStyle(
-            fontSize: 12.5, color: context.muted))),
-        Expanded(child: Text(value, style: TextStyle(fontSize: 13,
-            fontWeight: FontWeight.w700, color: context.ink),
-            maxLines: 1, overflow: TextOverflow.ellipsis)),
-      ]);
+      required this.cardId, this.note = ''});
 }
 
 class _OtpSheet extends StatefulWidget {
@@ -5692,6 +5774,14 @@ class _QrScreenState extends State<QrScreen> {
     }
   }
 
+  void _restartCamera() {
+    if (!mounted || !_scan) return;
+    final old = _ctrl;
+    setState(() => _ctrl = MobileScannerController(
+        detectionSpeed: DetectionSpeed.noDuplicates));
+    old?.dispose();
+  }
+
   /// បិទ: បើចូលមកជា full-screen route → pop; បើចូលពី tab ទទួលប្រាក់ → ត្រឡប់ទៅ tab នោះ
   void _close() {
     if (widget.startScan) {
@@ -5757,25 +5847,26 @@ class _QrScreenState extends State<QrScreen> {
     final name = (recipient['name'] ?? 'អ្នកទទួល').toString();
     final masked = (recipient['masked_account'] ?? '').toString();
     final preAmt = (recipient['amount'] as num?)?.toDouble();
-    final r = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      backgroundColor: context.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => _QrAmountSheet(
-          name: name, masked: masked, initialAmount: preAmt,
-          thumb: _thumbBytes(recipient['avatar_thumb'])),
+    final res = await Navigator.of(context).push<QrPayResult>(
+      MaterialPageRoute(builder: (_) => QrPayScreen(
+          name: name, account: masked, masked: masked,
+          initialAmount: preAmt)),
     );
-    if (r == null || !mounted) return;
+    if (!mounted) return;
+    if (res == null) {
+      _restartCamera();
+      return;
+    }
 
-    final amt = r['a'] as double;
-    final cid = r['c'] as int;
+    final amt = res.amount;
+    final cid = res.cardId;
     final pin = await bank.pinForTransfer(context);
     if (pin == null || !mounted) return;
     try {
       await bank.transferP2P(
           recipientId: recipient['recipient_id'].toString(),
           amount: amt, cardId: cid, pin: pin,
+          note: res.note.isEmpty ? null : res.note,
           idempotencyKey: ApiService.newIdempotencyKey());
       if (!mounted) return;
       final card = bank.cards.firstWhere((c) => c.id == cid,
@@ -5817,14 +5908,34 @@ class _QrScreenState extends State<QrScreen> {
     await bank.ensureRails();
     if (!mounted) return;
 
-    final intent = await showModalBottomSheet<_ExtQrIntent>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      backgroundColor: context.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-      builder: (_) => _ExternalQrSheet(info: info),
+    var code = (info['bank_code'] ?? 'OTHER').toString().toUpperCase();
+    if (bank.rails.isNotEmpty && !bank.rails.any((r) => r.code == code)) {
+      code = bank.rails.first.code;
+    }
+    var bankName = '';
+    for (final r in bank.rails) {
+      if (r.code == code) bankName = r.name;
+    }
+    if (bankName.isEmpty) {
+      bankName = (info['bank_name'] ?? code).toString();
+    }
+    final name = (info['name'] ?? '').toString().trim();
+    final res = await Navigator.of(context).push<QrPayResult>(
+      MaterialPageRoute(builder: (_) => QrPayScreen(
+          name: name.isEmpty ? 'អ្នកទទួល' : name,
+          account: (info['account'] ?? '').toString(),
+          bankCode: code, bankName: bankName,
+          initialAmount: (info['amount'] as num?)?.toDouble())),
     );
-    if (intent == null || !mounted) return;
+    if (!mounted) return;
+    if (res == null) {
+      _restartCamera();
+      return;
+    }
+    final intent = _ExtQrIntent(
+        bankCode: code, bankName: bankName, account: res.account,
+        name: name.isEmpty ? 'អ្នកទទួល' : name, amount: res.amount,
+        cardId: res.cardId, note: res.note);
     await _sendExternalWithOtp(intent, raw);
   }
 
@@ -5837,6 +5948,7 @@ class _QrScreenState extends State<QrScreen> {
           name: intent.name,
           amount: intent.amount,
           cardId: intent.cardId,
+          note: intent.note.isEmpty ? null : intent.note,
           rawQr: raw,
         );
 
