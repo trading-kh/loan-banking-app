@@ -559,6 +559,10 @@ class AppNotif {
   bool get isTransferMessage =>
       (isTransferOut || isTransferIn) && transferAmount != null;
 
+  /// សារប្រាក់ត្រូវបានដកវិញ/បដិសេធ — «បើមិនឃើញប្រាក់ ចុចទីនេះ»
+  bool get isReversalNotice =>
+      title.contains('បដិសេធ') || title.contains('ដកវិញ');
+
   double? get transferAmount {
     final m = RegExp(r'\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)').firstMatch(body);
     if (m == null) return null;
@@ -569,6 +573,7 @@ class AppNotif {
     final m = RegExp(r'\sទៅ\s+(.+)$').firstMatch(body.trim());
     var name = m?.group(1)?.trim();
     if (name == null) return null;
+    name = _cleanName(name);
     // ដកឈ្មោះ rails ទូទៅ «(Global / Other Bank)» ចេញពីសារ
     name = name
         .replaceAll(
@@ -581,8 +586,13 @@ class AppNotif {
 
   String? get transferSender {
     final m = RegExp(r'(?:ពីឈ្មោះ|ពី)\s+(.+)$').firstMatch(body.trim());
-    return m?.group(1)?.trim();
+    final name = m?.group(1)?.trim();
+    return name == null ? null : _cleanName(name);
   }
+
+  /// កាត់ពាក្យបន្ថែមក្រោយឈ្មោះ («ត្រូវបានបដិសេធ · …»)
+  static String _cleanName(String s) =>
+      s.split(RegExp(r'\s·\s|\sត្រូវបាន')).first.trim();
 
   String get transferRef =>
       'TXN${time.millisecondsSinceEpoch % 1000000000}';
@@ -2104,12 +2114,15 @@ class _TransferFlowStrip extends StatelessWidget {
   /// 0 → 1 ជំហានរត់តាមជំហាន
   final double progress;
 
+  /// រយៈពេលស្អាតនៃការផ្លាស់ progress (overlay បញ្ជូនតម្លៃរៀងរាល់ frame)
+  final Duration animation;
+
   /// លទ្ធផលចុងក្រោយ — null = ធម្មតា, 'rejected' = សញ្ញាខ្វែង, 'holding' = ផ្អាក
   final String? outcome;
 
   const _TransferFlowStrip({required this.recipientBankCode,
       this.recipientName, required this.when, this.progress = 1,
-      this.outcome});
+      this.animation = const Duration(milliseconds: 900), this.outcome});
 
   String _bankName(String code) {
     if (code == 'AURA') return 'Aura Bank';
@@ -2124,7 +2137,7 @@ class _TransferFlowStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: progress.clamp(0.0, 1.0)),
-      duration: const Duration(milliseconds: 900),
+      duration: animation,
       curve: Curves.easeOutCubic,
       builder: (_, t, __) {
         final failed = outcome == 'rejected';
@@ -2284,37 +2297,57 @@ class _TransferFlowStrip extends StatelessWidget {
       Expanded(
         child: Padding(
           padding: const EdgeInsets.only(top: 21),
-          child: Stack(children: [
-            Container(
-              height: 2.2,
-              decoration: BoxDecoration(
-                color: context.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            FractionallySizedBox(
-              widthFactor: p,
-              child: Container(
+          child: LayoutBuilder(builder: (context, box) {
+            final w = box.maxWidth;
+            final traveling = p > 0.02 && p < 0.985;
+            final color =
+                failed ? C.accentRed : holding ? C.accentGold : C.accent;
+            return Stack(clipBehavior: Clip.none, children: [
+              Container(
                 height: 2.2,
                 decoration: BoxDecoration(
+                  color: context.border,
                   borderRadius: BorderRadius.circular(2),
-                  gradient: LinearGradient(colors: failed
-                      ? const [C.accentGreen, C.accentRed]
-                      : holding
-                          ? const [C.accentGreen, C.accentGold]
-                          : const [C.accentGreen, C.accent]),
-                  boxShadow: [BoxShadow(
-                      color: (failed
-                              ? C.accentRed
-                              : holding
-                                  ? C.accentGold
-                                  : C.accent)
-                          .withValues(alpha: 0.45),
-                      blurRadius: 6)],
                 ),
               ),
-            ),
-          ]),
+              FractionallySizedBox(
+                widthFactor: p,
+                child: Container(
+                  height: 2.2,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(2),
+                    gradient: LinearGradient(colors: failed
+                        ? const [C.accentGreen, C.accentRed]
+                        : holding
+                            ? const [C.accentGreen, C.accentGold]
+                            : const [C.accentGreen, C.accent]),
+                    boxShadow: [BoxShadow(
+                        color: color.withValues(alpha: 0.45),
+                        blurRadius: 6)],
+                  ),
+                ),
+              ),
+              // សញ្ញារំកិល — ចំណុចបំភ្លឺរត់តាមចុងបន្ទាត់
+              if (traveling)
+                Positioned(
+                  left: (w * p) - 6,
+                  top: -3.8,
+                  child: Container(
+                    width: 12, height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(color: color, blurRadius: 12, spreadRadius: 1),
+                        BoxShadow(
+                            color: color.withValues(alpha: 0.35),
+                            blurRadius: 22, spreadRadius: 4),
+                      ],
+                    ),
+                  ),
+                ),
+            ]);
+          }),
         ),
       );
 }
@@ -2322,7 +2355,7 @@ class _TransferFlowStrip extends StatelessWidget {
 enum _FlowNodeState { done, failed, holding }
 
 /// ដំណាក់កាលនៃ overlay ផ្ទេរប្រាក់
-enum _FlowPhase { sending, waiting, approved, rejected, holding }
+enum _FlowPhase { sending, approved, rejected, holding }
 
 class _FlowResult {
   final String status; // approved | rejected | holding
@@ -2332,81 +2365,96 @@ class _FlowResult {
 }
 
 /// គ្រប់គ្រង overlay «កំពុងផ្ទេរ» រវាងចុចបង់ និង receipt
+/// ដំណើរ៖ ជំហាន ១→២ ប្រើ ៥ វិនាទី · ជំហាន ២→៣ ប្រើ ៥–១០ វិនាទី (មិនលើស ១០)
 class _TransferFlowHandle {
   OverlayEntry? _entry;
   final ValueNotifier<double> _t = ValueNotifier(0);
   final ValueNotifier<_FlowPhase> _phase = ValueNotifier(_FlowPhase.sending);
-  final ValueNotifier<int> _remaining = ValueNotifier(600);
-  Timer? _timer;
-  Timer? _tick;
+  final math.Random _rng = math.Random();
+  Future<void>? _journey;
   bool _aborted = false;
+  bool _journeyCancelled = false;
 
   void open(BuildContext context, {required String bankCode,
       String? recipientName, double? amount}) {
     close();
     _aborted = false;
+    _journeyCancelled = false;
     _phase.value = _FlowPhase.sending;
-    _remaining.value = 600;
-    _t.value = 0.14;
+    _t.value = 0;
     _entry = OverlayEntry(builder: (_) => _TransferFlowOverlay(
           progress: _t,
           phase: _phase,
-          remaining: _remaining,
           bankCode: bankCode,
           recipientName: recipientName,
           amount: amount,
         ));
     Overlay.of(context, rootOverlay: true).insert(_entry!);
-    _timer = Timer(const Duration(milliseconds: 900), () {
-      if (_entry != null) _t.value = 0.46;
-    });
+    _journey = _runJourney();
   }
 
-  /// រង់ចាំការអនុម័តពី Admin — បង្ហាញ animation រង់ចាំ + countdown ១០ នាទី
-  /// ត្រឡប់ null បើ overlay ត្រូវបានបិទមុន
-  Future<_FlowResult?> awaitApproval({required String ref,
-      DateTime? expiresAt}) async {
-    final exp = expiresAt ?? DateTime.now().add(const Duration(minutes: 10));
-    _timer?.cancel();
-    _tick?.cancel();
-    _phase.value = _FlowPhase.waiting;
-    _remaining.value =
-        math.max(0, exp.difference(DateTime.now()).inSeconds);
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      final s = math.max(0, exp.difference(DateTime.now()).inSeconds);
-      if (s != _remaining.value) _remaining.value = s;
-    });
+  /// ចលនាសញ្ញារំកិល — បន្ទាត់ទី ១ រត់ ៥ វិនាទី រួចបន្ទាត់ទី ២ រត់ ៥–១០ វិនាទី
+  Future<void> _runJourney() async {
+    await _animateTo(0.43, const Duration(seconds: 5));
+    if (_aborted || _journeyCancelled || _entry == null) return;
+    await _animateTo(0.79, Duration(milliseconds: 5000 + _rng.nextInt(5001)));
+  }
 
+  Future<void> _animateTo(double to, Duration dur) async {
+    const frame = Duration(milliseconds: 33);
+    final steps = math.max(
+        1,
+        (dur.inMilliseconds / frame.inMilliseconds).ceil());
+    final from = _t.value;
+    for (var i = 1; i <= steps; i++) {
+      if (_aborted || _journeyCancelled || _entry == null) return;
+      _t.value = from + (to - from) * (i / steps);
+      await Future.delayed(frame);
+    }
+  }
+
+  /// រង់ចាំ Auto Approve ពី server ខណៈសញ្ញាកំពុងរំកិល
+  /// សញ្ញាដល់អ្នកទទួល → បង្ហាញជោគជ័យភ្លាម
+  /// ត្រឡប់ null បើ overlay ត្រូវបានបិទមុន
+  Future<_FlowResult?> awaitApproval({required String ref}) async {
     var status = 'pending';
-    while (!_aborted && _entry != null) {
-      await Future.delayed(const Duration(seconds: 3));
-      if (_aborted || _entry == null) break;
+    var reachable = true;
+    final poll = Timer.periodic(const Duration(milliseconds: 1200), (_) async {
+      if (_aborted || _entry == null) return;
       try {
         final s = await ApiService.transferStatus(ref);
-        status = (s['status'] ?? 'pending').toString();
-        final rem = (s['remaining_seconds'] as num?)?.toInt();
-        if (rem != null && status == 'pending') {
-          _remaining.value = math.max(0, rem);
-        }
-        if (status != 'pending') break;
+        status = (s['status'] ?? status).toString();
       } on ApiException catch (e) {
-        if (e.code == 'NOT_FOUND') break;
-        // បណ្ដាញរអាក់រអួល → សាកម្តងទៀតនៅវដ្តបន្ទាប់
+        if (e.code == 'NOT_FOUND') reachable = false;
+      } catch (_) {}
+    });
+
+    await (_journey ?? Future<void>.value());
+    poll.cancel();
+    if (_aborted || _entry == null) return null;
+
+    // សញ្ញាបានដល់ — សាកមើលលទ្ធផលចុងក្រោយបន្តិចទៀត
+    var tries = 0;
+    while (!_aborted && _entry != null && status == 'pending' && tries < 3) {
+      await Future.delayed(const Duration(seconds: 1));
+      tries++;
+      try {
+        final s = await ApiService.transferStatus(ref);
+        status = (s['status'] ?? status).toString();
       } catch (_) {}
     }
     if (_aborted || _entry == null) return null;
-    _tick?.cancel();
-    _tick = null;
 
+    final rejected = status == 'rejected' || !reachable;
     final phase = status == 'approved'
         ? _FlowPhase.approved
-        : status == 'rejected'
+        : rejected
             ? _FlowPhase.rejected
             : _FlowPhase.holding;
     _phase.value = phase;
     _t.value = 1;
     await Future.delayed(Duration(
-        milliseconds: phase == _FlowPhase.approved ? 1500 : 2000));
+        milliseconds: phase == _FlowPhase.approved ? 1400 : 2000));
     close();
     return _FlowResult(
         phase == _FlowPhase.approved
@@ -2420,18 +2468,15 @@ class _TransferFlowHandle {
 
   /// បំពេញជំហានទី ៣ ហើយបិទ overlay យ៉ាងរលូន
   Future<void> complete() async {
-    _timer?.cancel();
+    _journeyCancelled = true;
     _t.value = 1;
-    await Future.delayed(const Duration(milliseconds: 1000));
+    await Future.delayed(const Duration(milliseconds: 1200));
     close();
   }
 
   void close() {
     _aborted = true;
-    _timer?.cancel();
-    _timer = null;
-    _tick?.cancel();
-    _tick = null;
+    _journeyCancelled = true;
     _entry?.remove();
     _entry = null;
   }
@@ -2440,20 +2485,17 @@ class _TransferFlowHandle {
     close();
     _t.dispose();
     _phase.dispose();
-    _remaining.dispose();
   }
 }
 
 class _TransferFlowOverlay extends StatefulWidget {
   final ValueNotifier<double> progress;
   final ValueNotifier<_FlowPhase> phase;
-  final ValueNotifier<int> remaining;
   final String bankCode;
   final String? recipientName;
   final double? amount;
   const _TransferFlowOverlay({required this.progress, required this.phase,
-      required this.remaining, required this.bankCode,
-      this.recipientName, this.amount});
+      required this.bankCode, this.recipientName, this.amount});
 
   @override
   State<_TransferFlowOverlay> createState() => _TransferFlowOverlayState();
@@ -2463,9 +2505,6 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
     with TickerProviderStateMixin {
   late final AnimationController _spin = AnimationController(
       vsync: this, duration: const Duration(seconds: 6))..repeat();
-  late final AnimationController _slide = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1800))
-    ..repeat(reverse: true);
   late final AnimationController _result = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 900));
   late _FlowPhase _last;
@@ -2475,7 +2514,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
     super.initState();
     _last = widget.phase.value;
     widget.phase.addListener(_onPhase);
-    if (_last != _FlowPhase.sending && _last != _FlowPhase.waiting) {
+    if (_last != _FlowPhase.sending) {
       _result.forward();
     }
   }
@@ -2484,7 +2523,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
     final p = widget.phase.value;
     if (p == _last) return;
     _last = p;
-    if (p != _FlowPhase.sending && p != _FlowPhase.waiting) {
+    if (p != _FlowPhase.sending) {
       _result.forward(from: 0);
     }
     if (mounted) setState(() {});
@@ -2494,7 +2533,6 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
   void dispose() {
     widget.phase.removeListener(_onPhase);
     _spin.dispose();
-    _slide.dispose();
     _result.dispose();
     super.dispose();
   }
@@ -2502,7 +2540,6 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
   String get _title {
     switch (widget.phase.value) {
       case _FlowPhase.sending: return 'កំពុងផ្ទេរប្រាក់';
-      case _FlowPhase.waiting: return 'កំពុងរង់ចាំការយល់ព្រម';
       case _FlowPhase.approved: return 'ការផ្ទេរបានអនុម័ត';
       case _FlowPhase.rejected: return 'ការផ្ទេរត្រូវបានបដិសេធ';
       case _FlowPhase.holding: return 'ស្ថានភាព · HOLDING';
@@ -2513,8 +2550,6 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
     switch (widget.phase.value) {
       case _FlowPhase.sending:
         return 'សូមរង់ចាំមួយសន្ទុះ — កុំបិទកម្មវិធី';
-      case _FlowPhase.waiting:
-        return 'ធនាគារកំពុងផ្ទៀងផ្ទាត់ និងអនុម័ត · សូមរង់ចាំ';
       case _FlowPhase.approved:
         return 'ប្រាក់ត្រូវបានផ្ទេរទៅអ្នកទទួលដោយជោគជ័យ';
       case _FlowPhase.rejected:
@@ -2536,7 +2571,6 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
   @override
   Widget build(BuildContext context) {
     final phase = widget.phase.value;
-    final waiting = phase == _FlowPhase.waiting;
     final failed = phase == _FlowPhase.rejected;
     final hold = phase == _FlowPhase.holding;
     return Material(
@@ -2568,14 +2602,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
                           fontWeight: FontWeight.w800)),
                 ),
                 const SizedBox(height: 5),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 320),
-                  child: Text(_subtitle, key: ValueKey(_subtitle),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.58),
-                          fontSize: 11.5)),
-                ),
+                _subtitleWidget(phase),
                 const SizedBox(height: 24),
                 Container(
                   padding: const EdgeInsets.fromLTRB(12, 18, 12, 14),
@@ -2592,6 +2619,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
                       recipientName: widget.recipientName,
                       when: DateTime.now(),
                       progress: widget.progress.value,
+                      animation: const Duration(milliseconds: 160),
                       outcome: failed ? 'rejected' : hold ? 'holding' : null,
                     ),
                   ),
@@ -2602,24 +2630,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
                       style: TextStyle(color: _accent,
                           fontSize: 28, fontWeight: FontWeight.w800)),
                 ],
-                if (waiting) ...[
-                  const SizedBox(height: 18),
-                  _countdownPill(),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: 232,
-                    child: Column(children: [
-                      _HoldSlider(t: _slide),
-                      const SizedBox(height: 8),
-                      Text('ធនាគារកំពុងពិនិត្យប្រតិបត្តិការ…',
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.45),
-                              fontSize: 10)),
-                    ]),
-                  ),
-                  const SizedBox(height: 18),
-                  _holdNote(),
-                ] else if (phase == _FlowPhase.sending) ...[
+                if (phase == _FlowPhase.sending) ...[
                   const SizedBox(height: 26),
                   SizedBox(
                     width: 26, height: 26,
@@ -2636,6 +2647,32 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
           ),
         ),
       ),
+    );
+  }
+
+  /// ពាក្យបញ្ជាក់ផ្លាស់តាមជំហាន — ១→២ និង ២→៣
+  Widget _subtitleWidget(_FlowPhase phase) {
+    final style = TextStyle(
+        color: Colors.white.withValues(alpha: 0.58), fontSize: 11.5);
+    if (phase != _FlowPhase.sending) {
+      return AnimatedSwitcher(
+        duration: const Duration(milliseconds: 320),
+        child: Text(_subtitle, key: ValueKey(_subtitle),
+            textAlign: TextAlign.center, style: style),
+      );
+    }
+    return ValueListenableBuilder<double>(
+      valueListenable: widget.progress,
+      builder: (_, t, __) {
+        final s = t < 0.42
+            ? 'កំពុងផ្ញើចេញពី Aura Bank…'
+            : 'Bakong កំពុងបញ្ជូនទៅធនាគារអ្នកទទួល…';
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          child: Text(s, key: ValueKey(s),
+              textAlign: TextAlign.center, style: style),
+        );
+      },
     );
   }
 
@@ -2678,8 +2715,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
               size: const Size(dim, dim),
               painter: _FlowRingPainter(
                   angle: _spin.value * 2 * math.pi,
-                  color: color, ring: r, burst: burst,
-                  waiting: phase == _FlowPhase.waiting),
+                  color: color, ring: r, burst: burst),
             ),
             Transform.scale(
               scale: scale,
@@ -2702,98 +2738,14 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
                       ? Icons.check_rounded
                       : phase == _FlowPhase.rejected
                           ? Icons.close_rounded
-                          : phase == _FlowPhase.holding
-                              ? Icons.pause_rounded
-                              : Icons.lock_clock_rounded,
+                          : Icons.pause_rounded,
                   color: Colors.white, size: 40,
                 ),
               ),
             ),
-            if (phase == _FlowPhase.waiting)
-              ..._orbitingDots(color),
           ]);
         },
       ),
-    );
-  }
-
-  List<Widget> _orbitingDots(Color color) {
-    return List.generate(3, (i) {
-      final a = _spin.value * 2 * math.pi + i * 2 * math.pi / 3;
-      return Positioned(
-        left: 66 + 56 * math.cos(a) - 3,
-        top: 66 + 56 * math.sin(a) - 3,
-        child: Container(
-          width: 6, height: 6,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.35 + 0.2 * i),
-            boxShadow: [BoxShadow(
-                color: color.withValues(alpha: 0.6), blurRadius: 8)],
-          ),
-        ),
-      );
-    });
-  }
-
-  Widget _countdownPill() {
-    return AnimatedBuilder(
-      animation: widget.remaining,
-      builder: (_, __) {
-        final s = widget.remaining.value;
-        final low = s <= 60;
-        final mm = (s ~/ 60).toString().padLeft(2, '0');
-        final ss = (s % 60).toString().padLeft(2, '0');
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            color: Colors.white.withValues(alpha: 0.06),
-            border: Border.all(
-                color: (low ? C.accentRed : C.accent)
-                    .withValues(alpha: 0.35)),
-            boxShadow: [BoxShadow(
-                color: (low ? C.accentRed : C.accent)
-                    .withValues(alpha: 0.14),
-                blurRadius: 18)],
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('ពេលវេលានៅសល់',
-                style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45),
-                    fontSize: 9.5)),
-            const SizedBox(height: 2),
-            Text('$mm:$ss',
-                style: TextStyle(
-                    color: low ? C.accentRed : Colors.white,
-                    fontSize: 26, fontWeight: FontWeight.w800,
-                    letterSpacing: 1.5,
-                    fontFeatures: const [FontFeature.tabularFigures()])),
-          ]),
-        );
-      },
-    );
-  }
-
-  Widget _holdNote() {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 300),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: C.accentGold.withValues(alpha: 0.08),
-        border: Border.all(color: C.accentGold.withValues(alpha: 0.22)),
-      ),
-      child: Row(children: [
-        const Icon(Icons.shield_moon_rounded, size: 16,
-            color: C.accentGold),
-        const SizedBox(width: 9),
-        Expanded(child: Text(
-            'ប្រាក់ត្រូវបានកាត់ទុកដោយសុវត្ថិភាព · នឹងបញ្ចូលទៅអ្នកទទួលភ្លាមពេលអនុម័ត',
-            style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.55),
-                fontSize: 10, height: 1.45))),
-      ]),
     );
   }
 
@@ -2833,14 +2785,13 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
   }
 }
 
-/// ចិញ្ចៀនរង់ចាំ/លទ្ធផល
+/// ចិញ្ចៀនលទ្ធផល
 class _FlowRingPainter extends CustomPainter {
   final double angle;
   final Color color;
   final double ring, burst;
-  final bool waiting;
   const _FlowRingPainter({required this.angle, required this.color,
-      required this.ring, required this.burst, required this.waiting});
+      required this.ring, required this.burst});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2848,36 +2799,10 @@ class _FlowRingPainter extends CustomPainter {
     final r = size.width / 2 - 10;
     final glow = Paint()
       ..shader = RadialGradient(colors: [
-        color.withValues(alpha: 0.20 * (waiting ? 1 : ring)),
+        color.withValues(alpha: 0.20 * ring),
         color.withValues(alpha: 0.0),
       ]).createShader(Rect.fromCircle(center: c, radius: r * 1.5));
     canvas.drawCircle(c, r * 1.5, glow);
-
-    if (waiting) {
-      const n = 28;
-      for (var i = 0; i < n; i++) {
-        final a = i / n * 2 * math.pi + angle;
-        final k = (math.sin(i / n * 2 * math.pi - angle * 2) + 1) / 2;
-        final p = c + Offset(math.cos(a) * r, math.sin(a) * r);
-        canvas.drawCircle(p, 1.2 + 1.8 * k,
-            Paint()..color = Colors.white.withValues(alpha: 0.12 + 0.30 * k));
-      }
-      final arc = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round
-        ..color = color.withValues(alpha: 0.9);
-      canvas.drawArc(Rect.fromCircle(center: c, radius: r), angle, 1.1,
-          false, arc);
-      final arc2 = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: 0.35);
-      canvas.drawArc(Rect.fromCircle(center: c, radius: r - 7),
-          -angle * 1.4, 0.8, false, arc2);
-      return;
-    }
 
     final ringPaint = Paint()
       ..style = PaintingStyle.stroke
@@ -2901,59 +2826,7 @@ class _FlowRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(_FlowRingPainter old) =>
       old.angle != angle || old.ring != ring || old.burst != burst ||
-      old.color != color || old.waiting != waiting;
-}
-
-/// របារ sliding shimmer សម្រាប់ពេលរង់ចាំ
-class _HoldSlider extends StatelessWidget {
-  final Animation<double> t;
-  const _HoldSlider({required this.t});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 26,
-      child: LayoutBuilder(builder: (context, box) {
-        final w = box.maxWidth;
-        final blob = math.min(110.0, w * 0.42);
-        return AnimatedBuilder(
-          animation: t,
-          builder: (_, __) {
-            final p = Curves.easeInOut.transform(t.value.clamp(0.0, 1.0));
-            return Stack(alignment: Alignment.center, children: [
-              Container(
-                height: 7,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
-                  color: Colors.white.withValues(alpha: 0.07),
-                  border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.07)),
-                ),
-              ),
-              Positioned(
-                left: (w - blob) * p,
-                child: Container(
-                  width: blob, height: 9,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    gradient: LinearGradient(colors: [
-                      C.accent.withValues(alpha: 0.0),
-                      C.accent.withValues(alpha: 0.95),
-                      C.accentGold.withValues(alpha: 0.9),
-                      C.accent.withValues(alpha: 0.0),
-                    ]),
-                    boxShadow: [BoxShadow(
-                        color: C.accent.withValues(alpha: 0.45),
-                        blurRadius: 12)],
-                  ),
-                ),
-              ),
-            ]);
-          },
-        );
-      }),
-    );
-  }
+      old.color != color;
 }
 
 class ReceiptScreen extends StatefulWidget {
@@ -3073,21 +2946,21 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     final flowDone = widget.flowBankCode != null;
     final failed = flowDone && widget.flowStatus == 'rejected';
     final holding = flowDone && widget.flowStatus == 'holding';
-    final label = incoming
-        ? 'លោកអ្នកបានទទួលប្រាក់ចំនួន'
-        : failed
-            ? 'ប្រាក់មិនទាន់បានទទួល'
-            : holding
-                ? 'កំពុងរង់ចាំ · HOLDING'
+    final label = failed
+        ? (incoming ? 'ប្រាក់ត្រូវបានដកចេញវិញ' : 'ប្រាក់ត្រូវបានដកវិញ')
+        : holding
+            ? 'កំពុងរង់ចាំ · HOLDING'
+            : incoming
+                ? 'លោកអ្នកបានទទួលប្រាក់ចំនួន'
                 : flowDone
                     ? 'ផ្ទេរប្រាក់ជោគជ័យ'
                     : 'ប្រតិបត្តិការជោគជ័យ!';
-    final amountColor = incoming
-        ? C.accentGreen
-        : failed
-            ? C.accentRed
-            : holding
-                ? C.accentGold
+    final amountColor = failed
+        ? C.accentRed
+        : holding
+            ? C.accentGold
+            : incoming
+                ? C.accentGreen
                 : C.accent;
     return Column(children: [
       Text(label, textAlign: TextAlign.center,
@@ -3106,7 +2979,9 @@ class _ReceiptScreenState extends State<ReceiptScreen>
         const SizedBox(height: 6),
         Text(
             failed
-                ? 'ប្រាក់ត្រូវបានបង្វិលចូលគណនីវិញ · មិនមានប្រាក់ចេញពីគណនី'
+                ? (incoming
+                    ? 'ប្រាក់ត្រូវបានដកចេញពីគណនីវិញ · ប្រតិបត្តិការត្រូវបានបដិសេធ'
+                    : 'ប្រាក់ត្រូវបានបង្វិលចូលគណនីវិញ · មិនមានប្រាក់ចេញពីគណនី')
                 : 'ប្រាក់ត្រូវបានកាត់ទុក · នឹងបញ្ចូលពេលធនាគារអនុម័ត',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 11,
@@ -3159,7 +3034,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
         if (widget.flowBankCode != null)
           InfoRow('ស្ថានភាព',
               widget.flowStatus == 'rejected'
-                  ? 'បដិសេធ · បង្វិលប្រាក់ចូលវិញ'
+                  ? 'បដិសេធ · ប្រាក់ត្រូវបានដកវិញ'
                   : widget.flowStatus == 'holding'
                       ? 'Holding · រង់ចាំអនុម័ត'
                       : 'បានអនុម័ត · ជោគជ័យ'),
@@ -5318,8 +5193,7 @@ class _TransferScreenState extends State<TransferScreen> {
       final ref = (r['transfer_ref'] ?? '').toString();
       var flowStatus = 'success';
       if (r['pending'] == true && ref.isNotEmpty) {
-        final exp = DateTime.tryParse((r['expires_at'] ?? '').toString());
-        final res = await _flow.awaitApproval(ref: ref, expiresAt: exp);
+        final res = await _flow.awaitApproval(ref: ref);
         flowStatus = res?.status ?? 'holding';
         await bank.loadAll();
       } else {
@@ -6552,7 +6426,14 @@ class _NotificationScreenState extends State<NotificationScreen> {
       );
   void _openMessage(AppNotif n) {
     final amt = n.transferAmount;
-    if (amt == null) return;
+    final reversed = n.isReversalNotice;
+    if (amt == null) {
+      if (reversed) {
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const _MissingMoneyScreen()));
+      }
+      return;
+    }
     final outgoing = n.isTransferOut;
     final name = outgoing ? n.transferRecipient : n.transferSender;
     final action = name == null
@@ -6567,10 +6448,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
         ref: n.transferRef,
         when: n.time,
         appBarTitle: 'សារប្រតិបត្តិការ',
-        actionText: action,
+        actionText: reversed && action != null ? '$action · ដកវិញ' : action,
         bankCode: n.bankLogoCode,
         incoming: !outgoing,
         senderName: outgoing ? null : name,
+        flowBankCode: reversed ? (n.bankLogoCode ?? 'AURA') : null,
+        flowRecipient: reversed && outgoing ? name : null,
+        flowStatus: reversed ? 'rejected' : 'success',
       ),
       transitionsBuilder: (_, a, __, c) => FadeTransition(
           opacity: CurvedAnimation(parent: a, curve: Curves.easeOutCubic),
@@ -6922,8 +6806,7 @@ class _QrPayScreenState extends State<QrPayScreen>
       final ref = (r['transfer_ref'] ?? '').toString();
       var flowStatus = 'success';
       if (r['pending'] == true && ref.isNotEmpty) {
-        final exp = DateTime.tryParse((r['expires_at'] ?? '').toString());
-        final res = await _flow.awaitApproval(ref: ref, expiresAt: exp);
+        final res = await _flow.awaitApproval(ref: ref);
         flowStatus = res?.status ?? 'holding';
         await bank.loadAll();
       } else {
@@ -7010,8 +6893,7 @@ class _QrPayScreenState extends State<QrPayScreen>
     await bank.loadAll();
     var flowStatus = 'success';
     if (pending) {
-      final exp = DateTime.tryParse((result['expires_at'] ?? '').toString());
-      final res = await _flow.awaitApproval(ref: ref, expiresAt: exp);
+      final res = await _flow.awaitApproval(ref: ref);
       flowStatus = res?.status ?? 'holding';
       await bank.loadAll();
     } else {
