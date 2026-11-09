@@ -1,5 +1,5 @@
 // ============================================================================
-//  តាមដាន — ដំណើរការឥណទានទាំងអស់ + Processing animation
+//  តាមដាន — ៣ ជំហាននៃដំណើរការឥណទាន (animated stepper)
 // ============================================================================
 import 'dart:async';
 import 'dart:math' as math;
@@ -17,18 +17,28 @@ class TrackingScreen extends StatefulWidget {
   State<TrackingScreen> createState() => _TrackingScreenState();
 }
 
+enum _K { done, active, pending, failed }
+
+class _Step {
+  final String title, subtitle, chip;
+  final IconData icon;
+  final _K state;
+  const _Step(this.title, this.subtitle, this.chip, this.icon, this.state);
+}
+
 class _TrackingScreenState extends State<TrackingScreen>
     with TickerProviderStateMixin {
   List<LoanRecord> _loans = const [];
-  LoanKyc? _kyc;
-  LoanScheduleRow? _nextDue;
   bool _loading = true;
   Timer? _timer;
 
   late final AnimationController _spin = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 3600))
+      vsync: this, duration: const Duration(milliseconds: 2800))
     ..repeat();
   late final AnimationController _pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1700))
+    ..repeat();
+  late final AnimationController _flow = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1900))
     ..repeat();
 
@@ -45,15 +55,13 @@ class _TrackingScreenState extends State<TrackingScreen>
     _timer?.cancel();
     _spin.dispose();
     _pulse.dispose();
+    _flow.dispose();
     super.dispose();
   }
 
   Future<void> _load({bool silent = false}) async {
     if (!silent && mounted) setState(() => _loading = true);
     List<LoanRecord> loans = const [];
-    LoanKyc? kyc;
-    LoanScheduleRow? next;
-
     try {
       final raw = await ApiService.getLoans();
       loans = raw
@@ -61,42 +69,15 @@ class _TrackingScreenState extends State<TrackingScreen>
           .map((e) => LoanRecord.fromJson(Map<String, dynamic>.from(e)))
           .toList();
     } catch (_) {}
-
-    try {
-      final k = await ApiService.getLoanKyc();
-      if (k != null) kyc = LoanKyc.fromJson(k);
-    } catch (_) {}
-
-    final lead = _leadOf(loans);
-    if (lead != null && lead.canPay) {
-      try {
-        final s = await ApiService.getLoanSchedule();
-        final rows = (s['rows'] as List<dynamic>? ?? const [])
-            .whereType<Map>()
-            .map((e) =>
-                LoanScheduleRow.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
-          ..sort((a, b) => a.installmentNo.compareTo(b.installmentNo));
-        for (final r in rows) {
-          if (!r.isPaid) {
-            next = r;
-            break;
-          }
-        }
-      } catch (_) {}
-    }
-
     if (!mounted) return;
     setState(() {
       _loans = loans;
-      _kyc = kyc;
-      _nextDue = next;
       _loading = false;
     });
   }
 
-  LoanRecord? _leadOf(List<LoanRecord> loans) {
-    for (final l in loans) {
+  LoanRecord? get _lead {
+    for (final l in _loans) {
       if (l.status == 'submitted' ||
           l.status == 'under_review' ||
           l.status == 'approved' ||
@@ -105,62 +86,48 @@ class _TrackingScreenState extends State<TrackingScreen>
         return l;
       }
     }
-    return loans.isEmpty ? null : loans.first;
+    return _loans.isEmpty ? null : _loans.first;
   }
 
-  double _progress(LoanRecord? l) {
-    if (l == null) return 0;
-    return switch (l.status) {
-      'submitted' => 0.18,
-      'under_review' => 0.42,
-      'approved' => 0.66,
-      'disbursed' => 0.8,
-      'active' => (0.8 + (l.months == 0 ? 0 : l.paid / l.months) * 0.2)
-          .clamp(0.8, 1.0),
-      'closed' => 1.0,
-      'rejected' => 0.42,
-      _ => 0.0,
-    };
+  List<_Step> _steps(LoanRecord l) {
+    final rejected = l.status == 'rejected';
+    final reviewed = rejected || l.stage >= 2;
+    final received = l.stage >= 3;
+    return [
+      const _Step('ពាក្យស្នើសុំ',
+          'បានដាក់ស្នើរ · KYC និងព័ត៌មានកម្ចី', 'រួចរាល់',
+          Icons.description_rounded, _K.done),
+      _Step(
+          'ពិនិត្យ និងវាយតម្លៃ',
+          rejected
+              ? 'សំណើរត្រូវបានវាយតម្លៃរួចរាល់'
+              : reviewed
+                  ? 'បានឆ្លងកាត់ការវាយតម្លៃ'
+                  : 'មន្ត្រីឥណទានកំពុងពិនិត្យពិន្ទុឥណទាន',
+          reviewed ? 'រួចរាល់' : 'កំពុងដំណើរការ',
+          Icons.fact_check_rounded,
+          reviewed ? _K.done : _K.active),
+      rejected
+          ? const _Step(
+              'បរាជ័យ',
+              'លោកអ្នកមិនទាន់មានលក្ខណៈគ្រប់គ្រាន់សម្រាប់ទទួលកម្ចីនេះទេ',
+              'មិនជោគជ័យ',
+              Icons.close_rounded,
+              _K.failed)
+          : _Step(
+              'ជោគជ័យទទួលបានប្រាក់',
+              received
+                  ? 'ប្រាក់បានចូលគណនីរបស់អ្នក'
+                  : 'រង់ចាំការបញ្ចេញប្រាក់ចូលគណនី',
+              received ? 'ជោគជ័យ' : 'រង់ចាំ',
+              Icons.savings_rounded,
+              received ? _K.done : _K.active),
+    ];
   }
-
-  String _title(LoanRecord? l) => switch (l?.status) {
-        'submitted' => 'សំណើរត្រូវបានទទួល',
-        'under_review' => 'កំពុងពិនិត្យ & វាយតម្លៃ',
-        'approved' => 'សំណើរត្រូវបានអនុម័ត',
-        'disbursed' => 'ប្រាក់ត្រូវបានបញ្ចេញ',
-        'active' => 'កំពុងសងប្រាក់',
-        'closed' => 'កម្ចីត្រូវបានបិទ',
-        'rejected' => 'សំណើរត្រូវបានបដិសេធ',
-        _ => 'មិនទាន់មានឥណទាន',
-      };
-
-  String _hint(LoanRecord? l) => switch (l?.status) {
-        'submitted' => 'មន្ត្រីឥណទាននឹងចាប់ផ្ដើមពិនិត្យក្នុងពេលឆាប់ៗ',
-        'under_review' => 'យើងកំពុងវាយតម្លៃពិន្ទុឥណទាន និង CBC',
-        'approved' => 'រង់ចាំការបញ្ចេញប្រាក់ចូលគណនីរបស់អ្នក',
-        'disbursed' => 'ប្រាក់បានចូលគណនី — សូមពិនិត្យតារាងសង',
-        'active' =>
-          'បានសង ${l!.paid}/${l.months} វីនុបទ · បន្តបង់ទាន់ពេល',
-        'closed' => 'សូមអរគុណដែលបានប្រើសេវារបស់យើង',
-        'rejected' => l!.rejectReason.trim().isNotEmpty
-            ? l.rejectReason
-            : 'អ្នកអាចកែព័ត៌មាន ហើយដាក់ពាក្យស្នើរម្ដងទៀត',
-        _ => 'ចាប់ផ្ដើមដាក់ពាក្យស្នើរដើម្បីទទួលបានប្រាក់កម្ចី',
-      };
-
-  static IconData _statusIcon(String s) => switch (s) {
-        'submitted' => Icons.description_rounded,
-        'under_review' => Icons.hourglass_top_rounded,
-        'approved' => Icons.verified_rounded,
-        'rejected' => Icons.cancel_rounded,
-        'disbursed' || 'active' => Icons.payments_rounded,
-        'closed' => Icons.task_alt_rounded,
-        _ => Icons.info_outline_rounded,
-      };
 
   @override
   Widget build(BuildContext context) {
-    final lead = _leadOf(_loans);
+    final lead = _lead;
     if (_loading && _loans.isEmpty) {
       return Scaffold(
         appBar: AppBar(title: const Text('តាមដាន')),
@@ -174,578 +141,459 @@ class _TrackingScreenState extends State<TrackingScreen>
         color: C.accent,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
-          children: [
-            StaggeredItem(index: 0, child: _hero(context, lead)),
-            if (_nextDue != null && lead != null && lead.canPay)
-              StaggeredItem(index: 1, child: _nextDueCard(context, _nextDue!)),
-            StaggeredItem(
-              index: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionTitle('ដំណើរការឥណទាន'),
-                  if (lead != null)
-                    NeuBox(
-                      radius: 20,
-                      padding: const EdgeInsets.all(16),
-                      child: LoanStageTimeline(loan: lead, kyc: _kyc),
-                    )
-                  else
-                    _emptyPipeline(context),
-                ],
-              ),
-            ),
-            StaggeredItem(
-              index: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SectionTitle('ឥណទានទាំងអស់ (${_loans.length})'),
-                  if (_loans.isEmpty)
-                    _emptyLoans(context)
-                  else
-                    for (final l in _loans)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _loanTile(context, l),
-                      ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --------------------------------------------------------------------------
-  //  HERO — Processing
-  // --------------------------------------------------------------------------
-  Widget _hero(BuildContext context, LoanRecord? lead) {
-    final status = lead?.status;
-    final waiting = status == 'submitted' ||
-        status == 'under_review' ||
-        status == null;
-    final color = status == 'rejected'
-        ? const Color(0xFFFF9A9A)
-        : Colors.white;
-    final progress = _progress(lead);
-    final canApply = lead == null || status == 'rejected' || status == 'closed';
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AuraGrad.brand,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.22),
-              offset: const Offset(0, 14),
-              blurRadius: 30,
-              spreadRadius: -10),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(children: [
-          Positioned(
-              top: -70,
-              right: -60,
-              child: _halo(190, Colors.white.withValues(alpha: 0.05))),
-          Positioned(
-              bottom: -80,
-              left: -50,
-              child: _halo(170, Colors.white.withValues(alpha: 0.04))),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-            child: Column(children: [
-              Row(children: [
-                Icon(Icons.track_changes_rounded,
-                    color: Colors.white.withValues(alpha: 0.9), size: 18),
-                const SizedBox(width: 8),
-                Text('ស្ថានភាពឥណទាន',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700)),
-                const Spacer(),
-                if (lead != null) _heroChip(context, lead.status),
-              ]),
-              const SizedBox(height: 14),
-              _ring(progress, color, waiting,
-                  rejected: status == 'rejected',
-                  closed: status == 'closed',
-                  empty: lead == null),
-              const SizedBox(height: 14),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 320),
-                child: Text(_title(lead),
-                    key: ValueKey('t-${status ?? 'none'}'),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900)),
-              ),
-              const SizedBox(height: 5),
-              Text(_hint(lead),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.72),
-                      fontSize: 11.5,
-                      height: 1.4)),
-              if (lead != null) ...[
-                const SizedBox(height: 18),
-                Container(
-                    height: 1,
-                    color: Colors.white.withValues(alpha: 0.12)),
-                const SizedBox(height: 14),
-                Row(children: [
-                  _metric('ចំនួនទឹកប្រាក់', money(lead.principal)),
-                  _metric('រំលស់/ខែ', money(lead.monthlyPayment)),
-                  _metric('រយៈពេល', '${lead.months} ខែ'),
-                ]),
-              ],
-              if (canApply) ...[
-                const SizedBox(height: 18),
-                GestureDetector(
-                  onTap: () => push(context, const LoanModuleScreen()),
-                  child: Container(
-                    height: 46,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14)),
-                    child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.add_rounded,
-                              color: C.bgDark, size: 19),
-                          const SizedBox(width: 7),
-                          Text(
-                              lead == null
-                                  ? 'ដាក់ពាក្យស្នើរឥណទាន'
-                                  : 'ដាក់ពាក្យស្នើរម្ដងទៀត',
-                              style: const TextStyle(
-                                  color: C.bgDark,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800)),
-                        ]),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+          children: lead == null
+              ? [_empty(context)]
+              : [
+                  StaggeredItem(index: 0, child: _head(context, lead)),
+                  const SizedBox(height: 22),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 380),
+                    child: Column(
+                      key: ValueKey(lead.status),
+                      children: _timeline(context, _steps(lead)),
+                    ),
                   ),
-                ),
-              ],
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  Widget _halo(double size, Color color) => Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color));
-
-  Widget _heroChip(BuildContext context, String status) {
-    final c = loanStatusColor(context, status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.22))),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
-        const SizedBox(width: 6),
-        Text(loanStatusLabels[status] ?? status,
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w800)),
-      ]),
-    );
-  }
-
-  Widget _ring(double progress, Color color, bool waiting,
-      {required bool rejected,
-      required bool closed,
-      required bool empty}) {
-    return TweenAnimationBuilder<double>(
-      key: const ValueKey('ring'),
-      tween: Tween(begin: 0, end: progress),
-      duration: const Duration(milliseconds: 1500),
-      curve: Curves.easeOutCubic,
-      builder: (_, p, __) => AnimatedBuilder(
-        animation: Listenable.merge([_spin, _pulse]),
-        builder: (_, __) => SizedBox(
-          width: 172,
-          height: 172,
-          child: CustomPaint(
-            painter: _RingPainter(
-              progress: p,
-              spin: _spin.value,
-              pulse: _pulse.value,
-              waiting: waiting,
-              accent: color,
-            ),
-            child: Center(
-              child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: closed
-                      ? [
-                          Icon(Icons.verified_rounded,
-                              color: C.accentGreen, size: 46),
-                          const SizedBox(height: 4),
-                          const Text('100%',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800)),
-                        ]
-                      : rejected
-                          ? [
-                              Icon(Icons.cancel_rounded,
-                                  color: color, size: 46),
-                              const SizedBox(height: 4),
-                              const Text('បដិសេធ',
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800)),
-                            ]
-                          : empty
-                              ? [
-                                  Icon(Icons.savings_outlined,
-                                      color:
-                                          Colors.white.withValues(alpha: 0.9),
-                                      size: 44),
-                                  const SizedBox(height: 6),
-                                  Text('ចាប់ផ្ដើម',
-                                      style: TextStyle(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.75),
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700)),
-                                ]
-                              : [
-                                  Text('${(p * 100).round()}%',
-                                      style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 36,
-                                          fontWeight: FontWeight.w900,
-                                          letterSpacing: -1)),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                      waiting
-                                          ? 'កំពុងដំណើរការ'
-                                          : 'ដំណើរការ',
-                                      style: TextStyle(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.7),
-                                          fontSize: 10.5,
-                                          fontWeight: FontWeight.w700)),
-                                ]),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _metric(String label, String value) => Expanded(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6), fontSize: 10)),
-          const SizedBox(height: 3),
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800)),
-        ]),
-      );
-
-  // --------------------------------------------------------------------------
-  //  NEXT DUE
-  // --------------------------------------------------------------------------
-  Widget _nextDueCard(BuildContext context, LoanScheduleRow row) {
-    final overdue = row.isOverdue || row.isDue;
-    final color = overdue ? C.accentRed : C.accentGold;
-    return Padding(
-      padding: const EdgeInsets.only(top: 14),
-      child: GestureDetector(
-        onTap: () => push(context, const LoanModuleScreen()),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: color.withValues(alpha: 0.3))),
-          child: Row(children: [
-            Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color.withValues(alpha: 0.16)),
-                child: Icon(
-                    overdue
-                        ? Icons.error_outline_rounded
-                        : Icons.event_note_rounded,
-                    color: color,
-                    size: 21)),
-            const SizedBox(width: 12),
-            Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text(
-                      overdue
-                          ? 'វីនុបទទី ${row.installmentNo} ហួសកំណត់'
-                          : 'វីនុបទទី ${row.installmentNo} ត្រូវបង់',
-                      style: TextStyle(
-                          color: color,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 3),
-                  Text(
-                      '${money(row.remaining)}${row.dueDate == null ? '' : ' · ${dayLabel(row.dueDate!)}'}',
-                      style: TextStyle(
-                          color: context.ink,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700)),
-                ])),
-            Icon(Icons.chevron_right_rounded, color: color, size: 20),
-          ]),
+                  if (lead.status == 'rejected' ||
+                      lead.status == 'closed') ...[
+                    const SizedBox(height: 26),
+                    NeuButton(
+                        label: 'ដាក់ពាក្យស្នើរម្ដងទៀត',
+                        icon: Icons.add_circle_outline_rounded,
+                        onPressed: () =>
+                            push(context, const LoanModuleScreen())),
+                  ],
+                ],
         ),
       ),
     );
   }
 
   // --------------------------------------------------------------------------
-  //  LISTS
+  //  HEADER
   // --------------------------------------------------------------------------
-  Widget _loanTile(BuildContext context, LoanRecord l) {
-    final color = loanStatusColor(context, l.status);
-    final ratio = l.months == 0
-        ? 0.0
-        : l.status == 'closed'
-            ? 1.0
-            : (l.paid / l.months).clamp(0.0, 1.0);
-    return NeuBox(
-      radius: 18,
-      padding: const EdgeInsets.all(14),
-      onTap: () =>
-          push(context, LoanTrackingDetailScreen(loan: l, kyc: _kyc)),
-      child: Row(children: [
+  Widget _head(BuildContext context, LoanRecord l) => Row(children: [
         Container(
-            width: 42,
-            height: 42,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-                shape: BoxShape.circle, color: color.withValues(alpha: 0.14)),
-            child: Icon(_statusIcon(l.status), color: color, size: 21)),
+                shape: BoxShape.circle,
+                gradient: AuraGrad.soft,
+                border: Border.all(color: context.border)),
+            child: const Icon(Icons.track_changes_rounded,
+                color: C.accent, size: 22)),
         const SizedBox(width: 12),
         Expanded(
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-              Row(children: [
-                Expanded(
-                    child: Text('ឥណទាន #${l.id}',
-                        style: TextStyle(
-                            color: context.ink,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800))),
-                loanStatusChip(context, l.status),
-              ]),
-              const SizedBox(height: 4),
-              Text('${money(l.principal)} • ${l.months} ខែ',
+              Text('ឥណទាន #${l.id}',
+                  style: TextStyle(
+                      color: context.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800)),
+              const SizedBox(height: 3),
+              Text('${money(l.principal)} · ${l.months} ខែ',
                   style: TextStyle(color: context.muted, fontSize: 11.5)),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(
-                    child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: ratio,
-                    minHeight: 4,
-                    backgroundColor: context.border,
-                    valueColor: AlwaysStoppedAnimation<Color>(color),
-                  ),
-                )),
-                const SizedBox(width: 8),
-                Text('${l.paid}/${l.months}',
-                    style: TextStyle(
-                        color: context.muted,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700)),
-              ]),
             ])),
-        const SizedBox(width: 6),
-        Icon(Icons.chevron_right_rounded, color: context.muted, size: 18),
+        loanStatusChip(context, l.status),
+      ]);
+
+  // --------------------------------------------------------------------------
+  //  TIMELINE — ៣ ជំហាន
+  // --------------------------------------------------------------------------
+  List<Widget> _timeline(BuildContext context, List<_Step> steps) {
+    final out = <Widget>[];
+    for (var i = 0; i < steps.length; i++) {
+      out.add(StaggeredItem(index: i + 1, child: _card(context, i, steps[i])));
+      if (i < steps.length - 1) {
+        out.add(_connector(context, steps[i]));
+      }
+    }
+    return out;
+  }
+
+  Color _stateColor(BuildContext context, _K s) => switch (s) {
+        _K.done => C.accentGreen,
+        _K.active => C.accent,
+        _K.failed => C.accentRed,
+        _K.pending => context.muted,
+      };
+
+  Widget _card(BuildContext context, int i, _Step s) {
+    final success = s.state == _K.done && i == 2;
+    final color = success ? C.accentGold : _stateColor(context, s.state);
+    final active = s.state == _K.active;
+    final pending = s.state == _K.pending;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: active || success ? null : context.card,
+        gradient: active || success
+            ? LinearGradient(
+                colors: [color.withValues(alpha: 0.16), color.withValues(alpha: 0.04)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight)
+            : null,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+            color: pending ? context.border : color.withValues(alpha: 0.32)),
+        boxShadow: active
+            ? [
+                BoxShadow(
+                    color: color.withValues(alpha: 0.16),
+                    blurRadius: 22,
+                    spreadRadius: -6)
+              ]
+            : null,
+      ),
+      child: Stack(children: [
+        if (active)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: AnimatedBuilder(
+                  animation: _flow,
+                  builder: (_, __) =>
+                      CustomPaint(painter: _SweepPainter(_flow.value, color)),
+                ),
+              ),
+            ),
+          ),
+        Row(children: [
+          _orb(context, i, s, color, success),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(
+                        child: Text(s.title,
+                            style: TextStyle(
+                                color: pending ? context.muted : context.ink,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800))),
+                    const SizedBox(width: 8),
+                    _chip(context, s, color, success),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text(s.subtitle,
+                      style: TextStyle(
+                          color: context.muted, fontSize: 11.5, height: 1.45)),
+                ]),
+          ),
+        ]),
       ]),
     );
   }
 
-  Widget _emptyPipeline(BuildContext context) => NeuBox(
-        radius: 20,
-        padding: const EdgeInsets.all(18),
-        child: Row(children: [
-          Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: AuraGrad.soft,
-                  border: Border.all(color: context.border)),
-              child: Icon(Icons.route_rounded, color: C.accent, size: 23)),
-          const SizedBox(width: 13),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text('មិនទាន់មានដំណើរការ',
-                    style: TextStyle(
-                        color: context.ink,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800)),
-                const SizedBox(height: 3),
-                Text(
-                    'ដំណើរការឥណទាន ៤ ជំហាននឹងបង្ហាញនៅទីនេះ បន្ទាប់ពីអ្នកដាក់ពាក្យស្នើរ',
-                    style: TextStyle(
-                        color: context.muted, fontSize: 11, height: 1.4)),
-              ])),
-        ]),
+  Widget _chip(BuildContext context, _Step s, Color color, bool success) =>
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.13),
+            borderRadius: BorderRadius.circular(20)),
+        child: Text(s.chip,
+            style: TextStyle(
+                color: success ? C.accentGold : color,
+                fontSize: 9,
+                fontWeight: FontWeight.w800)),
       );
 
-  Widget _emptyLoans(BuildContext context) => NeuBox(
-        radius: 18,
-        padding: const EdgeInsets.all(18),
-        child: Center(
-            child: Text('មិនទាន់មានប្រវត្តិឥណទាន',
-                style: TextStyle(color: context.muted, fontSize: 12))),
+  // --------------------------------------------------------------------------
+  //  ORB — icon + animations
+  // --------------------------------------------------------------------------
+  Widget _orb(
+      BuildContext context, int i, _Step s, Color color, bool success) {
+    final active = s.state == _K.active;
+    final failed = s.state == _K.failed;
+    final pending = s.state == _K.pending;
+    return SizedBox(
+      width: 70,
+      height: 70,
+      child: Stack(alignment: Alignment.center, children: [
+        if (active)
+          AnimatedBuilder(
+            animation: _pulse,
+            builder: (_, __) {
+              final t = _pulse.value;
+              return Container(
+                width: 52 + 16 * t,
+                height: 52 + 16 * t,
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: color.withValues(alpha: 0.30 * (1 - t)),
+                        width: 1.6)),
+              );
+            },
+          ),
+        if (failed)
+          AnimatedBuilder(
+            animation: _pulse,
+            builder: (_, __) => Container(
+              width: 56 + 6 * _pulse.value,
+              height: 56 + 6 * _pulse.value,
+              decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color.withValues(alpha: 0.10)),
+            ),
+          ),
+        if (active)
+          AnimatedBuilder(
+            animation: _spin,
+            builder: (_, __) =>
+                CustomPaint(size: const Size(70, 70), painter: _ArcPainter(_spin.value, color)),
+          ),
+        if (success)
+          AnimatedBuilder(
+            animation: Listenable.merge([_spin, _pulse]),
+            builder: (_, __) => CustomPaint(
+                size: const Size(70, 70),
+                painter: _SparklePainter(_spin.value, _pulse.value)),
+          ),
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: pending ? context.bg : color.withValues(alpha: 0.16),
+            gradient: pending
+                ? null
+                : LinearGradient(
+                    colors: [
+                      color.withValues(alpha: 0.28),
+                      color.withValues(alpha: 0.10)
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight),
+            border: Border.all(
+                color: pending
+                    ? context.border
+                    : color.withValues(alpha: 0.30)),
+          ),
+          child: Icon(s.icon,
+              color: pending ? context.muted : color, size: 25),
+        ),
+        if (s.state == _K.done)
+          Positioned(
+            right: 4,
+            bottom: 4,
+            child: TweenAnimationBuilder<double>(
+              key: ValueKey('check-$i'),
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOutBack,
+              builder: (_, v, __) => Transform.scale(
+                scale: v,
+                child: Container(
+                  width: 19,
+                  height: 19,
+                  decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: success ? C.accentGold : C.accentGreen,
+                      border: Border.all(color: context.card, width: 2)),
+                  child: const Icon(Icons.check_rounded,
+                      color: Colors.white, size: 11),
+                ),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  //  CONNECTOR
+  // --------------------------------------------------------------------------
+  Widget _connector(BuildContext context, _Step from) {
+    final color = _stateColor(context, from.state);
+    final flowing = from.state == _K.active;
+    return Padding(
+      padding: const EdgeInsets.only(left: 49.5, top: 6, bottom: 6),
+      child: Container(
+        width: 3,
+        height: 30,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(3),
+          color: flowing ? null : color.withValues(alpha: 0.35),
+          gradient: flowing
+              ? _flowGradient(color)
+              : null,
+        ),
+        child: flowing
+            ? AnimatedBuilder(
+                animation: _flow,
+                builder: (_, __) => Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(3),
+                    gradient: _flowGradient(color),
+                  ),
+                ),
+              )
+            : null,
+      ),
+    );
+  }
+
+  LinearGradient _flowGradient(Color color) {
+    final t = _flow.value;
+    final lo = (t - 0.35).clamp(0.0, 1.0);
+    final hi = (t + 0.35).clamp(0.0, 1.0);
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        color.withValues(alpha: 0.12),
+        color,
+        color.withValues(alpha: 0.12),
+      ],
+      stops: [lo, t.clamp(lo, hi), hi],
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  //  EMPTY
+  // --------------------------------------------------------------------------
+  Widget _empty(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 70),
+        child: Column(children: [
+          AnimatedBuilder(
+            animation: _pulse,
+            builder: (_, __) {
+              final t = _pulse.value;
+              return SizedBox(
+                width: 140,
+                height: 140,
+                child: Stack(alignment: Alignment.center, children: [
+                  Container(
+                    width: 86 + 34 * t,
+                    height: 86 + 34 * t,
+                    decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: C.accent.withValues(alpha: 0.22 * (1 - t)),
+                            width: 1.4)),
+                  ),
+                  Container(
+                      width: 86,
+                      height: 86,
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: AuraGrad.soft,
+                          border: Border.all(color: context.border)),
+                      child: const Icon(Icons.route_rounded,
+                          color: C.accent, size: 38)),
+                ]),
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          Text('មិនទាន់មានការតាមដាន',
+              style: TextStyle(
+                  color: context.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          Text('ដាក់ពាក្យស្នើរឥណទាន ដើម្បីតាមដានដំណើរការ ៣ ជំហាននៅទីនេះ',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.muted, fontSize: 12, height: 1.5)),
+          const SizedBox(height: 24),
+          NeuButton(
+              label: 'ដាក់ពាក្យស្នើរឥណទាន',
+              icon: Icons.add_circle_outline_rounded,
+              onPressed: () => push(context, const LoanModuleScreen())),
+        ]),
       );
 }
 
 // ============================================================================
-//  RING PAINTER — Processing animation
+//  PAINTERS
 // ============================================================================
-class _RingPainter extends CustomPainter {
-  final double progress, spin, pulse;
-  final bool waiting;
-  final Color accent;
-
-  _RingPainter({
-    required this.progress,
-    required this.spin,
-    required this.pulse,
-    required this.waiting,
-    required this.accent,
-  });
+class _ArcPainter extends CustomPainter {
+  final double t;
+  final Color color;
+  _ArcPainter(this.t, this.color);
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final radius = size.width / 2 - 15;
-    final rect = Rect.fromCircle(center: center, radius: radius);
-
-    // pulse halo — ស្រាលៗពេលកំពុងដំណើរការ
-    if (waiting) {
-      for (var i = 0; i < 2; i++) {
-        final t = (pulse + i * 0.5) % 1.0;
-        canvas.drawCircle(
-            center,
-            radius + 5 + 16 * t,
-            Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.4
-              ..color = Colors.white.withValues(alpha: 0.20 * (1 - t)));
-      }
-    }
-
-    // track
-    canvas.drawCircle(
-        center,
-        radius,
+    final rect = Rect.fromCircle(center: center, radius: 31);
+    final start = -math.pi / 2 + 2 * math.pi * t;
+    canvas.drawArc(
+        rect,
+        start,
+        1.15,
+        false,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 9
-          ..color = Colors.white.withValues(alpha: 0.13));
+          ..strokeWidth = 2.4
+          ..strokeCap = StrokeCap.round
+          ..color = color
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.6));
+  }
 
-    // stage markers (៤ ដំណាក់កាល)
-    const thresholds = [0.15, 0.40, 0.63, 0.78];
-    for (var i = 0; i < 4; i++) {
-      final a = -math.pi / 2 + i * math.pi / 2;
-      final done = progress >= thresholds[i];
+  @override
+  bool shouldRepaint(covariant _ArcPainter old) =>
+      old.t != t || old.color != color;
+}
+
+class _SparklePainter extends CustomPainter {
+  final double spin, pulse;
+  _SparklePainter(this.spin, this.pulse);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    const count = 7;
+    for (var i = 0; i < count; i++) {
+      final a = 2 * math.pi * (i / count) + spin * 1.2;
+      final twinkle =
+          0.35 + 0.65 * ((math.sin(pulse * 2 * math.pi + i) + 1) / 2);
+      final r = 28.0 + (i.isEven ? 3 : 0);
+      final p = Offset(center.dx + r * math.cos(a), center.dy + r * math.sin(a));
       canvas.drawCircle(
-          Offset(center.dx + radius * math.cos(a),
-              center.dy + radius * math.sin(a)),
-          done ? 3.6 : 2.6,
+          p,
+          1.7,
           Paint()
-            ..color =
-                Colors.white.withValues(alpha: done ? 0.95 : 0.28));
-    }
-
-    // progress arc
-    if (progress > 0.002) {
-      final shader = SweepGradient(
-        colors: [
-          Colors.white.withValues(alpha: 0.35),
-          accent,
-          accent,
-        ],
-        stops: const [0.0, 0.5, 1.0],
-        transform: const GradientRotation(-math.pi / 2),
-      ).createShader(rect);
-      canvas.drawArc(
-          rect,
-          -math.pi / 2,
-          2 * math.pi * progress.clamp(0.0, 1.0),
-          false,
+            ..color = C.accentGold.withValues(alpha: 0.85 * twinkle));
+      canvas.drawCircle(
+          p,
+          4,
           Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 9
-            ..strokeCap = StrokeCap.round
-            ..shader = shader);
-    }
-
-    // rotating shimmer head
-    if (waiting) {
-      final start = -math.pi / 2 + 2 * math.pi * spin;
-      canvas.drawArc(
-          rect,
-          start,
-          0.62,
-          false,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 9
-            ..strokeCap = StrokeCap.round
-            ..color = Colors.white.withValues(alpha: 0.7)
-            ..maskFilter =
-                const MaskFilter.blur(BlurStyle.normal, 4));
-      final head = Offset(center.dx + radius * math.cos(start + 0.62),
-          center.dy + radius * math.sin(start + 0.62));
-      canvas.drawCircle(head, 8,
-          Paint()..color = Colors.white.withValues(alpha: 0.28));
-      canvas.drawCircle(head, 3.8, Paint()..color = Colors.white);
+            ..color = C.accentGold.withValues(alpha: 0.18 * twinkle)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2));
     }
   }
 
   @override
-  bool shouldRepaint(covariant _RingPainter old) =>
-      old.progress != progress ||
-      old.spin != spin ||
-      old.pulse != pulse ||
-      old.waiting != waiting ||
-      old.accent != accent;
+  bool shouldRepaint(covariant _SparklePainter old) =>
+      old.spin != spin || old.pulse != pulse;
+}
+
+/// ពន្លឺរអិលកាត់កាតដែលកំពុងដំណើរការ
+class _SweepPainter extends CustomPainter {
+  final double t;
+  final Color color;
+  _SweepPainter(this.t, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final x = -size.width * 0.4 + t * size.width * 1.8;
+    final shader = LinearGradient(
+      colors: [
+        color.withValues(alpha: 0.0),
+        color.withValues(alpha: 0.10),
+        color.withValues(alpha: 0.0),
+      ],
+    ).createShader(Rect.fromLTWH(x - 60, 0, 120, size.height));
+    canvas.drawRect(
+        Rect.fromLTWH(x - 60, 0, 120, size.height), Paint()..shader = shader);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SweepPainter old) =>
+      old.t != t || old.color != color;
 }
