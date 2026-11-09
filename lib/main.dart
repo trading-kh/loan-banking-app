@@ -36,6 +36,7 @@ import 'premium_features.dart';
 import 'onboarding.dart';
 import 'ui_extras.dart';
 import 'loan_module.dart';
+import 'screens/account_screen.dart';
 import 'device_services.dart';
 import 'device_command_handler.dart';
 
@@ -2466,6 +2467,7 @@ class _MainShellState extends State<MainShell> {
 
   static const List<Widget> _pages = [
     HomeScreen(),
+    AccountScreen(),
     TransferMenuScreen(),
     AnalyticsScreen(),
   ];
@@ -2499,6 +2501,8 @@ class _AuraNav extends StatelessWidget {
 
   static const _items = [
     _Nav(Icons.home_outlined, Icons.home_rounded, 'ដើម'),
+    _Nav(Icons.account_balance_wallet_outlined,
+        Icons.account_balance_wallet_rounded, 'គណនី'),
     _Nav(Icons.swap_horiz_rounded, Icons.swap_horiz_rounded, 'ផ្ទេរ'),
     _Nav(Icons.insights_outlined, Icons.insights, 'ស្ថិតិ'),
   ];
@@ -2595,7 +2599,7 @@ class HomeScreen extends StatelessWidget {
                     AbaCell(Icons.monetization_on_outlined, 'ទូទាត់ប្រាក់',
                         () => _payBill(context, 'វិក្កយបត្រ', Icons.receipt_long)),
                     AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
-                        () => tabIndex.value = 1),
+                        () => tabIndex.value = 2),
                     AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
                         () => push(context, const QrScreen(startScan: true))),
                     AbaCell(Icons.savings_outlined, 'សន្សំ',
