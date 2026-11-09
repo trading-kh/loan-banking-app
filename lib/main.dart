@@ -5185,7 +5185,7 @@ String? bankCodeFromQr(String raw) {
         .trim().toUpperCase();
     if (b.isNotEmpty) return b;
   }
-  for (final m in RegExp(r'@([A-Za-z0-9]{2,12})').allMatches(t)) {
+  for (final m in RegExp(r'@([A-Za-z0-9]{2,20})').allMatches(t)) {
     final code = _qrBankSuffix[m.group(1)!.toLowerCase()];
     if (code != null) return code;
   }
@@ -6270,6 +6270,17 @@ class _QrScreenState extends State<QrScreen> {
   bool _busy = false;
   bool _torchOn = false;
 
+  /// ធនាគារក្នុងស្រុកដែលមាន logo — បង្ហាញក្រោមកាមេរ៉ា ២ ជួរ
+  static const _scannerBanks = <String>[
+    'ABA', 'ACLEDA', 'CANADIA', 'WING',
+    'JUNTUOR', 'CHIPMONG', 'SATHAPANA', 'VATTANAC',
+    'CPB', 'PPCBANK', 'HATTHA', 'TRUEMONEY',
+    'LYF', 'MAYBANK', 'BAKONG',
+  ];
+
+  /// ធនាគារដែលទើបស្កេនឃើញ (បង្ហាញ logo មួយសន្ទុះមុនបើកទំព័រទូទាត់)
+  String? _detectedBank;
+
   // QR របស់យើង = token ខ្លីអាយុពី Server (5 នាទី) ទើបក្លែង/ចម្លង uid មិនបាន
   String? _qrToken;
   bool _qrLoading = false;
@@ -6395,6 +6406,14 @@ class _QrScreenState extends State<QrScreen> {
     final raw = cap.barcodes.first.rawValue;
     if (raw == null) return;
     _busy = true;
+    // ធនាគារកំណត់បានភ្លាម → បង្ហាញ logo ក្នុង avatar មួយសន្ទុះ
+    // មុនបិទកាមេរ៉ា ដើម្បីអោយអ្នកប្រើឃើញធនាគារនោះភ្លាមៗ
+    final guessed = bankCodeFromQr(raw);
+    if (guessed != null) {
+      setState(() => _detectedBank = guessed);
+      await Future.delayed(const Duration(milliseconds: 750));
+      if (!mounted) return;
+    }
     // ស្កេនបាន = បិទកាមេរ៉ា និងបិទទំព័រស្កេនភ្លាម → ទំព័រទូទាត់ (skeleton) ជំនួស
     _stopCamera();
     final route = PageRouteBuilder<Object?>(
@@ -6411,7 +6430,17 @@ class _QrScreenState extends State<QrScreen> {
     }
     _setScan(false);
     await Navigator.of(context).push(route);
-    if (mounted) _busy = false;
+    if (mounted) {
+      setState(() => _detectedBank = null);
+      _busy = false;
+    }
+  }
+
+  String _bankNameFor(String code) {
+    for (final r in bank.rails) {
+      if (r.code == code) return r.name;
+    }
+    return code;
   }
 
   // ── build ──────────────────────────────────────────────────────────────────
@@ -6562,6 +6591,17 @@ class _QrScreenState extends State<QrScreen> {
                   ),
                 ),
 
+              // ── avatar logo ធនាគារ ពេលស្កេនឃើញ ──
+              if (_detectedBank != null)
+                Center(
+                  child: IgnorePointer(
+                    child: _DetectedBankAvatar(
+                      code: _detectedBank!,
+                      label: _bankNameFor(_detectedBank!),
+                    ),
+                  ),
+                ),
+
               // ── Top bar: ABA · ខ្ញុំស្កេន · X ──
               Positioned(
                 top: 0, left: 0, right: 0,
@@ -6608,16 +6648,17 @@ class _QrScreenState extends State<QrScreen> {
               ),
 
               // ── ចំណុចកណ្ដាល៖ អនុសាសន៍ ──
-              Align(
-                alignment: const Alignment(0, 0.78),
-                child: Text(
-                    _ctrl == null
-                        ? 'កំពុងដំណើរការព័ត៌មាន QR…'
-                        : 'តម្រង់កាមេរ៉ាទៅ QR របស់អ្នកទទួល',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 12.5, fontWeight: FontWeight.w500)),
-              ),
+              if (_detectedBank == null)
+                Align(
+                  alignment: const Alignment(0, 0.78),
+                  child: Text(
+                      _ctrl == null
+                          ? 'កំពុងដំណើរការព័ត៌មាន QR…'
+                          : 'តម្រង់កាមេរ៉ាទៅ QR របស់អ្នកទទួល',
+                      style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          fontSize: 12.5, fontWeight: FontWeight.w500)),
+                ),
             ]);
           }),
         ),
@@ -6652,22 +6693,13 @@ class _QrScreenState extends State<QrScreen> {
                 ),
               ]),
               const SizedBox(height: 18),
-              SizedBox(
-                height: 26,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    for (final l in const [
-                      'eCASH', 'CASHin', 'PAY', 'KHQR', 'Wing',
-                      'ABA', 'DuitNow', 'VietQR',
-                    ])
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _logoBox(l),
-                      ),
-                  ],
-                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Column(children: [
+                  _bankLogoRow(_scannerBanks.sublist(0, 8)),
+                  const SizedBox(height: 7),
+                  _bankLogoRow([..._scannerBanks.sublist(8), null]),
+                ]),
               ),
             ]),
           ),
@@ -6700,18 +6732,15 @@ class _QrScreenState extends State<QrScreen> {
         ]),
       );
 
-  Widget _logoBox(String text) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(5),
-        ),
-        child: Text(text,
-            style: const TextStyle(color: Colors.black,
-                fontSize: 9.5, fontWeight: FontWeight.w800,
-                letterSpacing: 0.2)),
-      );
+  Widget _bankLogoRow(List<String?> codes) => Row(children: [
+        for (final c in codes)
+          Expanded(
+            child: Center(
+              child: c == null ? const SizedBox(height: 34)
+                  : BankLogo(code: c, size: 34),
+            ),
+          ),
+      ]);
 }
 
 // ============================================================================
@@ -6871,6 +6900,50 @@ class _ScanLineState extends State<_ScanLine>
             ),
           ),
         ),
+      );
+}
+
+// ============================================================================
+//  DETECTED BANK AVATAR  —  logo ធនាគារដែលទើបស្កេនឃើញ
+// ============================================================================
+class _DetectedBankAvatar extends StatelessWidget {
+  final String code;
+  final String label;
+  const _DetectedBankAvatar({required this.code, required this.label});
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 340),
+        curve: Curves.easeOutBack,
+        builder: (_, t, child) => Opacity(
+          opacity: t.clamp(0.0, 1.0),
+          child: Transform.scale(scale: 0.72 + 0.28 * t, child: child),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 108, height: 108,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
+              boxShadow: [BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 24, offset: const Offset(0, 8))],
+            ),
+            child: BankLogo(code: code, size: 78),
+          ),
+          const SizedBox(height: 12),
+          Text(label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 13.5,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 3),
+          Text('បានរកឃើញ QR',
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.72), fontSize: 11)),
+        ]),
       );
 }
 
