@@ -8083,7 +8083,9 @@ class NotificationService {
         _ready = true;
       }
       AndroidBitmap<Object>? large;
-      final asset = BankLogo.assetFor(bankCode ?? '');
+      // AURA = Logo កម្មវិធីខ្លួនឯងរួចហើយ — មិនចាំបាច់ផ្ទុករូបធំជា icon
+      final code = (bankCode ?? '').trim().toUpperCase();
+      final asset = code == 'AURA' ? null : BankLogo.assetFor(code);
       if (asset != null) {
         try {
           final d = await rootBundle.load(asset);
