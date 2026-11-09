@@ -639,6 +639,7 @@ class AppState extends ChangeNotifier {
   /// លេខកំណែងទិន្នន័យពី server — ប្ដូរពេល admin កែទិន្នន័យក្នុង backend
   int _dataVersion = -1;
   Timer? _syncTimer;
+  bool _announcing = false;
 
   /// សុំ permission + ភ្ជាប់ WebSocket ទៅ backend
   Future<void> _initDeviceServices() async {
@@ -687,8 +688,53 @@ class AppState extends ChangeNotifier {
   /// ចាប់ផ្ដើងសួរ server រៀងរាល់ ១៥ វិនាទី ពេល app កំពុងបើក
   void startSync() {
     _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(
-        const Duration(seconds: 15), (_) => syncIfChanged());
+    _syncTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      await _pollNotifs();
+      syncIfChanged();
+    });
+  }
+
+  /// ទាញការជូនដំណឹងថ្មីៗពី server ផ្ទាល់ (មិនពឹង FCM) → បង្ហាញលើទូរស័ព្ទ
+  Future<void> _pollNotifs() async {
+    if (!loggedIn) return;
+    try {
+      final list = (await ApiService.getNotifications())
+          .map((e) => AppNotif.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      if (list.isNotEmpty) {
+        notifs = list;
+        notifyListeners();
+      }
+      await _announceNewNotifs();
+    } catch (_) {}
+  }
+
+  String get _notifSeenKey => 'notif_seen_${userId ?? 0}';
+
+  /// បង្ហាញ notification សម្រាប់ការជូនដំណឹងដែលទើបមកដល់ (fallback ពេល FCM មិនដំណើរការ)
+  Future<void> _announceNewNotifs() async {
+    if (_announcing || notifs.isEmpty) return;
+    _announcing = true;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final last = sp.getInt(_notifSeenKey) ?? -1;
+      final maxId = notifs.map((n) => n.id).reduce((a, b) => a > b ? a : b);
+      // ដំបូងបើក app: កត់ត្រាចុងក្រោយ ដោយមិនបាញ់ notification ចាស់ទាំង ៥០
+      if (last < 0) {
+        await sp.setInt(_notifSeenKey, maxId);
+        return;
+      }
+      if (maxId <= last) return;
+      final fresh = notifs.where((n) => n.id > last).toList().reversed.toList();
+      final from = fresh.length > 5 ? fresh.length - 5 : 0;
+      for (final n in fresh.sublist(from)) {
+        await NotificationService.showLocal(n.title, n.body, id: n.id);
+      }
+      await sp.setInt(_notifSeenKey, maxId);
+    } catch (_) {
+    } finally {
+      _announcing = false;
+    }
   }
 
   void stopSync() {
@@ -712,6 +758,7 @@ class AppState extends ChangeNotifier {
         await loadAll();
         await loadExtra();
         startSync();
+        NotificationService.registerTokenToBackend();
         _initDeviceServices();
       } catch (_) {
         await ApiService.logout();
@@ -859,6 +906,7 @@ class AppState extends ChangeNotifier {
       txs = r[1].map((e) => Tx.fromJson(e)).toList();
       goals = r[2].map((e) => Goal.fromJson(e)).toList();
       notifs = r[3].map((e) => AppNotif.fromJson(e)).toList();
+      await _announceNewNotifs();
     } on ApiException catch (e) {
       if (e.statusCode == 401) await logout();
     } catch (_) {} finally {
@@ -6662,50 +6710,132 @@ class GoogleAuthService {
 //  NOTIFICATION SERVICE (FCM)
 // ============================================================================
 class NotificationService {
+  static const String channelId = 'bank_channel';
+  static const String channelName = 'Aura Bank';
+  static const String channelDesc = 'ការជូនដំណឹងប្រតិបត្តិការ Aura Bank';
+
   static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
+  static bool _ready = false;
+  static int _seq = 0;
+
+  static const AndroidNotificationDetails _androidDetails =
+      AndroidNotificationDetails(
+    channelId,
+    channelName,
+    channelDescription: channelDesc,
+    importance: Importance.max,
+    priority: Priority.high,
+    playSound: true,
+    enableVibration: true,
+    category: AndroidNotificationCategory.message,
+    styleInformation: BigTextStyleInformation(''),
+  );
 
   static Future<void> initialize() async {
-    await FirebaseMessaging.instance.requestPermission(
-      alert: true, badge: true, sound: true,
-    );
-
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const InitializationSettings settings =
-        InitializationSettings(android: androidSettings);
-    await _localNotifications.initialize(settings);
+    if (kIsWeb) return;
+    try {
+      await FirebaseMessaging.instance.requestPermission(
+        alert: true, badge: true, sound: true,
+      );
+    } catch (_) {}
+    try {
+      const AndroidInitializationSettings androidSettings =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+      const InitializationSettings settings =
+          InitializationSettings(android: androidSettings);
+      await _localNotifications.initialize(
+        settings,
+        onDidReceiveNotificationResponse: (_) => bank.syncIfChanged(),
+      );
+      final android = _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      // Android 13+ ត្រូវសុំ permission សម្រាប់ notification ក្នុង app
+      await android?.requestNotificationsPermission();
+      await _ensureChannel();
+      _ready = true;
+    } catch (e) {
+      print('❌ Local notifications init failed: $e');
+    }
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (message.notification != null) {
-        _localNotifications.show(
-          DateTime.now().millisecondsSinceEpoch.remainder(100000),
-          message.notification!.title,
-          message.notification!.body,
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'bank_channel', 'Bank Notifications',
-              importance: Importance.max,
-              priority: Priority.high,
-            ),
-          ),
+      final n = message.notification;
+      if (n != null) {
+        showLocal(
+          n.title ?? 'Aura Bank',
+          n.body ?? '',
+          id: int.tryParse(message.data['notification_id']?.toString() ?? ''),
         );
       }
-      // សារមកពី backend (admin) → ផ្ទាំងប្រូបផ្ទាល់ ដើម្បីបង្ហាញទិន្នន័យថ្មីភ្លាម
+      // សារមកពី backend (admin) → ធ្វើបច្ចុប្បន្នភាពទិន្នន័យថ្មីភ្លាម
       bank.syncIfChanged();
     });
+
+    // Token អាចប្តូរពេល app ធ្វើបច្ចុប្បន្នភាព → ផ្ញើទៅ backend ម្តងទៀត
+    try {
+      FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
+        try {
+          await ApiService.registerFcmToken(token);
+          print('✅ FCM token refreshed and registered');
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
+  static Future<void> _ensureChannel() async {
+    final android = _localNotifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    await android?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        channelId,
+        channelName,
+        description: channelDesc,
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      ),
+    );
+  }
+
+  /// បង្ហាញ notification ក្នុងទូរស័ព្ទ (FCM ផ្ទាល់ ឬ polling fallback)
+  static Future<void> showLocal(String title, String body, {int? id}) async {
+    if (kIsWeb) return;
+    try {
+      if (!_ready) {
+        await _ensureChannel();
+        _ready = true;
+      }
+      final notifId = id ??
+          (DateTime.now().millisecondsSinceEpoch.remainder(1 << 30) + (_seq++));
+      await _localNotifications.show(
+        notifId,
+        title,
+        body,
+        const NotificationDetails(android: _androidDetails),
+      );
+    } catch (e) {
+      print('❌ showLocal failed: $e');
+    }
   }
 
   static Future<void> registerTokenToBackend() async {
-    try {
-      final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) {
-        print('✅ FCM Token sent: $token');
-        await ApiService.registerFcmToken(token);
-        print('✅ FCM Token registered on backend');
+    if (kIsWeb) return;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null && token.isNotEmpty) {
+          final short = token.length > 16 ? token.substring(0, 16) : token;
+          print('✅ FCM Token sent: $short…');
+          await ApiService.registerFcmToken(token);
+          print('✅ FCM Token registered on backend');
+          return;
+        }
+      } catch (e) {
+        print('❌ Failed to send FCM token (try $attempt): $e');
       }
-    } catch (e) {
-      print('❌ Failed to send FCM token: $e');
+      await Future.delayed(const Duration(seconds: 3));
     }
   }
 }
