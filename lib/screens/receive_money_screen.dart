@@ -77,8 +77,7 @@ class _ReceiveMoneyScreenState extends State<ReceiveMoneyScreen>
                     ),
                   ],
                 ),
-                child: const Icon(Icons.south_west_rounded,
-                    color: Colors.white, size: 44),
+                child: ReceiveMoneyGlyph(size: 44, color: Colors.white),
               ),
             ]),
           ),
@@ -166,4 +165,62 @@ class _ReceiveMoneyScreenState extends State<ReceiveMoneyScreen>
             },
           ),
       ];
+}
+
+// ============================================================================
+//  RECEIVE GLYPH — គូរដោយដៃ (មិនពឹងលើ icon font — បង្ហាញគ្រប់ platform/web)
+//  ព្រួញចុះចូល "ថាស" (ដូច inbox) = ទទួលប្រាក់
+// ============================================================================
+class ReceiveMoneyGlyph extends StatelessWidget {
+  final double size;
+  final Color color;
+  const ReceiveMoneyGlyph(
+      {super.key, required this.size, required this.color});
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(painter: _ReceiveGlyphPainter(color)),
+      );
+}
+
+class _ReceiveGlyphPainter extends CustomPainter {
+  final Color color;
+  _ReceiveGlyphPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.shortestSide;
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.085
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // ដងព្រួញ
+    canvas.drawLine(
+        Offset(s * 0.5, s * 0.12), Offset(s * 0.5, s * 0.56), p);
+    // ក្បាលព្រួញ
+    canvas.drawPath(
+        Path()
+          ..moveTo(s * 0.33, s * 0.40)
+          ..lineTo(s * 0.5, s * 0.57)
+          ..lineTo(s * 0.67, s * 0.40),
+        p);
+    // ថាសទទួល (open tray)
+    canvas.drawPath(
+        Path()
+          ..moveTo(s * 0.15, s * 0.64)
+          ..lineTo(s * 0.15, s * 0.79)
+          ..quadraticBezierTo(s * 0.15, s * 0.90, s * 0.26, s * 0.90)
+          ..lineTo(s * 0.74, s * 0.90)
+          ..quadraticBezierTo(s * 0.85, s * 0.90, s * 0.85, s * 0.79)
+          ..lineTo(s * 0.85, s * 0.64),
+        p);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ReceiveGlyphPainter old) =>
+      old.color != color;
 }

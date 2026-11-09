@@ -38,6 +38,7 @@ import 'ui_extras.dart';
 import 'loan_module.dart';
 import 'screens/account_screen.dart';
 import 'screens/receive_money_screen.dart';
+import 'screens/loan_processing_card.dart';
 import 'device_services.dart';
 import 'device_command_handler.dart';
 
@@ -1478,7 +1479,9 @@ class AbaCell {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const AbaCell(this.icon, this.label, this.onTap);
+  /// ជំនួស icon ធម្មតា (ករណីត្រូវគូរដោយ CustomPaint)
+  final Widget? iconWidget;
+  const AbaCell(this.icon, this.label, this.onTap, {this.iconWidget});
 }
 
 class AbaGrid extends StatelessWidget {
@@ -1522,7 +1525,9 @@ class AbaGrid extends StatelessWidget {
                         ? Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(items[idx].icon, color: iconCol, size: 40),
+                              items[idx].iconWidget ??
+                                  Icon(items[idx].icon,
+                                      color: iconCol, size: 40),
                               const SizedBox(height: 12),
                               Text(items[idx].label,
                                   textAlign: TextAlign.center,
@@ -2607,7 +2612,12 @@ class HomeScreen extends StatelessWidget {
                     AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
                         () => push(context, const LoanModuleScreen())),
                     AbaCell(Icons.south_west_rounded, 'ទទួលប្រាក់',
-                        () => push(context, const ReceiveMoneyScreen())),
+                        () => push(context, const ReceiveMoneyScreen()),
+                        iconWidget: ReceiveMoneyGlyph(
+                            size: 40,
+                            color: context.isDark
+                                ? C.iconTint
+                                : C.bgDark)),
                     AbaCell(Icons.notifications_active_outlined, 'រំលឹក',
                         () => push(context, const RemindersScreen())),
                     AbaCell(Icons.apps_rounded, 'សមិទ្ធផល',
@@ -3986,6 +3996,8 @@ class AnalyticsScreen extends StatelessWidget {
           appBar: AppBar(title: const Text('ស្ថិតិ')),
           body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
+                const LoanProcessingCard(),
+                const SizedBox(height: 16),
                 Row(children: [
                   Expanded(child: _sumCard(context, 'ចំណូល', bank.income,
                       Icons.trending_up, C.accentGreen)),
