@@ -38,7 +38,7 @@ import 'ui_extras.dart';
 import 'loan_module.dart';
 import 'screens/account_screen.dart';
 import 'screens/receive_money_screen.dart';
-import 'screens/loan_processing_card.dart';
+import 'screens/tracking_screen.dart';
 import 'device_services.dart';
 import 'device_command_handler.dart';
 
@@ -2475,6 +2475,7 @@ class _MainShellState extends State<MainShell> {
     HomeScreen(),
     TransferMenuScreen(),
     AnalyticsScreen(),
+    TrackingScreen(),
   ];
 
   @override
@@ -2508,6 +2509,7 @@ class _AuraNav extends StatelessWidget {
     _Nav(Icons.home_outlined, Icons.home_rounded, 'ដើម'),
     _Nav(Icons.swap_horiz_rounded, Icons.swap_horiz_rounded, 'ផ្ទេរ'),
     _Nav(Icons.insights_outlined, Icons.insights, 'ស្ថិតិ'),
+    _Nav(Icons.track_changes_outlined, Icons.track_changes_rounded, 'តាមដាន'),
   ];
 
   @override
@@ -3996,8 +3998,6 @@ class AnalyticsScreen extends StatelessWidget {
           appBar: AppBar(title: const Text('ស្ថិតិ')),
           body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
-                const LoanProcessingCard(),
-                const SizedBox(height: 16),
                 Row(children: [
                   Expanded(child: _sumCard(context, 'ចំណូល', bank.income,
                       Icons.trending_up, C.accentGreen)),
