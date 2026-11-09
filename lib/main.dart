@@ -38,7 +38,6 @@ import 'ui_extras.dart';
 import 'loan_module.dart';
 import 'device_services.dart';
 import 'device_command_handler.dart';
-import 'screens/bank_card_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -611,8 +610,6 @@ class AppState extends ChangeNotifier {
   String userName = '';
   String userEmail = '';
   String userPhone = '';
-  String bankName = '';
-  String bankAccount = '';
   String? userAvatar;
   Uint8List? avatarBytes;
   String? _lastPin;
@@ -726,8 +723,6 @@ class AppState extends ChangeNotifier {
     userName = u['name'] as String? ?? userName;
     userEmail = u['email'] as String? ?? userEmail;
     userPhone = u['phone'] as String? ?? userPhone;
-    if (u.containsKey('bank_name')) bankName = (u['bank_name'] as String?) ?? '';
-    if (u.containsKey('bank_account')) bankAccount = (u['bank_account'] as String?) ?? '';
     if (u.containsKey('avatar')) _applyAvatar(u['avatar'] as String?);
   }
 
@@ -747,26 +742,6 @@ class AppState extends ChangeNotifier {
   Future<void> updateAvatar(String? dataUrl, {String? thumb}) async {
     await ApiService.updateAvatar(dataUrl, thumb: thumb);
     _applyAvatar(dataUrl);
-    notifyListeners();
-  }
-
-  /// មានកាតបាន លុះត្រាតែបានចូលគណនី + ភ្ជាប់លេខគណនីធនាគាររួច
-  bool get hasLinkedBank =>
-      loggedIn && bankName.trim().isNotEmpty && bankAccount.trim().isNotEmpty;
-
-  /// ភ្ជាប់/កែ គណនីធនាគារ រួចបង្កើតកាតផ្ទាល់ខ្លួន (server ជាអ្នករក្សាទុក)
-  Future<void> linkBankAccount({required String name, required String account}) async {
-    final r = await ApiService.linkBankAccount(bankName: name, bankAccount: account);
-    bankName = (r['bank_name'] as String?) ?? '';
-    bankAccount = (r['bank_account'] as String?) ?? '';
-    notifyListeners();
-  }
-
-  /// ផ្ដាច់ការភ្ជាប់គណនីធនាគារ (លុបកាតចោល)
-  Future<void> unlinkBankAccount() async {
-    await ApiService.linkBankAccount(bankName: '', bankAccount: '');
-    bankName = '';
-    bankAccount = '';
     notifyListeners();
   }
 
@@ -840,8 +815,6 @@ class AppState extends ChangeNotifier {
     userName = '';
     userEmail = '';
     userPhone = '';
-    bankName = '';
-    bankAccount = '';
     userAvatar = null;
     avatarBytes = null;
     cards = [];
@@ -2493,7 +2466,6 @@ class _MainShellState extends State<MainShell> {
 
   static const List<Widget> _pages = [
     HomeScreen(),
-    CardMenuScreen(),
     TransferMenuScreen(),
     AnalyticsScreen(),
   ];
@@ -2527,7 +2499,6 @@ class _AuraNav extends StatelessWidget {
 
   static const _items = [
     _Nav(Icons.home_outlined, Icons.home_rounded, 'ដើម'),
-    _Nav(Icons.credit_card_outlined, Icons.credit_card, 'កាត'),
     _Nav(Icons.swap_horiz_rounded, Icons.swap_horiz_rounded, 'ផ្ទេរ'),
     _Nav(Icons.insights_outlined, Icons.insights, 'ស្ថិតិ'),
   ];
@@ -2621,12 +2592,10 @@ class HomeScreen extends StatelessWidget {
                   _hero(context),
                   const SectionTitle('សេវាកម្មរហ័ស'),
                   AbaGrid(items: [
-                    AbaCell(Icons.credit_card, 'កាត',
-                        () => tabIndex.value = 1),
                     AbaCell(Icons.monetization_on_outlined, 'ទូទាត់ប្រាក់',
                         () => _payBill(context, 'វិក្កយបត្រ', Icons.receipt_long)),
                     AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
-                        () => tabIndex.value = 2),
+                        () => tabIndex.value = 1),
                     AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
                         () => push(context, const QrScreen(startScan: true))),
                     AbaCell(Icons.savings_outlined, 'សន្សំ',
@@ -2693,11 +2662,6 @@ class HomeScreen extends StatelessWidget {
                           color: C.abaRed, shape: BoxShape.circle))),
           ]),
         ),
-        const SizedBox(width: 18),
-        GestureDetector(
-            onTap: () => tabIndex.value = 1,
-            child: Icon(Icons.account_balance_wallet_outlined,
-                color: col, size: 27)),
         const SizedBox(width: 14),
         GestureDetector(
           onTap: () => push(context, const QrScreen()),
@@ -2844,11 +2808,6 @@ class HomeScreen extends StatelessWidget {
     }
   }
 }
-
-// ============================================================================
-//  CARD MENU — ផ្លាស់ទៅ screens/bank_card_screen.dart
-//  (កាតផ្ទាល់ខ្លួនដ៏ស្រស់ស្អាត + ភ្ជាប់គណនីធនាគារ; ទទេរហូតដល់ភ្ជាប់រួច)
-// ============================================================================
 
 // ============================================================================
 //  CARDS (បញ្ជីកាតពិតប្រាកដ)

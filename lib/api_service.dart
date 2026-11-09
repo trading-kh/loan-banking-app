@@ -160,17 +160,6 @@ class ApiService {
   static Future<Map<String, dynamic>> getMe() async =>
       Map<String, dynamic>.from(await _get('/me') as Map);
 
-  /// ភ្ជាប់/កែ គណនីធនាគារ (ដើម្បីបង្កើតកាតផ្ទាល់ខ្លួន)។
-  /// ផ្ញើតម្លៃទទេទាំងពីរ ដើម្បីផ្ដាច់ការភ្ជាប់។
-  static Future<Map<String, dynamic>> linkBankAccount({
-    required String bankName,
-    required String bankAccount,
-  }) async =>
-      Map<String, dynamic>.from(await _post('/me/bank-account', {
-        'bank_name': bankName,
-        'bank_account': bankAccount,
-      }) as Map);
-
   /// រក្សាទុករូប Profile (data URL) ឬលុបដោយផ្ញើ null
   /// [thumb] = thumbnail 96px (data URL) សម្រាប់បង្ហាញក្នុងបញ្ជីអ្នកទទួល
   static Future<void> updateAvatar(String? dataUrl, {String? thumb}) =>
