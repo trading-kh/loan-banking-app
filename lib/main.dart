@@ -527,6 +527,13 @@ class AppNotif {
   bool get isTransferOut =>
       title.contains('ផ្ទេរ') && body.trimLeft().startsWith('ផ្ទេរ');
 
+  /// សារប្រាក់ចូល (body អ្នកបានទទួល $x ពី ...)
+  bool get isTransferIn =>
+      title.contains('ទទួល') && body.trimLeft().startsWith('អ្នកបានទទួល');
+
+  bool get isTransferMessage =>
+      (isTransferOut || isTransferIn) && transferAmount != null;
+
   double? get transferAmount {
     final m = RegExp(r'\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)').firstMatch(body);
     if (m == null) return null;
@@ -535,6 +542,11 @@ class AppNotif {
 
   String? get transferRecipient {
     final m = RegExp(r'\sទៅ\s+(.+)$').firstMatch(body.trim());
+    return m?.group(1)?.trim();
+  }
+
+  String? get transferSender {
+    final m = RegExp(r'\sពី\s+(.+)$').firstMatch(body.trim());
     return m?.group(1)?.trim();
   }
 
@@ -1973,8 +1985,9 @@ class ReceiptScreen extends StatefulWidget {
   final String? ref;
   final DateTime? when;
   final String? appBarTitle;
+  final String? actionText;
   const ReceiptScreen({super.key, required this.title, required this.amount,
-      this.recipient, this.ref, this.when, this.appBarTitle});
+      this.recipient, this.ref, this.when, this.appBarTitle, this.actionText});
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
 }
@@ -2075,9 +2088,11 @@ class _ReceiptScreenState extends State<ReceiptScreen>
   }
 
   Widget _actionRow(BuildContext context) {
-    final text = widget.recipient == null
-        ? widget.title
-        : 'បានផ្ទេរទៅ ${widget.recipient}';
+    final text = widget.actionText ??
+        (widget.recipient == null
+            ? widget.title
+            : 'បានផ្ទេរទៅ ${widget.recipient}');
+    final secure = widget.recipient != null || widget.actionText != null;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(children: [
@@ -2088,7 +2103,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
             maxLines: 2, overflow: TextOverflow.ellipsis,
             style: TextStyle(fontWeight: FontWeight.w700,
                 fontSize: 13.5, color: context.ink))),
-        if (widget.recipient != null) ...[
+        if (secure) ...[
           const SizedBox(width: 6),
           Container(
             padding: const EdgeInsets.all(3),
@@ -4928,16 +4943,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
   void _openMessage(AppNotif n) {
     final amt = n.transferAmount;
     if (amt == null) return;
+    final outgoing = n.isTransferOut;
+    final name = outgoing ? n.transferRecipient : n.transferSender;
+    final action = name == null
+        ? null
+        : (outgoing ? 'បានផ្ទេរទៅ $name' : 'បានទទួលពី $name');
     Navigator.of(context).push(PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 320),
       reverseTransitionDuration: const Duration(milliseconds: 260),
       pageBuilder: (_, __, ___) => ReceiptScreen(
         title: n.title,
         amount: amt,
-        recipient: n.transferRecipient,
         ref: n.transferRef,
         when: n.time,
         appBarTitle: 'សារប្រតិបត្តិការ',
+        actionText: action,
       ),
       transitionsBuilder: (_, a, __, c) => FadeTransition(
           opacity: CurvedAnimation(parent: a, curve: Curves.easeOutCubic),
@@ -4968,7 +4988,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   itemCount: bank.notifs.length,
                   itemBuilder: (_, i) {
                     final n = bank.notifs[i];
-                    final tappable = n.isTransferOut && n.transferAmount != null;
+                    final tappable = n.isTransferMessage;
                     return Padding(padding: const EdgeInsets.only(bottom: 12),
                         child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
