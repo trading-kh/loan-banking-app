@@ -114,7 +114,7 @@ class KycVerificationScreen extends StatefulWidget {
 }
 
 class _KycVerificationScreenState extends State<KycVerificationScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final _picker = ImagePicker();
 
   int _step = 0;
@@ -141,6 +141,11 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   DateTime? _decidedAt;
   bool _submitting = false;
   bool _refreshingStatus = false;
+  bool _syncing = false;
+  bool _resultOpen = false;
+
+  /// ពិនិត្យស្ថានភាពដោយស្វ័យប្រវត្តិ — ពេល admin អនុម័ត/បដិសេធ កម្មវិធីលោតទៅទំព័រលទ្ធផលភ្លាម
+  Timer? _statusTimer;
 
   late final AnimationController _pulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 2400))
@@ -152,7 +157,14 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _restore();
+    _statusTimer = Timer.periodic(const Duration(seconds: 15), (_) => _syncStatus());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _syncStatus();
   }
 
   Future<void> _restore() async {
@@ -168,10 +180,12 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
     if (!mounted) return;
     if (remote != null) {
       final r = remote;
+      final nextStatus = (r['status'] ?? 'pending').toString();
+      final nextRef = (r['ref'] ?? _ref).toString();
       setState(() {
         _loadingSaved = false;
-        _status = (r['status'] ?? 'pending').toString();
-        _ref = (r['ref'] ?? _ref).toString();
+        _status = nextStatus;
+        _ref = nextRef;
         _rejectReason = r['reason']?.toString();
         _submittedAt =
             DateTime.tryParse(r['submitted_at']?.toString() ?? '') ??
@@ -181,6 +195,13 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
         _step = 2;
         _dir = 1;
       });
+      // លទ្ធផលថ្មីដែលមិនទាន់បានបង្ហាញ → លោតទៅទំព័រលទ្ធផលដោយស្វ័យប្រវត្តិ
+      if ((nextStatus == 'approved' || nextStatus == 'rejected') &&
+          sp.getString('kyc_result_seen') != '$nextRef|$nextStatus') {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openResult();
+        });
+      }
       return;
     }
     final pending = sp.getBool('kyc_pending') ?? false;
@@ -196,6 +217,8 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _statusTimer?.cancel();
     _uploadTimer?.cancel();
     _toastTimer?.cancel();
     _pulse.dispose();
@@ -438,31 +461,78 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
     }
   }
 
-  Future<void> _refreshStatus() async {
-    if (_refreshingStatus) return;
-    setState(() => _refreshingStatus = true);
+  /// ទាញស្ថានភាពពី server — manual=true បង្ហាញ spinner/toast, auto=ស្ងាត់ៗ
+  Future<void> _syncStatus({bool manual = false}) async {
+    if (_syncing || _loadingSaved || _submitting || _resultOpen) return;
+    if (_step != 2 || _status != 'pending') return;
+    _syncing = true;
+    if (manual && mounted) setState(() => _refreshingStatus = true);
     try {
       final r = await ApiService.kycStatus();
-      if (!mounted) return;
-      if (r != null) {
-        setState(() {
-          _status = (r['status'] ?? _status).toString();
-          _rejectReason = r['reason']?.toString();
-          _ref = (r['ref'] ?? _ref).toString();
-          _decidedAt = DateTime.tryParse(r['decided_at']?.toString() ?? '');
-        });
-        _toast(
-          _status == 'pending'
-              ? 'នៅរង់ចាំក្រុមការងារពិនិត្យ'
-              : 'ស្ថានភាពត្រូវបានធ្វើបច្ចុប្បន្នភាព',
-          error: false,
-        );
+      if (!mounted || r == null) return;
+      final next = (r['status'] ?? _status).toString();
+      final decided = next == 'approved' || next == 'rejected';
+      setState(() {
+        _status = next;
+        _rejectReason = r['reason']?.toString();
+        _ref = (r['ref'] ?? _ref).toString();
+        _decidedAt = DateTime.tryParse(r['decided_at']?.toString() ?? '');
+      });
+      if (decided) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setBool('kyc_pending', false);
+        if (!mounted) return;
+        _openResult();
+      } else if (manual) {
+        _toast('នៅរង់ចាំក្រុមការងារពិនិត្យ', error: false);
       }
     } catch (_) {
-      _toast('មិនអាចពិនិត្យស្ថានភាពបាន — សូមព្យាយាមម្តងទៀត');
+      if (manual && mounted) {
+        _toast('មិនអាចពិនិត្យស្ថានភាពបាន — សូមព្យាយាមម្តងទៀត');
+      }
     } finally {
-      if (mounted) setState(() => _refreshingStatus = false);
+      _syncing = false;
+      if (mounted && manual) setState(() => _refreshingStatus = false);
     }
+  }
+
+  Future<void> _refreshStatus() => _syncStatus(manual: true);
+
+  /// បើកទំព័រលទ្ធផល (ជោគជ័យ/បរាជ័យ ទំព័រតែមួយ) ដោយស្វ័យប្រវត្តិ
+  Future<void> _openResult() async {
+    if (_resultOpen || !mounted) return;
+    if (_status != 'approved' && _status != 'rejected') return;
+    _resultOpen = true;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(
+        'kyc_result_seen', '$_ref|$_status');
+    if (!mounted) {
+      _resultOpen = false;
+      return;
+    }
+    final action = await Navigator.of(context).push<String>(PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 560),
+      reverseTransitionDuration: const Duration(milliseconds: 340),
+      pageBuilder: (_, __, ___) => KycResultScreen(
+        approved: _status == 'approved',
+        ref: _ref,
+        reason: _rejectReason,
+        decidedAt: _decidedAt,
+      ),
+      transitionsBuilder: (_, a, __, child) {
+        final t = CurvedAnimation(parent: a, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: t,
+          child: ScaleTransition(
+            scale: Tween(begin: 0.94, end: 1.0).animate(t),
+            child: child,
+          ),
+        );
+      },
+    ));
+    _resultOpen = false;
+    if (!mounted) return;
+    if (action == 'resubmit') await _reset();
   }
 
   Future<void> _reset() async {
@@ -1205,7 +1275,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
         ? 'ឯកសាររបស់អ្នកឆ្លងកាត់ការផ្ទៀងផ្ទាត់ដោយជោគជ័យ។ ឥឡូវលោកអ្នកអាចប្រើសេវាធនាគារបានពេញលេញ។'
         : rejected
             ? 'ឯកសាររបស់អ្នកមិនត្រូវបានអនុម័តទេ។ សូមពិនិត្យមូលហេតុខាងក្រោម ហើយដាក់ឯកសារឡើងវិញ។'
-            : 'ក្រុមការងាររបស់យើងកំពុងពិនិត្យផ្ទៀងផ្ទាត់ឯកសាររបស់អ្នក។ លទ្ធផលនឹងជូនដំណឹងក្នុងរយៈពេលប្រហែល ១ ម៉ោង (អនុម័ត ឬ បដិសេធ)។';
+            : 'ក្រុមការងាររបស់យើងកំពុងពិនិត្យផ្ទៀងផ្ទាត់ឯកសាររបស់អ្នក។ (បន្តិចទៀតនេះ) សូមមេត្តារង់ចាំមួយភ្លេត។';
     final titleColors = approved
         ? const [Color(0xFF7CF5C0), Color(0xFF34D399), Color(0xFF22D3EE)]
         : rejected
@@ -1524,7 +1594,9 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
           _row('លេខយោង', _ref),
           _row('កាលបរិច្ឆេទ', _fmtWhen(_submittedAt)),
           if (_status == 'pending')
-            _row('រយៈពេលពិនិត្យ', '≈ ១ ម៉ោង')
+            _row('រយៈពេលពិនិត្យ',
+                '(បន្តិចទៀតនេះ) សូមមេត្តារង់ចាំមួយភ្លេត',
+                maxLines: 2)
           else
             _row('សម្រេចនៅ', _fmtWhen(_decidedAt ?? _submittedAt)),
           const SizedBox(height: 4),
@@ -1548,7 +1620,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
         Text(label, style: _s(9.5, c: Kyc.muted, w: FontWeight.w600)),
       ]);
 
-  Widget _row(String k, String v) => Padding(
+  Widget _row(String k, String v, {int maxLines = 1}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(children: [
           Text(k, style: _s(11.5, c: Kyc.muted)),
@@ -1556,7 +1628,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
           Expanded(
               child: Text(v,
                   textAlign: TextAlign.right,
-                  maxLines: 1,
+                  maxLines: maxLines,
                   overflow: TextOverflow.ellipsis,
                   style: _s(11.5, w: FontWeight.w700))),
         ]),
@@ -2050,4 +2122,420 @@ class _SweepRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SweepRingPainter old) => old.angle != angle;
+}
+
+// ============================================================================
+//  ទំព័រលទ្ធផល — ជោគជ័យ / បរាជ័យ (ទំព័រតែមួយ · អត្ថបទខុសគ្នា)
+// ============================================================================
+class KycResultScreen extends StatefulWidget {
+  final bool approved;
+  final String ref;
+  final String? reason;
+  final DateTime? decidedAt;
+  const KycResultScreen({
+    super.key,
+    required this.approved,
+    required this.ref,
+    this.reason,
+    this.decidedAt,
+  });
+  @override
+  State<KycResultScreen> createState() => _KycResultScreenState();
+}
+
+class _KycResultScreenState extends State<KycResultScreen>
+    with TickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2200))
+    ..repeat();
+  late final AnimationController _enter = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 900))
+    ..forward();
+
+  bool get _ok => widget.approved;
+  Color get _tone => _ok ? Kyc.ok : Kyc.bad;
+  List<Color> get _tint => _ok
+      ? const [Color(0xFF10B981), Color(0xFF34D399), Color(0xFF22D3EE)]
+      : const [Color(0xFFFF6B6B), Color(0xFFDD2476), Color(0xFFFF512F)];
+
+  String get _title => _ok
+      ? 'អបអរសាទរ លោកអ្នកទទួលបានជោគជ័យសម្រាប់ការដាក់ប្រាក់ហើយ'
+      : 'សូមទោស លោកអ្នកមិនទទួលបានជោគជ័យសម្រាប់ការដាក់ប្រាក់ទេ';
+
+  String get _desc => _ok
+      ? 'ការផ្ទៀងផ្ទាត់អត្តសញ្ញាណរបស់លោកអ្នកត្រូវបានអនុម័តដោយជោគជ័យ។ ឥឡូវលោកអ្នកអាចប្រើសេវាធនាគារបានពេញលេញ។'
+      : 'ការផ្ទៀងផ្ទាត់អត្តសញ្ញាណរបស់លោកអ្នកមិនត្រូវបានអនុម័តទេ។ សូមពិនិត្យមូលហេតុខាងក្រោម ហើយដាក់ឯកសារឡើងវិញ។';
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    _enter.dispose();
+    super.dispose();
+  }
+
+  String _fmtWhen(DateTime d) {
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    final hh = d.hour.toString().padLeft(2, '0');
+    final mi = d.minute.toString().padLeft(2, '0');
+    return '$dd/$mm/${d.year} · $hh:$mi';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: Kyc.bgBottom,
+        body: Container(
+          decoration: const BoxDecoration(gradient: Kyc.bgGrad),
+          child: SafeArea(
+            child: Stack(children: [
+              _blob(Alignment.topRight, _ok ? Kyc.ok : Kyc.accentEnd),
+              _blob(Alignment.bottomLeft,
+                  _ok ? const Color(0xFF22D3EE) : Kyc.accentStart),
+              Column(children: [
+                _topBar(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 26),
+                    child: Column(children: [
+                      const SizedBox(height: 10),
+                      _in(_emblem(), 0.0),
+                      const SizedBox(height: 22),
+                      _in(
+                        ShaderMask(
+                          blendMode: BlendMode.srcATop,
+                          shaderCallback: (r) => LinearGradient(
+                            colors: _ok
+                                ? const [
+                                    Color(0xFF7CF5C0),
+                                    Color(0xFF34D399),
+                                    Color(0xFF22D3EE),
+                                  ]
+                                : const [
+                                    Color(0xFFFFB199),
+                                    Color(0xFFFF6B6B),
+                                    Color(0xFFDD2476),
+                                  ],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                          ).createShader(r),
+                          child: Text(_title,
+                              textAlign: TextAlign.center,
+                              style: _s(20,
+                                  w: FontWeight.w900, c: Colors.white, h: 1.55)),
+                        ),
+                        0.10,
+                      ),
+                      const SizedBox(height: 6),
+                      _in(
+                        Text(_ok ? 'DEPOSIT APPROVED' : 'DEPOSIT REJECTED',
+                            style: _s(11,
+                                c: Kyc.muted.withValues(alpha: 0.8),
+                                ls: 1.8)),
+                        0.16,
+                      ),
+                      const SizedBox(height: 14),
+                      _in(
+                        Text(_desc,
+                            textAlign: TextAlign.center,
+                            style: _s(12, c: Kyc.muted, h: 1.7)),
+                        0.22,
+                      ),
+                      if (!_ok && (widget.reason ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _in(_reasonCard(), 0.28),
+                      ],
+                      const SizedBox(height: 20),
+                      _in(_infoCard(), 0.34),
+                      const SizedBox(height: 20),
+                      _in(_actions(), 0.42),
+                      const SizedBox(height: 10),
+                    ]),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _blob(Alignment align, Color color) => Align(
+        alignment: align,
+        child: FractionalTranslation(
+          translation: Offset(align.x * 0.55, align.y * 0.55),
+          child: Container(
+            width: 280,
+            height: 280,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [color.withValues(alpha: 0.26), Colors.transparent],
+                stops: const [0.0, 1.0],
+              ),
+            ),
+          ),
+        ),
+      );
+
+  Widget _in(Widget child, double start) {
+    final a = CurvedAnimation(
+        parent: _enter,
+        curve: Interval(start, 1.0, curve: Curves.easeOutCubic));
+    return FadeTransition(
+      opacity: a,
+      child: SlideTransition(
+        position:
+            Tween(begin: const Offset(0, 0.10), end: Offset.zero).animate(a),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _topBar() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        child: Row(children: [
+          GestureDetector(
+            onTap: () => Navigator.of(context).maybePop(),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Kyc.card.withValues(alpha: 0.8),
+                border: Border.all(color: Kyc.line),
+              ),
+              child: const Icon(Icons.close_rounded,
+                  color: Colors.white, size: 19),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('លទ្ធផលផ្ទៀងផ្ទាត់អត្តសញ្ញាណ',
+                      style: _s(15, w: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('Identity Verification · Result',
+                      style: _s(10.5,
+                          c: Kyc.muted.withValues(alpha: 0.85), ls: 0.4)),
+                ]),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(99),
+              color: _tone.withValues(alpha: 0.16),
+              border: Border.all(color: _tone.withValues(alpha: 0.5)),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(_ok ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                  size: 12, color: _tone),
+              const SizedBox(width: 4),
+              Text(_ok ? 'ជោគជ័យ' : 'បរាជ័យ',
+                  style: _s(9.5, w: FontWeight.w800, c: _tone, ls: 0.6)),
+            ]),
+          ),
+        ]),
+      );
+
+  Widget _emblem() => SizedBox(
+        width: 178,
+        height: 178,
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_pulse, _enter]),
+          builder: (_, __) {
+            final p = _pulse.value;
+            final shake = _ok
+                ? 0.0
+                : math.sin(_enter.value * math.pi * 7) *
+                    7 *
+                    (1 - _enter.value);
+            return Transform.translate(
+              offset: Offset(shake, 0),
+              child: Stack(alignment: Alignment.center, children: [
+                Container(
+                  width: 178,
+                  height: 178,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        _tone.withValues(
+                            alpha: 0.22 +
+                                0.10 * (1 - (p - 0.5).abs() * 2)),
+                        Colors.transparent,
+                      ],
+                      stops: const [0.32, 1.0],
+                    ),
+                  ),
+                ),
+                for (var i = 0; i < 2; i++) _ring((p + i * 0.5) % 1.0),
+                if (_ok)
+                  CustomPaint(
+                    size: const Size(178, 178),
+                    painter: _BurstPainter(
+                      progress: Curves.easeOutCubic.transform(_enter.value),
+                      color: Kyc.ok,
+                    ),
+                  ),
+                Container(
+                  width: 104,
+                  height: 104,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                        colors: _tint,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight),
+                    boxShadow: [
+                      BoxShadow(
+                          color: _tone.withValues(alpha: 0.55),
+                          blurRadius: 34,
+                          spreadRadius: 2),
+                    ],
+                  ),
+                  child: Icon(_ok ? Icons.check_rounded : Icons.close_rounded,
+                      color: Colors.white, size: 50),
+                ),
+              ]),
+            );
+          },
+        ),
+      );
+
+  Widget _ring(double p) => Opacity(
+        opacity: (1 - p) * 0.5,
+        child: Transform.scale(
+          scale: 0.72 + p * 0.62,
+          child: Container(
+            width: 124,
+            height: 124,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                  color: _tone.withValues(alpha: 0.75), width: 1.6),
+            ),
+          ),
+        ),
+      );
+
+  Widget _reasonCard() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: Kyc.bad.withValues(alpha: 0.10),
+          border: Border.all(color: Kyc.bad.withValues(alpha: 0.45)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.info_outline_rounded, color: Kyc.bad, size: 17),
+            const SizedBox(width: 7),
+            Text('មូលហេតុបដិសេធ',
+                style: _s(12, w: FontWeight.w800, c: Kyc.bad)),
+          ]),
+          const SizedBox(height: 8),
+          Text(widget.reason!, style: _s(12, c: Kyc.text, h: 1.6)),
+        ]),
+      );
+
+  Widget _infoCard() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          gradient: LinearGradient(
+            colors: [
+              Kyc.card.withValues(alpha: 0.95),
+              Kyc.card.withValues(alpha: 0.6),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          border: Border.all(color: Kyc.line),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 22,
+                offset: const Offset(0, 12)),
+          ],
+        ),
+        child: Column(children: [
+          _row('លេខយោង', widget.ref),
+          Divider(color: Kyc.line.withValues(alpha: 0.65), height: 1),
+          _row('ស្ថានភាព', _ok ? 'បានអនុម័ត' : 'បានបដិសេធ', valueColor: _tone),
+          Divider(color: Kyc.line.withValues(alpha: 0.65), height: 1),
+          _row('សម្រេចនៅ', _fmtWhen(widget.decidedAt ?? DateTime.now())),
+        ]),
+      );
+
+  Widget _row(String k, String v, {Color? valueColor}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(children: [
+          Text(k, style: _s(11.5, c: Kyc.muted)),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(v,
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _s(11.5,
+                      w: FontWeight.w700, c: valueColor ?? Kyc.text))),
+        ]),
+      );
+
+  Widget _actions() => _ok
+      ? _GradientButton(
+          label: 'ត្រឡប់ទៅទំព័រដើម',
+          caption: 'BACK TO HOME',
+          icon: Icons.home_rounded,
+          onTap: () => Navigator.of(context).popUntil((r) => r.isFirst),
+        )
+      : Column(children: [
+          _GradientButton(
+            label: 'ដាក់ឯកសារឡើងវិញ',
+            caption: 'RESUBMIT DOCUMENTS',
+            icon: Icons.refresh_rounded,
+            onTap: () => Navigator.of(context).pop('resubmit'),
+          ),
+          const SizedBox(height: 4),
+          TextButton(
+            onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+            child: Text('ត្រឡប់ទៅទំព័រដើម',
+                style: _s(11.5, c: Kyc.muted.withValues(alpha: 0.85))),
+          ),
+        ]);
+}
+
+/// ចំណុចពន្លឺហោះចេញពីរង្វង់ (ជោគជ័យ)
+class _BurstPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  const _BurstPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    const n = 14;
+    for (var i = 0; i < n; i++) {
+      final a = i * 2 * math.pi / n + 0.32;
+      final r = 58 + 52 * progress;
+      final p = center + Offset(math.cos(a) * r, math.sin(a) * r);
+      final op = ((1 - progress).clamp(0.0, 1.0)) * 0.9;
+      canvas.drawCircle(
+          p,
+          i.isEven ? 3.2 : 2.0,
+          Paint()
+            ..color = (i % 3 == 0 ? Kyc.gold : color).withValues(alpha: op));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BurstPainter old) =>
+      old.progress != progress || old.color != color;
 }
