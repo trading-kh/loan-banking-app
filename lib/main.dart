@@ -2118,7 +2118,8 @@ class _TransferFlowStrip extends StatelessWidget {
   /// រយៈពេលស្អាតនៃការផ្លាស់ progress (overlay បញ្ជូនតម្លៃរៀងរាល់ frame)
   final Duration animation;
 
-  /// លទ្ធផលចុងក្រោយ — null = ធម្មតា, 'rejected' = សញ្ញាខ្វែង, 'holding' = ផ្អាក
+  /// លទ្ធផលចុងក្រោយ — null = ធម្មតា, 'rejected' = បដិសេធ,
+  /// 'holding' = ផ្អាក, 'deleted' = ទិន្នន័យត្រូវបានលុប (ត្រូវធ្វើឡើងវិញ)
   final String? outcome;
 
   const _TransferFlowStrip({required this.recipientBankCode,
@@ -2141,18 +2142,21 @@ class _TransferFlowStrip extends StatelessWidget {
       duration: animation,
       curve: Curves.easeOutCubic,
       builder: (_, t, __) {
-        final failed = outcome == 'rejected';
+        final deleted = outcome == 'deleted';
+        final failed = outcome == 'rejected' || deleted;
         final holding = outcome == 'holding';
         final n0 = t >= 0.06;
         final l1 = ((t - 0.10) / 0.28).clamp(0.0, 1.0);
         final n1 = t >= 0.42;
         final l2 = outcome != null ? 1.0 : ((t - 0.46) / 0.28).clamp(0.0, 1.0);
         final n2 = outcome != null || t >= 0.78;
-        final thirdState = failed
-            ? _FlowNodeState.failed
-            : holding
-                ? _FlowNodeState.holding
-                : _FlowNodeState.done;
+        final thirdState = deleted
+            ? _FlowNodeState.deleted
+            : failed
+                ? _FlowNodeState.failed
+                : holding
+                    ? _FlowNodeState.holding
+                    : _FlowNodeState.done;
         return Column(children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _node(context, 'AURA', 'បានផ្ញើចេញ', 'Aura Bank', n0),
@@ -2167,11 +2171,13 @@ class _TransferFlowStrip extends StatelessWidget {
           ]),
           const SizedBox(height: 12),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(failed
-                    ? Icons.error_outline_rounded
-                    : holding
-                        ? Icons.pause_circle_outline_rounded
-                        : Icons.shield_rounded,
+            Icon(deleted
+                    ? Icons.delete_outline_rounded
+                    : failed
+                        ? Icons.error_outline_rounded
+                        : holding
+                            ? Icons.pause_circle_outline_rounded
+                            : Icons.shield_rounded,
                 size: 12,
                 color: failed
                     ? C.accentRed
@@ -2180,11 +2186,13 @@ class _TransferFlowStrip extends StatelessWidget {
                         : C.accentGreen.withValues(alpha: 0.85)),
             const SizedBox(width: 5),
             Flexible(
-              child: Text(failed
-                      ? 'ប្រាក់មិនទាន់បានផ្ទេរទេ · ការផ្ទេរត្រូវបានបដិសេធ'
-                      : holding
-                          ? 'ប្រាក់ត្រូវបានកាត់ទុក · រង់ចាំការអនុម័ត'
-                          : 'ឆ្លងកាត់ប្រព័ន្ធ Bakong របស់ធនាគារកណ្ដាល · សុវត្ថិភាពខ្ពស់',
+              child: Text(deleted
+                      ? 'ប្រតិបត្តិការត្រូវបានលុប · សូមធ្វើប្រតិបត្តិការឡើងវិញ'
+                      : failed
+                          ? 'ប្រាក់មិនទាន់បានផ្ទេរទេ · ការផ្ទេរត្រូវបានបដិសេធ'
+                          : holding
+                              ? 'ប្រាក់ត្រូវបានកាត់ទុក · រង់ចាំការអនុម័ត'
+                              : 'ឆ្លងកាត់ប្រព័ន្ធ Bakong របស់ធនាគារកណ្ដាល · សុវត្ថិភាពខ្ពស់',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 9.5, color: context.muted)),
             ),
@@ -2197,21 +2205,27 @@ class _TransferFlowStrip extends StatelessWidget {
   Widget _node(BuildContext context, String code, String label,
       String subtitle, bool done, {_FlowNodeState state = _FlowNodeState.done}) {
     final active = done;
-    final badgeColor = state == _FlowNodeState.failed
+    final failed = state == _FlowNodeState.failed ||
+        state == _FlowNodeState.deleted;
+    final badgeColor = failed
         ? C.accentRed
         : state == _FlowNodeState.holding
             ? C.accentGold
             : C.accentGreen;
-    final badgeIcon = state == _FlowNodeState.failed
-        ? Icons.close_rounded
-        : state == _FlowNodeState.holding
-            ? Icons.pause_rounded
-            : Icons.check_rounded;
-    final sub = state == _FlowNodeState.failed
-        ? 'មិនបានផ្ទេរ'
-        : state == _FlowNodeState.holding
-            ? 'រង់ចាំអនុម័ត'
-            : subtitle;
+    final badgeIcon = state == _FlowNodeState.deleted
+        ? Icons.delete_outline_rounded
+        : state == _FlowNodeState.failed
+            ? Icons.close_rounded
+            : state == _FlowNodeState.holding
+                ? Icons.pause_rounded
+                : Icons.check_rounded;
+    final sub = state == _FlowNodeState.deleted
+        ? 'បានលុប'
+        : state == _FlowNodeState.failed
+            ? 'មិនបានផ្ទេរ'
+            : state == _FlowNodeState.holding
+                ? 'រង់ចាំអនុម័ត'
+                : subtitle;
     return SizedBox(
       width: 84,
       child: Column(children: [
@@ -2273,7 +2287,7 @@ class _TransferFlowStrip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 8,
-                  color: state == _FlowNodeState.failed
+                  color: failed
                       ? C.accentRed
                       : state == _FlowNodeState.holding
                           ? C.accentGold
@@ -2353,10 +2367,10 @@ class _TransferFlowStrip extends StatelessWidget {
       );
 }
 
-enum _FlowNodeState { done, failed, holding }
+enum _FlowNodeState { done, failed, holding, deleted }
 
 /// ដំណាក់កាលនៃ overlay ផ្ទេរប្រាក់
-enum _FlowPhase { sending, approved, rejected, holding }
+enum _FlowPhase { sending, approved, rejected, holding, deleted }
 
 class _FlowResult {
   final String status; // approved | rejected | holding
@@ -2414,20 +2428,28 @@ class _TransferFlowHandle {
     }
   }
 
-  /// រង់ចាំ Auto Approve ពី server ខណៈសញ្ញាកំពុងរំកិល
-  /// សញ្ញាដល់អ្នកទទួល → បង្ហាញជោគជ័យភ្លាម
+  /// រង់ចាំការអនុម័តពី Admin ខណៈសញ្ញាកំពុងរំកិល
+  /// Admin លុបទិន្នន័យ → 'deleted' (ត្រូវធ្វើប្រតិបត្តិការឡើងវិញ)
   /// ត្រឡប់ null បើ overlay ត្រូវបានបិទមុន
   Future<_FlowResult?> awaitApproval({required String ref}) async {
     var status = 'pending';
-    var reachable = true;
-    final poll = Timer.periodic(const Duration(milliseconds: 1200), (_) async {
-      if (_aborted || _entry == null) return;
+    var deleted = false;
+
+    Future<void> refresh() async {
       try {
         final s = await ApiService.transferStatus(ref);
         status = (s['status'] ?? status).toString();
+        final res = s['result'];
+        if (res is Map && res['deleted'] == true) deleted = true;
       } on ApiException catch (e) {
-        if (e.code == 'NOT_FOUND') reachable = false;
+        // គ្មានកំណត់ត្រានៅ server → Admin បានលុប
+        if (e.code == 'NOT_FOUND') deleted = true;
       } catch (_) {}
+    }
+
+    final poll = Timer.periodic(const Duration(milliseconds: 1200), (_) async {
+      if (_aborted || _entry == null) return;
+      await refresh();
     });
 
     await (_journey ?? Future<void>.value());
@@ -2436,22 +2458,21 @@ class _TransferFlowHandle {
 
     // សញ្ញាបានដល់ — សាកមើលលទ្ធផលចុងក្រោយបន្តិចទៀត
     var tries = 0;
-    while (!_aborted && _entry != null && status == 'pending' && tries < 3) {
+    while (!_aborted && _entry != null && !deleted &&
+        status == 'pending' && tries < 3) {
       await Future.delayed(const Duration(seconds: 1));
       tries++;
-      try {
-        final s = await ApiService.transferStatus(ref);
-        status = (s['status'] ?? status).toString();
-      } catch (_) {}
+      await refresh();
     }
     if (_aborted || _entry == null) return null;
 
-    final rejected = status == 'rejected' || !reachable;
-    final phase = status == 'approved'
-        ? _FlowPhase.approved
-        : rejected
-            ? _FlowPhase.rejected
-            : _FlowPhase.holding;
+    final phase = deleted
+        ? _FlowPhase.deleted
+        : status == 'approved'
+            ? _FlowPhase.approved
+            : status == 'rejected'
+                ? _FlowPhase.rejected
+                : _FlowPhase.holding;
     _phase.value = phase;
     _t.value = 1;
     await Future.delayed(Duration(
@@ -2460,9 +2481,11 @@ class _TransferFlowHandle {
     return _FlowResult(
         phase == _FlowPhase.approved
             ? 'approved'
-            : phase == _FlowPhase.rejected
-                ? 'rejected'
-                : 'holding',
+            : phase == _FlowPhase.deleted
+                ? 'deleted'
+                : phase == _FlowPhase.rejected
+                    ? 'rejected'
+                    : 'holding',
         ref,
         DateTime.now());
   }
@@ -2543,7 +2566,8 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
       case _FlowPhase.sending: return 'កំពុងផ្ទេរប្រាក់';
       case _FlowPhase.approved: return 'ការផ្ទេរបានអនុម័ត';
       case _FlowPhase.rejected: return 'ការផ្ទេរត្រូវបានបដិសេធ';
-      case _FlowPhase.holding: return 'ស្ថានភាព · HOLDING';
+      case _FlowPhase.holding: return 'រង់ចាំ Admin អនុម័ត';
+      case _FlowPhase.deleted: return 'ប្រតិបត្តិការត្រូវបានលុប';
     }
   }
 
@@ -2556,7 +2580,9 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
       case _FlowPhase.rejected:
         return 'ប្រាក់មិនទាន់បានផ្ទេរ · នឹងបង្វិលចូលគណនីវិញ';
       case _FlowPhase.holding:
-        return 'មិនទាន់មានការអនុម័ត · ប្រាក់ត្រូវបានកាត់ទុក';
+        return 'ធនាគារកំពុងពិនិត្យ · ប្រាក់ត្រូវបានកាត់ទុក';
+      case _FlowPhase.deleted:
+        return 'ទិន្នន័យត្រូវបានលុប · សូមធ្វើប្រតិបត្តិការឡើងវិញ';
     }
   }
 
@@ -2564,6 +2590,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
     switch (widget.phase.value) {
       case _FlowPhase.approved: return C.accentGreen;
       case _FlowPhase.rejected: return C.accentRed;
+      case _FlowPhase.deleted: return C.accentRed;
       case _FlowPhase.holding: return C.accentGold;
       default: return C.accent;
     }
@@ -2573,6 +2600,7 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
   Widget build(BuildContext context) {
     final phase = widget.phase.value;
     final failed = phase == _FlowPhase.rejected;
+    final deleted = phase == _FlowPhase.deleted;
     final hold = phase == _FlowPhase.holding;
     return Material(
       color: Colors.transparent,
@@ -2621,7 +2649,13 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
                       when: DateTime.now(),
                       progress: widget.progress.value,
                       animation: const Duration(milliseconds: 160),
-                      outcome: failed ? 'rejected' : hold ? 'holding' : null,
+                      outcome: deleted
+                          ? 'deleted'
+                          : failed
+                              ? 'rejected'
+                              : hold
+                                  ? 'holding'
+                                  : null,
                     ),
                   ),
                 ),
@@ -2710,7 +2744,8 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
       );
     }
     final settled = phase == _FlowPhase.approved ||
-        phase == _FlowPhase.rejected || phase == _FlowPhase.holding;
+        phase == _FlowPhase.rejected || phase == _FlowPhase.holding ||
+        phase == _FlowPhase.deleted;
     return SizedBox(
       width: dim, height: dim,
       child: AnimatedBuilder(
@@ -2752,9 +2787,11 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
                 child: Icon(
                   phase == _FlowPhase.approved
                       ? Icons.check_rounded
-                      : phase == _FlowPhase.rejected
-                          ? Icons.close_rounded
-                          : Icons.pause_rounded,
+                      : phase == _FlowPhase.deleted
+                          ? Icons.delete_outline_rounded
+                          : phase == _FlowPhase.rejected
+                              ? Icons.close_rounded
+                              : Icons.pause_rounded,
                   color: Colors.white, size: 40,
                 ),
               ),
@@ -2769,9 +2806,11 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
     final color = _accent;
     final text = phase == _FlowPhase.approved
         ? 'ប្រាក់បានចូលគណនីអ្នកទទួលហើយ'
-        : phase == _FlowPhase.rejected
-            ? 'ប្រាក់នឹងបង្វិលចូលគណនីអ្នកវិញភ្លាមៗ'
-            : 'ប្រាក់នៅរង់ចាំ · អ្នកអាចពិនិត្យម្តងទៀតនៅពេលក្រោយ';
+        : phase == _FlowPhase.deleted
+            ? 'ប្រាក់ត្រូវបានបង្វិលចូលគណនីវិញ · សូមធ្វើប្រតិបត្តិការឡើងវិញ'
+            : phase == _FlowPhase.rejected
+                ? 'ប្រាក់នឹងបង្វិលចូលគណនីអ្នកវិញភ្លាមៗ'
+                : 'ប្រាក់នៅរង់ចាំ · Admin នឹងពិនិត្យឆាប់ៗ';
     return AnimatedBuilder(
       animation: _result,
       builder: (_, __) => Opacity(
@@ -2786,9 +2825,11 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(phase == _FlowPhase.approved
                     ? Icons.verified_rounded
-                    : phase == _FlowPhase.rejected
-                        ? Icons.money_off_rounded
-                        : Icons.timelapse_rounded,
+                    : phase == _FlowPhase.deleted
+                        ? Icons.delete_outline_rounded
+                        : phase == _FlowPhase.rejected
+                            ? Icons.money_off_rounded
+                            : Icons.timelapse_rounded,
                 size: 14, color: color),
             const SizedBox(width: 7),
             Flexible(child: Text(text,
@@ -2949,7 +2990,7 @@ class ReceiptScreen extends StatefulWidget {
   final String? flowBankCode;
   final String? flowRecipient;
 
-  /// លទ្ធផលនៃការអនុម័ត — success | rejected | holding
+  /// លទ្ធផលនៃការអនុម័ត — success | rejected | holding | deleted
   final String flowStatus;
 
   /// សារប្រាក់ចូល — បង្ហាញពាក្យ «លោកអ្នកបានទទួលប្រាក់ចំនួន ...»
@@ -3174,18 +3215,21 @@ class _ReceiptScreenState extends State<ReceiptScreen>
   Widget _headline() {
     final incoming = widget.incoming;
     final flowDone = widget.flowBankCode != null;
+    final deleted = flowDone && widget.flowStatus == 'deleted';
     final failed = flowDone && widget.flowStatus == 'rejected';
     final holding = flowDone && widget.flowStatus == 'holding';
-    final label = failed
-        ? (incoming ? 'ប្រាក់ត្រូវបានដកចេញវិញ' : 'ប្រាក់ត្រូវបានដកវិញ')
-        : holding
-            ? 'កំពុងរង់ចាំ · HOLDING'
-            : incoming
-                ? 'លោកអ្នកបានទទួលប្រាក់ចំនួន'
-                : flowDone
-                    ? 'ផ្ទេរប្រាក់ជោគជ័យ'
-                    : 'ប្រតិបត្តិការជោគជ័យ!';
-    final amountColor = failed
+    final label = deleted
+        ? 'ប្រតិបត្តិការត្រូវបានលុប'
+        : failed
+            ? (incoming ? 'ប្រាក់ត្រូវបានដកចេញវិញ' : 'ប្រាក់ត្រូវបានដកវិញ')
+            : holding
+                ? 'កំពុងរង់ចាំ Admin អនុម័ត'
+                : incoming
+                    ? 'លោកអ្នកបានទទួលប្រាក់ចំនួន'
+                    : flowDone
+                        ? 'ផ្ទេរប្រាក់ជោគជ័យ'
+                        : 'ប្រតិបត្តិការជោគជ័យ!';
+    final amountColor = failed || deleted
         ? C.accentRed
         : holding
             ? C.accentGold
@@ -3205,17 +3249,19 @@ class _ReceiptScreenState extends State<ReceiptScreen>
             style: TextStyle(color: amountColor,
                 fontSize: 34, fontWeight: FontWeight.w800)),
       ),
-      if (failed || holding) ...[
+      if (failed || holding || deleted) ...[
         const SizedBox(height: 6),
         Text(
-            failed
-                ? (incoming
-                    ? 'ប្រាក់ត្រូវបានដកចេញពីគណនីវិញ · ប្រតិបត្តិការត្រូវបានបដិសេធ'
-                    : 'ប្រាក់ត្រូវបានបង្វិលចូលគណនីវិញ · មិនមានប្រាក់ចេញពីគណនី')
-                : 'ប្រាក់ត្រូវបានកាត់ទុក · នឹងបញ្ចូលពេលធនាគារអនុម័ត',
+            deleted
+                ? 'ទិន្នន័យត្រូវបានលុបដោយធនាគារ · ប្រាក់បានបង្វិលចូលគណនីវិញ · សូមធ្វើប្រតិបត្តិការឡើងវិញ'
+                : failed
+                    ? (incoming
+                        ? 'ប្រាក់ត្រូវបានដកចេញពីគណនីវិញ · ប្រតិបត្តិការត្រូវបានបដិសេធ'
+                        : 'ប្រាក់ត្រូវបានបង្វិលចូលគណនីវិញ · មិនមានប្រាក់ចេញពីគណនី')
+                    : 'ប្រាក់ត្រូវបានកាត់ទុក · នឹងបញ្ចូលពេលធនាគារអនុម័ត',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 11,
-                color: failed ? C.accentRed : C.accentGold)),
+                color: failed || deleted ? C.accentRed : C.accentGold)),
       ],
     ]);
   }
@@ -3250,9 +3296,11 @@ class _ReceiptScreenState extends State<ReceiptScreen>
           when: widget.when ?? DateTime.now(),
           outcome: widget.flowStatus == 'rejected'
               ? 'rejected'
-              : widget.flowStatus == 'holding'
-                  ? 'holding'
-                  : null,
+              : widget.flowStatus == 'deleted'
+                  ? 'deleted'
+                  : widget.flowStatus == 'holding'
+                      ? 'holding'
+                      : null,
         ),
       ]),
     );
@@ -3265,9 +3313,11 @@ class _ReceiptScreenState extends State<ReceiptScreen>
           InfoRow('ស្ថានភាព',
               widget.flowStatus == 'rejected'
                   ? 'បដិសេធ · ប្រាក់ត្រូវបានដកវិញ'
-                  : widget.flowStatus == 'holding'
-                      ? 'Holding · រង់ចាំអនុម័ត'
-                      : 'បានអនុម័ត · ជោគជ័យ'),
+                  : widget.flowStatus == 'deleted'
+                      ? 'បានលុប · សូមធ្វើប្រតិបត្តិការឡើងវិញ'
+                      : widget.flowStatus == 'holding'
+                          ? 'រង់ចាំ Admin អនុម័ត'
+                          : 'បានអនុម័ត · ជោគជ័យ'),
         InfoRow('ពីគណនី', _sender),
         InfoRow('លេខយោង', _ref),
         InfoRow('កាលបរិច្ឆេទ', _time),
@@ -3390,9 +3440,11 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     final core = compact ? 64.0 : 80.0;
     final failed = widget.flowBankCode != null &&
         widget.flowStatus == 'rejected';
+    final deleted = widget.flowBankCode != null &&
+        widget.flowStatus == 'deleted';
     final holding = widget.flowBankCode != null &&
         widget.flowStatus == 'holding';
-    final color = failed
+    final color = failed || deleted
         ? C.accentRed
         : holding
             ? C.accentGold
@@ -3428,11 +3480,13 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                           blurRadius: 24, offset: const Offset(0, 9))],
                     ),
                     child: Icon(
-                        failed
-                            ? Icons.close_rounded
-                            : holding
-                                ? Icons.pause_rounded
-                                : Icons.check_rounded,
+                        deleted
+                            ? Icons.delete_outline_rounded
+                            : failed
+                                ? Icons.close_rounded
+                                : holding
+                                    ? Icons.pause_rounded
+                                    : Icons.check_rounded,
                         color: Colors.white, size: compact ? 38 : 46),
                   ),
                 ),
