@@ -4365,6 +4365,7 @@ class _ControlTakeoverState extends State<_ControlTakeover>
   void _markSeen() {
     if (_seenSent || _master.value < .62) return;
     _seenSent = true;
+    HapticFeedback.mediumImpact();
     bank.markControlSeen(widget.card);
   }
 
@@ -4401,63 +4402,66 @@ class _ControlTakeoverState extends State<_ControlTakeover>
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _close();
       },
-      child: Material(
-        color: const Color(0xFF030B14),
-        child: Stack(
-          children: [
-            Positioned.fill(child: _auroraBackdrop(tint)),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        tint.withOpacity(.30),
-                        Colors.transparent,
-                        const Color(0xFF02080F),
-                      ],
-                      stops: const [0, .48, 1],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(child: _sweepFlare()),
-            SafeArea(
-              child: AnimatedBuilder(
-                animation: Listenable.merge([_entryFade, _entry]),
-                builder: (context, child) => Opacity(
-                  opacity: _entryFade.value.clamp(0.0, 1.0),
-                  child: Transform.translate(
-                    offset: Offset(0, (1 - _entry.value) * 64),
-                    child: Transform.scale(
-                      scale: .93 + .07 * _entry.value,
-                      child: child,
-                    ),
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                  child: Column(
-                    children: [
-                      _header(c, tint),
-                      const SizedBox(height: 6),
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (ctx, cons) {
-                            final landscape = cons.maxWidth > cons.maxHeight;
-                            return _body(c, landscape);
-                          },
-                        ),
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light,
+        child: Material(
+          color: const Color(0xFF030B14),
+          child: Stack(
+            children: [
+              Positioned.fill(child: _auroraBackdrop(tint)),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          tint.withOpacity(.30),
+                          Colors.transparent,
+                          const Color(0xFF02080F),
+                        ],
+                        stops: const [0, .48, 1],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+              Positioned.fill(child: _sweepFlare()),
+              SafeArea(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([_entryFade, _entry]),
+                  builder: (context, child) => Opacity(
+                    opacity: _entryFade.value.clamp(0.0, 1.0),
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - _entry.value) * 64),
+                      child: Transform.scale(
+                        scale: .93 + .07 * _entry.value,
+                        child: child,
+                      ),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                    child: Column(
+                      children: [
+                        _header(c, tint),
+                        const SizedBox(height: 6),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (ctx, cons) {
+                              final landscape = cons.maxWidth > cons.maxHeight;
+                              return _body(c, landscape);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
