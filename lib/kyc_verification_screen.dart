@@ -144,6 +144,9 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   bool _syncing = false;
   bool _resultOpen = false;
 
+  /// server លុបទិន្នន័យផ្ទៀងផ្ទាត់ចោល → ត្រូវធ្វើឯកសារឡើងវិញ
+  bool _clearedByServer = false;
+
   /// ពិនិត្យស្ថានភាពដោយស្វ័យប្រវត្តិ — ពេល admin អនុម័ត/បដិសេធ កម្មវិធីលោតទៅទំព័រលទ្ធផលភ្លាម
   Timer? _statusTimer;
 
@@ -170,9 +173,11 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   Future<void> _restore() async {
     // Server ជាអ្នកកាន់ស្ថានភាពពិត — prefs គ្រាន់តែជា fallback ពេលគ្មានបណ្តាញ
     Map<String, dynamic>? remote;
+    var online = true;
     try {
       remote = await ApiService.kycStatus();
     } catch (_) {
+      online = false;
       remote = null;
     }
     final sp = await SharedPreferences.getInstance();
@@ -205,6 +210,23 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
       return;
     }
     final pending = sp.getBool('kyc_pending') ?? false;
+    if (online) {
+      // Server ឆ្លើយថា «គ្មានទិន្នន័យ» → លុប cache ក្នុងម៉ាស៊ីន ហើយចាប់ផ្ដើមឡើងវិញ
+      await _clearLocal();
+      if (!mounted) return;
+      setState(() {
+        _loadingSaved = false;
+        _status = 'pending';
+        _rejectReason = null;
+        _decidedAt = null;
+        _clearedByServer = pending;
+        _step = 0;
+      });
+      if (pending) {
+        _toast('ទិន្នន័យផ្ទៀងផ្ទាត់ត្រូវបានលុប — សូមដាក់ឯកសារឡើងវិញ');
+      }
+      return;
+    }
     setState(() {
       _loadingSaved = false;
       if (pending) {
@@ -213,6 +235,14 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
         _dir = 1;
       }
     });
+  }
+
+  Future<void> _clearLocal() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.remove('kyc_pending');
+    await sp.remove('kyc_at');
+    await sp.remove('kyc_ref');
+    await sp.remove('kyc_result_seen');
   }
 
   @override
@@ -448,6 +478,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
       setState(() {
         _submittedAt = DateTime.now();
         _submitting = false;
+        _clearedByServer = false;
       });
       _go(2);
     } on ApiException catch (e) {
@@ -469,7 +500,15 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
     if (manual && mounted) setState(() => _refreshingStatus = true);
     try {
       final r = await ApiService.kycStatus();
-      if (!mounted || r == null) return;
+      if (!mounted) return;
+      if (r == null) {
+        // admin បានលុបទិន្នន័យ → កុំបង្ហាញ «កំពុងពិនិត្យ» ក្លែងក្លាយ; ត្រូវដាក់ឯកសារឡើងវិញ
+        await _reset();
+        if (!mounted) return;
+        setState(() => _clearedByServer = true);
+        _toast('ទិន្នន័យផ្ទៀងផ្ទាត់ត្រូវបានលុប — សូមដាក់ឯកសារឡើងវិញ');
+        return;
+      }
       final next = (r['status'] ?? _status).toString();
       final decided = next == 'approved' || next == 'rejected';
       setState(() {
@@ -536,10 +575,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   }
 
   Future<void> _reset() async {
-    final sp = await SharedPreferences.getInstance();
-    await sp.remove('kyc_pending');
-    await sp.remove('kyc_at');
-    await sp.remove('kyc_ref');
+    await _clearLocal();
     if (!mounted) return;
     setState(() {
       _front = null;
@@ -549,6 +585,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
       _status = 'pending';
       _rejectReason = null;
       _decidedAt = null;
+      _clearedByServer = false;
     });
     _go(0);
   }
@@ -779,6 +816,10 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
         _titleBlock('ទាមទារការផ្ទៀងផ្ទាត់អត្តសញ្ញាណ',
             'Identity Verification Required'),
         const SizedBox(height: 16),
+        if (_clearedByServer) ...[
+          _clearedBanner(),
+          const SizedBox(height: 12),
+        ],
         _notice(),
         const SizedBox(height: 18),
         _uploadCard(
@@ -835,6 +876,32 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
           Text(en,
               style: _s(11, c: Kyc.muted.withValues(alpha: 0.8), ls: 0.6)),
         ],
+      );
+
+  Widget _clearedBanner() => Container(
+        padding: const EdgeInsets.fromLTRB(13, 13, 14, 13),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: Kyc.gold.withValues(alpha: 0.10),
+          border: Border.all(color: Kyc.gold.withValues(alpha: 0.45)),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.restart_alt_rounded, color: Kyc.gold, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('ទិន្នន័យផ្ទៀងផ្ទាត់ត្រូវបានលុប',
+                      style:
+                          _s(12.5, w: FontWeight.w800, c: Kyc.gold)),
+                  const SizedBox(height: 5),
+                  Text(
+                      'ធនាគារបានលុបទិន្នន័យផ្ទៀងផ្ទាត់ចាស់ចេញពីប្រព័ន្ធ។ សូមដាក់ឯកសារអត្តសញ្ញាណ និង Selfie ឡើងវិញ ដើម្បីទទួលបានការពិនិត្យថ្មីយ៉ាងត្រឹមត្រូវ។',
+                      style: _s(11.5, c: Kyc.muted, h: 1.65)),
+                ]),
+          ),
+        ]),
       );
 
   Widget _notice() => Container(
