@@ -17,6 +17,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Firebase & Google Sign-In
 import 'package:firebase_core/firebase_core.dart';
@@ -650,6 +651,66 @@ String? resolveBankCode(
   return null;
 }
 
+// ============================================================================
+//  CONTROL U — សារ/ការណែនាំផ្ទាល់ពីធនាគារទៅកាន់អ្នកប្រើ
+// ============================================================================
+class ControlCard {
+  final int deliveryId;
+  final int id;
+  final String title, body, kind, color, icon;
+  final String? ctaLabel, ctaTarget;
+  final int priority;
+  String status; // pending | seen
+
+  ControlCard({
+    required this.deliveryId, required this.id, required this.title,
+    required this.body, required this.kind, required this.color,
+    required this.icon, required this.priority, required this.status,
+    this.ctaLabel, this.ctaTarget,
+  });
+
+  factory ControlCard.fromJson(Map<String, dynamic> j) => ControlCard(
+        deliveryId: j['delivery_id'] as int,
+        id: j['id'] as int,
+        title: (j['title'] as String? ?? '').trim(),
+        body: (j['body'] as String? ?? '').trim(),
+        kind: j['kind'] as String? ?? 'info',
+        color: j['color'] as String? ?? 'blue',
+        icon: j['icon'] as String? ?? '✨',
+        ctaLabel: (j['cta_label'] as String?)?.trim(),
+        ctaTarget: (j['cta_target'] as String?)?.trim(),
+        priority: j['priority'] as int? ?? 0,
+        status: j['delivery_status'] as String? ?? 'pending',
+      );
+
+  bool get isNew => status == 'pending';
+  bool get hasCta => (ctaTarget ?? '').isNotEmpty;
+
+  Color get tint {
+    switch (color) {
+      case 'green': return const Color(0xFF22C55E);
+      case 'amber': return const Color(0xFFF59E0B);
+      case 'red': return const Color(0xFFEF4444);
+      case 'violet': return const Color(0xFF8B5CF6);
+      case 'teal': return const Color(0xFF14B8A6);
+      case 'pink': return const Color(0xFFEC4899);
+      case 'slate': return const Color(0xFF94A3B8);
+      default: return const Color(0xFF3B9AD9);
+    }
+  }
+
+  String get kindLabel {
+    switch (kind) {
+      case 'promo': return 'ផ្សព្វផ្សាយ';
+      case 'warning': return 'ការព្រមាន';
+      case 'action': return 'សកម្មភាព';
+      case 'verify': return 'ផ្ទៀងផ្ទាត់';
+      case 'reward': return 'រង្វាន់';
+      default: return 'ព័ត៌មាន';
+    }
+  }
+}
+
 /// ពាក្យដាច់ដោយឡែក (ខ្លួនឯង) — កុំអោយ 'aba' ចាប់ក្នុង 'abay'
 bool _containsWord(String haystack, String word) {
   final w = word.toLowerCase().trim();
@@ -777,6 +838,7 @@ class AppState extends ChangeNotifier {
   List<Tx> txs = [];
   List<Goal> goals = [];
   List<AppNotif> notifs = [];
+  List<ControlCard> controlCards = [];
   bool loading = false;
 
   List<Budget> budgets = [];
@@ -811,7 +873,9 @@ class AppState extends ChangeNotifier {
 
   /// ផ្ទាំងប្រូប: ផ្ទុកទិន្នន័យទាំងអស់មៀតវិញ (profile + កាត + ប្រតិបត្តិការ + គោលបំណង…)
   Future<void> refreshAll() async {
-    await Future.wait([refreshProfile(), loadAll(), loadExtra()]);
+    await Future.wait([
+      refreshProfile(), loadAll(), loadExtra(), loadControlInbox(),
+    ]);
   }
 
   /// ទាញ់គណនីពី server (ឈ្មោះ/អ៊ីមែល/រូប) — មុននេះមិនដែល refresh ក្រៅពេល login
@@ -845,6 +909,7 @@ class AppState extends ChangeNotifier {
     _syncTimer?.cancel();
     _syncTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
       await _pollNotifs();
+      await loadControlInbox();
       syncIfChanged();
     });
   }
@@ -864,8 +929,44 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
-  String get _notifSeenKey => 'notif_seen_${userId ?? 0}';
+  // ── CONTROL U: សារ/ការណែនាំផ្ទាល់ពីធនាគារ ──
+  Future<void> loadControlInbox() async {
+    if (!loggedIn) return;
+    try {
+      final list = (await ApiService.getControlInbox())
+          .map((e) => ControlCard.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      final changed = list.length != controlCards.length ||
+          List.generate(list.length,
+                  (i) => list[i].deliveryId != controlCards[i].deliveryId)
+              .any((v) => v);
+      controlCards = list;
+      if (changed) notifyListeners();
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) return;
+    } catch (_) {}
+  }
 
+  Future<void> markControlSeen(ControlCard c) async {
+    if (c.status == 'seen') return;
+    c.status = 'seen';
+    notifyListeners();
+    try { await ApiService.controlSeen(c.deliveryId); } catch (_) {}
+  }
+
+  Future<void> actOnControl(ControlCard c) async {
+    controlCards.removeWhere((x) => x.deliveryId == c.deliveryId);
+    notifyListeners();
+    try { await ApiService.controlActed(c.deliveryId); } catch (_) {}
+  }
+
+  Future<void> dismissControl(ControlCard c) async {
+    controlCards.removeWhere((x) => x.deliveryId == c.deliveryId);
+    notifyListeners();
+    try { await ApiService.controlDismiss(c.deliveryId); } catch (_) {}
+  }
+
+  String get _notifSeenKey => 'notif_seen_${userId ?? 0}';
   /// បង្ហាញ notification សម្រាប់ការជូនដំណឹងដែលទើបមកដល់ (fallback ពេល FCM មិនដំណើរការ)
   Future<void> _announceNewNotifs() async {
     if (_announcing || notifs.isEmpty) return;
@@ -913,6 +1014,7 @@ class AppState extends ChangeNotifier {
         loggedIn = true;
         await loadAll();
         await loadExtra();
+        await loadControlInbox();
         startSync();
         NotificationService.registerTokenToBackend();
         _initDeviceServices();
@@ -4069,11 +4171,16 @@ class _MainShellState extends State<MainShell> {
       builder: (_, i, __) {
         _built.add(i);
         return Scaffold(
-          body: IndexedStack(
-            index: i,
+          body: Stack(
             children: [
-              for (int k = 0; k < _pages.length; k++)
-                _built.contains(k) ? _pages[k] : const SizedBox.shrink(),
+              IndexedStack(
+                index: i,
+                children: [
+                  for (int k = 0; k < _pages.length; k++)
+                    _built.contains(k) ? _pages[k] : const SizedBox.shrink(),
+                ],
+              ),
+              const _ControlUOverlay(),
             ],
           ),
           bottomNavigationBar:
@@ -4150,6 +4257,446 @@ class _Nav {
   final IconData icon, active;
   final String label;
   const _Nav(this.icon, this.active, this.label);
+}
+
+// ============================================================================
+//  CONTROL U — Banner + ផ្ទាំងសារពីធនាគារ
+// ============================================================================
+class _ControlUOverlay extends StatelessWidget {
+  const _ControlUOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: bank,
+      builder: (context, _) {
+        final cards = bank.controlCards;
+        if (cards.isEmpty) return const SizedBox.shrink();
+        final c = cards.first;
+        return Positioned(
+          left: 12,
+          right: 12,
+          bottom: 10,
+          child: TweenAnimationBuilder<double>(
+            key: ValueKey('ctl-${c.deliveryId}'),
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 460),
+            curve: Curves.easeOutCubic,
+            builder: (_, t, child) => Opacity(
+              opacity: t,
+              child: Transform.translate(
+                offset: Offset(0, (1 - t) * 34),
+                child: child,
+              ),
+            ),
+            child: _ControlBanner(
+              card: c,
+              more: cards.length - 1,
+              onOpen: () {
+                bank.markControlSeen(c);
+                push(context, ControlCardScreen(card: c));
+              },
+              onClose: () => bank.dismissControl(c),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ControlBanner extends StatelessWidget {
+  final ControlCard card;
+  final int more;
+  final VoidCallback onOpen, onClose;
+  const _ControlBanner({
+    required this.card,
+    required this.more,
+    required this.onOpen,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = card.tint;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [tint.withOpacity(.94), const Color(0xFF06233B)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(.2)),
+        boxShadow: [
+          BoxShadow(
+            color: tint.withOpacity(.42),
+            blurRadius: 26,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onOpen,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(.18),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withOpacity(.28)),
+                  ),
+                  child: Text(card.icon, style: const TextStyle(fontSize: 22)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          if (card.isNew) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text('ថ្មី',
+                                  style: TextStyle(
+                                      color: tint,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800)),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Text(
+                              card.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (card.body.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          card.body,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(.84),
+                              fontSize: 11.5,
+                              height: 1.35),
+                        ),
+                      ],
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Text(card.kindLabel,
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(.72),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700)),
+                          if (card.hasCta) ...[
+                            const SizedBox(width: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                (card.ctaLabel?.isNotEmpty ?? false)
+                                    ? card.ctaLabel!
+                                    : 'មើលបន្ថែម',
+                                style: TextStyle(
+                                    color: tint,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ],
+                          if (more > 0) ...[
+                            const SizedBox(width: 8),
+                            Text('+$more',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(.8),
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700)),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: onClose,
+                  icon: Icon(Icons.close_rounded,
+                      color: Colors.white.withOpacity(.8), size: 18),
+                  tooltip: 'បិទ',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ControlCardScreen extends StatefulWidget {
+  final ControlCard card;
+  const ControlCardScreen({super.key, required this.card});
+  @override
+  State<ControlCardScreen> createState() => _ControlCardScreenState();
+}
+
+class _ControlCardScreenState extends State<ControlCardScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _anim = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 900))
+    ..forward();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      bank.markControlSeen(widget.card);
+    });
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  Future<void> _runCta() async {
+    final c = widget.card;
+    await bank.actOnControl(c);
+    if (!mounted) return;
+    await _openControlTarget(context, c);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.card;
+    final tint = c.tint;
+    return Scaffold(
+      backgroundColor: const Color(0xFF04121F),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [tint.withOpacity(.45), const Color(0xFF04121F)],
+            stops: const [0, .55],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  onPressed: () {
+                    bank.dismissControl(c);
+                    Navigator.of(context).pop();
+                  },
+                  icon: Icon(Icons.close_rounded,
+                      color: Colors.white.withOpacity(.85)),
+                  tooltip: 'បិទ',
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ScaleTransition(
+                        scale: CurvedAnimation(parent: _anim, curve: Curves.elasticOut)
+                            .drive(Tween(begin: .55, end: 1)),
+                        child: Container(
+                          width: 84,
+                          height: 84,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(.16),
+                            borderRadius: BorderRadius.circular(26),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(.3), width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                  color: tint.withOpacity(.65),
+                                  blurRadius: 36,
+                                  spreadRadius: 2),
+                            ],
+                          ),
+                          child: Text(c.icon,
+                              style: const TextStyle(fontSize: 40)),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(.16),
+                          borderRadius: BorderRadius.circular(999),
+                          border:
+                              Border.all(color: Colors.white.withOpacity(.25)),
+                        ),
+                        child: Text(c.kindLabel,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        c.title,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            height: 1.25),
+                      ),
+                      if (c.body.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        Text(
+                          c.body,
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(.86),
+                              fontSize: 15,
+                              height: 1.7),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+                child: Column(
+                  children: [
+                    if (c.hasCta)
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _runCta,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: tint,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                          ),
+                          child: Text(
+                            (c.ctaLabel?.isNotEmpty ?? false)
+                                ? c.ctaLabel!
+                                : 'មើលបន្ថែម',
+                            style: const TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    if (c.hasCta) const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          await bank.actOnControl(c);
+                          if (context.mounted) Navigator.of(context).pop();
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.white.withOpacity(.35)),
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
+                        ),
+                        child: Text('យល់ហើយ',
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(.9),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// បើកមុខងារតាម CTA ដែល Admin កំណត់ (feature ក្នុង app ឬ URL ខាងក្រៅ)
+Future<void> _openControlTarget(BuildContext context, ControlCard c) async {
+  final t = (c.ctaTarget ?? '').trim();
+  if (t.isEmpty) return;
+  if (t.startsWith('http://') || t.startsWith('https://')) {
+    try {
+      final ok = await launchUrl(Uri.parse(t),
+          mode: LaunchMode.externalApplication);
+      if (!ok && context.mounted) {
+        toast(context, 'មិនអាចបើកតំណភ្ជាប់', error: true);
+      }
+    } catch (_) {
+      if (context.mounted) toast(context, 'មិនអាចបើកតំណភ្ជាប់', error: true);
+    }
+    return;
+  }
+  final nav = Navigator.of(context);
+  void goTab(int i) {
+    nav.popUntil((r) => r.isFirst);
+    tabIndex.value = i;
+  }
+
+  switch (t) {
+    case 'feature:home':
+      goTab(0);
+      break;
+    case 'feature:transfer':
+      goTab(1);
+      break;
+    case 'feature:analytics':
+      goTab(2);
+      break;
+    case 'feature:tracking':
+      goTab(3);
+      break;
+    case 'feature:kyc':
+      nav.push(MaterialPageRoute(
+          builder: (_) => const KycVerificationScreen()));
+      break;
+    case 'feature:loan':
+      nav.push(MaterialPageRoute(builder: (_) => const LoanModuleScreen()));
+      break;
+    case 'feature:notifications':
+      nav.push(MaterialPageRoute(
+          builder: (_) => const NotificationScreen()));
+      break;
+  }
 }
 
 Future<Object?> push(BuildContext c, Widget w) =>

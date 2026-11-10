@@ -390,6 +390,19 @@ class ApiService {
 
   static Future<void> markAllRead() => _post('/notifications/read-all', {});
 
+  // ============ CONTROL U (សារ/ការណែនាំផ្ទាល់ពីធនាគារ) ============
+  static Future<List<dynamic>> getControlInbox() async =>
+      await _get('/control/inbox') as List<dynamic>;
+
+  static Future<void> controlSeen(int deliveryId) =>
+      _post('/control/deliveries/$deliveryId/seen', {});
+
+  static Future<void> controlActed(int deliveryId) =>
+      _post('/control/deliveries/$deliveryId/acted', {});
+
+  static Future<void> controlDismiss(int deliveryId) =>
+      _post('/control/deliveries/$deliveryId/dismiss', {});
+
   // ============ LOANS (ម៉ាស៊ីនកម្ចី) ============
   /// កម្ចីដែលកំពុងដំណើរការ (អាច null បើអត់អានកម្ចីស្រាប់បាន)
   static Future<Map<String, dynamic>?> getLoan() async {
