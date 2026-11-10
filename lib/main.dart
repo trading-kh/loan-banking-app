@@ -7506,28 +7506,31 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       ],
                     ),
                   ),
-                  GestureDetector(
-                    onTap: unread == 0
-                        ? null
-                        : () async {
-                            HapticFeedback.mediumImpact();
-                            try {
-                              await bank.markRead();
-                            } catch (_) {}
-                          },
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 220),
-                      opacity: unread == 0 ? .35 : 1,
-                      child: Container(
-                        padding: const EdgeInsets.all(9),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: .2)),
+                  Tooltip(
+                    message: 'អានទាំងអស់',
+                    child: GestureDetector(
+                      onTap: unread == 0
+                          ? null
+                          : () async {
+                              HapticFeedback.mediumImpact();
+                              try {
+                                await bank.markRead();
+                              } catch (_) {}
+                            },
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 220),
+                        opacity: unread == 0 ? .35 : 1,
+                        child: Container(
+                          padding: const EdgeInsets.all(9),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .14),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: Colors.white.withValues(alpha: .2)),
+                          ),
+                          child: const Icon(Icons.done_all_rounded,
+                              color: Colors.white, size: 19),
                         ),
-                        child: const Icon(Icons.done_all_rounded,
-                            color: Colors.white, size: 19),
                       ),
                     ),
                   ),
@@ -7747,6 +7750,7 @@ class _NotifSwipeRowState extends State<_NotifSwipeRow>
 
   void _onStart(DragStartDetails _) {
     if (_deleting) return;
+    _openLock = false;
     _snap.stop();
   }
 
