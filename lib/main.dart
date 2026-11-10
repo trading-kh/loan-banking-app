@@ -659,6 +659,8 @@ class ControlCard {
   final int id;
   final String title, body, kind, color, icon;
   final String? ctaLabel, ctaTarget;
+  final String? imageUrl;
+  final String layout; // standard | hero | cover
   final int priority;
   String status; // pending | seen
 
@@ -666,7 +668,8 @@ class ControlCard {
     required this.deliveryId, required this.id, required this.title,
     required this.body, required this.kind, required this.color,
     required this.icon, required this.priority, required this.status,
-    this.ctaLabel, this.ctaTarget,
+    this.ctaLabel, this.ctaTarget, this.imageUrl,
+    this.layout = 'standard',
   });
 
   factory ControlCard.fromJson(Map<String, dynamic> j) => ControlCard(
@@ -679,9 +682,15 @@ class ControlCard {
         icon: j['icon'] as String? ?? '✨',
         ctaLabel: (j['cta_label'] as String?)?.trim(),
         ctaTarget: (j['cta_target'] as String?)?.trim(),
+        imageUrl: ApiService.absoluteImage(j['image_url'] as String?),
+        layout: (j['layout'] as String? ?? 'standard').trim(),
         priority: j['priority'] as int? ?? 0,
         status: j['delivery_status'] as String? ?? 'pending',
       );
+
+  String get resolvedLayout =>
+      imageUrl != null && layout == 'standard' ? 'hero' : layout;
+  bool get hasImage => imageUrl != null;
 
   bool get isNew => status == 'pending';
   bool get hasCta => (ctaTarget ?? '').isNotEmpty;
@@ -1279,6 +1288,27 @@ class AppState extends ChangeNotifier {
     await ApiService.markAllRead();
     for (final n in notifs) { n.read = true; }
     notifyListeners();
+  }
+
+  Future<void> markNotifRead(AppNotif n) async {
+    if (n.read) return;
+    n.read = true;
+    notifyListeners();
+    try { await ApiService.readNotification(n.id); } catch (_) {}
+  }
+
+  /// លុបសារភ្លាមក្នុង UI មុន — បើ server បរាជ័យ ដាក់មកវិញនៅកន្លែងដើម
+  Future<void> deleteNotif(AppNotif n) async {
+    final idx = notifs.indexOf(n);
+    if (idx < 0) return;
+    notifs.removeAt(idx);
+    notifyListeners();
+    try {
+      await ApiService.deleteNotification(n.id);
+    } catch (_) {
+      notifs.insert(idx > notifs.length ? notifs.length : idx, n);
+      notifyListeners();
+    }
   }
 
   void setCurrency(String mode) {
@@ -4781,10 +4811,41 @@ class _ControlContent extends StatelessWidget {
                 fontWeight: FontWeight.w800)),
       );
 
+  Widget _image(String url, {BorderRadius? radius}) => ClipRRect(
+        borderRadius: radius ?? BorderRadius.circular(26),
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          loadingBuilder: (ctx, child, prog) => prog == null
+              ? child
+              : Container(
+                  color: Colors.white.withOpacity(.08),
+                  alignment: Alignment.center,
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: Colors.white.withOpacity(.75)),
+                  ),
+                ),
+          errorBuilder: (_, __, ___) => Container(
+              color: Colors.white.withOpacity(.08),
+              alignment: Alignment.center,
+              child: Icon(Icons.broken_image_outlined,
+                  color: Colors.white.withOpacity(.6), size: 34)),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final c = card;
     final tint = c.tint;
+    final cover = c.hasImage && c.resolvedLayout == 'cover';
+    final heroImg = c.hasImage && c.resolvedLayout == 'hero';
+
     final hero = Container(
       width: landscape ? 76 : 88,
       height: landscape ? 76 : 88,
@@ -4806,18 +4867,20 @@ class _ControlContent extends StatelessWidget {
       child: Text(c.icon, style: TextStyle(fontSize: landscape ? 34 : 40)),
     );
 
+    final pills = Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        _pill(c.kindLabel, tint, solid: false),
+        if (c.isNew) _pill('ថ្មី', tint, solid: true),
+        if (more > 0) _pill('+$more សារ', tint, solid: false),
+      ],
+    );
+
     final lines = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: [
-            _pill(c.kindLabel, tint, solid: false),
-            if (c.isNew) _pill('ថ្មី', tint, solid: true),
-            if (more > 0) _pill('+$more សារ', tint, solid: false),
-          ],
-        ),
+        pills,
         const SizedBox(height: 14),
         Text(c.title,
             style: TextStyle(
@@ -4832,6 +4895,40 @@ class _ControlContent extends StatelessWidget {
                   color: Colors.white.withOpacity(.87),
                   fontSize: landscape ? 13.5 : 15,
                   height: 1.65)),
+        ],
+      ],
+    );
+
+    final overlayLines = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        pills,
+        const SizedBox(height: 12),
+        Text(c.title,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: landscape ? 25 : 28,
+                fontWeight: FontWeight.w900,
+                height: 1.18,
+                shadows: [
+                  Shadow(color: Colors.black.withOpacity(.5), blurRadius: 14)
+                ])),
+        if (c.body.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(c.body,
+              maxLines: landscape ? 2 : 5,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: Colors.white.withOpacity(.93),
+                  fontSize: landscape ? 13 : 14.5,
+                  height: 1.55,
+                  shadows: [
+                    Shadow(
+                        color: Colors.black.withOpacity(.45), blurRadius: 12)
+                  ])),
         ],
       ],
     );
@@ -4887,6 +4984,114 @@ class _ControlContent extends StatelessWidget {
               ok,
             ],
           );
+
+    // ── រចនាបទ Cover: រូបពេញផ្ទាំង + អត្ថបទលើរូប (ដូច story) ──
+    if (cover && !landscape) {
+      final coverVisual = ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _image(c.imageUrl!),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(.10),
+                    Colors.black.withOpacity(.18),
+                    Colors.black.withOpacity(.88),
+                  ],
+                  stops: const [0, .42, 1],
+                ),
+              ),
+            ),
+            Positioned(
+                left: 18, right: 18, bottom: 18, child: overlayLines),
+          ],
+        ),
+      );
+      return Column(
+        children: [
+          Expanded(
+              child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: coverVisual)),
+          const SizedBox(height: 14),
+          actions,
+        ],
+      );
+    }
+
+    // ── រចនាបទ Hero / Cover (landscape): រូបធំ + អត្ថបទខាងស្ដាំ ──
+    if (heroImg || (cover && landscape)) {
+      final fullImage = _image(c.imageUrl!);
+      return Column(
+        children: [
+          Expanded(
+            child: landscape
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                          flex: 5,
+                          child: Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: fullImage)),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        flex: 6,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.only(top: 22),
+                          child: lines,
+                        ),
+                      ),
+                    ],
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.only(top: 10, bottom: 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Stack(children: [
+                          AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: _image(c.imageUrl!,
+                                  radius: BorderRadius.circular(24))),
+                          Positioned(
+                            left: 14,
+                            top: 14,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withOpacity(.35),
+                                border: Border.all(
+                                    color: Colors.white.withOpacity(.35)),
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: tint.withOpacity(.5),
+                                      blurRadius: 18)
+                                ],
+                              ),
+                              child: Text(c.icon,
+                                  style: const TextStyle(fontSize: 21)),
+                            ),
+                          ),
+                        ]),
+                        const SizedBox(height: 18),
+                        lines,
+                      ],
+                    ),
+                  ),
+          ),
+          actions,
+        ],
+      );
+    }
 
     return Column(
       children: [
@@ -7088,8 +7293,15 @@ class NotificationScreen extends StatefulWidget {
   State<NotificationScreen> createState() => _NotificationScreenState();
 }
 
+String _notifClock(DateTime t) {
+  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  final m = t.minute.toString().padLeft(2, '0');
+  return '$h:$m ${t.hour >= 12 ? 'PM' : 'AM'}';
+}
+
 class _NotificationScreenState extends State<NotificationScreen> {
   bool _notifEnabled = true;
+  String _filter = 'all'; // all | unread | transfer
 
   @override
   void initState() {
@@ -7097,9 +7309,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
     // ផ្ទុកបញ្ជីធនាគារ → ស្គាល់ឈ្មោះក្នុងសារ ដើម្បីបង្ហាញ logo
     bank.ensureRails();
     _checkNotifPermission();
-    Future.delayed(const Duration(milliseconds: 600), () async {
-      try { await bank.markRead(); } catch (_) {}
-    });
   }
 
   Future<void> _checkNotifPermission() async {
@@ -7123,11 +7332,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Widget _notifBlockedBanner() => Container(
-        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: C.accentGold.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: C.accentGold.withValues(alpha: 0.5)),
         ),
         child: Row(children: [
@@ -7145,17 +7354,751 @@ class _NotificationScreenState extends State<NotificationScreen> {
           ),
         ]),
       );
-  void _openMessage(AppNotif n) {
-    final amt = n.transferAmount;
-    final reversed = n.isReversalNotice;
-    if (amt == null) {
-      if (reversed) {
-        Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const KycVerificationScreen()));
-      }
+
+  Future<void> _openDetail(AppNotif n) async {
+    HapticFeedback.selectionClick();
+    bank.markNotifRead(n);
+    await Navigator.of(context).push(PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 340),
+      reverseTransitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (_, __, ___) => _NotificationDetailScreen(notif: n),
+      transitionsBuilder: (_, a, __, c) {
+        final cu = CurvedAnimation(parent: a, curve: Curves.easeOutCubic);
+        return FadeTransition(
+            opacity: cu,
+            child: SlideTransition(
+                position: Tween(begin: const Offset(0, .045), end: Offset.zero)
+                    .animate(cu),
+                child: c));
+      },
+    ));
+  }
+
+  // ── header ──
+  Widget _statPill(String text, IconData icon, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .13),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withValues(alpha: .16)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 5),
+          Text(text,
+              style: const TextStyle(
+                  fontSize: 10.5,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700)),
+        ]),
+      );
+
+  Widget _filterChip(String key, String label) {
+    final active = _filter == key;
+    return GestureDetector(
+      onTap: () {
+        if (_filter == key) return;
+        HapticFeedback.selectionClick();
+        setState(() => _filter = key);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? Colors.white : Colors.white.withValues(alpha: .12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+              color:
+                  active ? Colors.white : Colors.white.withValues(alpha: .20)),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: .18),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4))
+                ]
+              : null,
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: active ? const Color(0xFF044466) : Colors.white)),
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context) {
+    final unread = bank.unread;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1271A2), Color(0xFF0A5A87), Color(0xFF053A5C)],
+        ),
+        boxShadow: [
+          BoxShadow(
+              color: C.accent.withValues(alpha: .32),
+              blurRadius: 30,
+              offset: const Offset(0, 14))
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(26),
+        child: Stack(children: [
+          Positioned(
+              right: -40,
+              top: -60,
+              child: Container(
+                  width: 160,
+                  height: 160,
+                  decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: .07)))),
+          Positioned(
+              right: 30,
+              bottom: -70,
+              child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: C.accentGold.withValues(alpha: .14)))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 14, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(15),
+                      color: Colors.white.withValues(alpha: .16),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: .28)),
+                    ),
+                    child: const Icon(Icons.notifications_active_rounded,
+                        color: Colors.white, size: 23),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('ជូនដំណឹង',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                height: 1.15)),
+                        const SizedBox(height: 2),
+                        Text('សារ និងការជូនដំណឹងទាំងអស់ពី Aura Bank',
+                            style: TextStyle(
+                                color: Colors.white.withValues(alpha: .72),
+                                fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: unread == 0
+                        ? null
+                        : () async {
+                            HapticFeedback.mediumImpact();
+                            try {
+                              await bank.markRead();
+                            } catch (_) {}
+                          },
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 220),
+                      opacity: unread == 0 ? .35 : 1,
+                      child: Container(
+                        padding: const EdgeInsets.all(9),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .14),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: .2)),
+                        ),
+                        child: const Icon(Icons.done_all_rounded,
+                            color: Colors.white, size: 19),
+                      ),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 14),
+                Row(children: [
+                  _statPill('$unread ថ្មី', Icons.fiber_manual_record_rounded,
+                      C.accentGold),
+                  const SizedBox(width: 8),
+                  _statPill('${bank.notifs.length} សារសរុប',
+                      Icons.inbox_rounded, Colors.white70),
+                ]),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    _filterChip('all', 'ទាំងអស់'),
+                    const SizedBox(width: 7),
+                    _filterChip('unread', 'មិនទាន់អាន'),
+                    const SizedBox(width: 7),
+                    _filterChip('transfer', 'ផ្ទេរប្រាក់'),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _groupHeader(BuildContext context, String label, int count) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 14, 4, 8),
+        child: Row(children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+                color: C.accent,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                      color: C.accent.withValues(alpha: .6), blurRadius: 8)
+                ]),
+          ),
+          const SizedBox(width: 8),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: context.ink)),
+          const SizedBox(width: 7),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+            decoration: BoxDecoration(
+                color: context.border, borderRadius: BorderRadius.circular(999)),
+            child: Text('$count',
+                style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: context.muted)),
+          ),
+        ]),
+      );
+
+  Widget _emptyState(BuildContext context) {
+    final title = _filter == 'unread'
+        ? 'អានសារទាំងអស់ហើយ'
+        : _filter == 'transfer'
+            ? 'មិនមានសារផ្ទេរប្រាក់'
+            : 'មិនមានសារនៅឡើយ';
+    final sub = _filter == 'all'
+        ? 'សារថ្មីៗពីធនាគារនឹងបង្ហាញនៅទីនេះ'
+        : 'ជ្រើសរើស “ទាំងអស់” ដើម្បីមើលសារទាំងអស់';
+    return Padding(
+      padding: const EdgeInsets.only(top: 54),
+      child: Column(children: [
+        Container(
+          width: 90,
+          height: 90,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                C.accent.withValues(alpha: .22),
+                C.accentPurple.withValues(alpha: .16)
+              ],
+            ),
+            border:
+                Border.all(color: C.accent.withValues(alpha: .3), width: 1.4),
+            boxShadow: [
+              BoxShadow(
+                  color: C.accent.withValues(alpha: .18), blurRadius: 30)
+            ],
+          ),
+          child: const Icon(Icons.mark_email_read_rounded,
+              size: 38, color: C.accent),
+        ),
+        const SizedBox(height: 18),
+        Text(title,
+            style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: context.ink)),
+        const SizedBox(height: 5),
+        Text(sub,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11.5, color: context.muted)),
+        const SizedBox(height: 22),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            color: context.card,
+            border: Border.all(color: context.border),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.swipe_rounded, size: 13, color: context.muted),
+            const SizedBox(width: 6),
+            Text('អូសឆ្វេង = លុប · អូសស្ដាំ = លម្អិត',
+                style: TextStyle(fontSize: 10, color: context.muted)),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => sb(() => Scaffold(
+        body: SafeArea(
+          bottom: false,
+          child: Column(children: [
+            _header(context),
+            Expanded(
+              child: Builder(builder: (context) {
+                final items = bank.notifs.where((n) {
+                  if (_filter == 'unread') return !n.read;
+                  if (_filter == 'transfer') return n.isTransferMessage;
+                  return true;
+                }).toList();
+                final groups = <String, List<AppNotif>>{};
+                for (final n in items) {
+                  groups.putIfAbsent(dayLabel(n.time), () => []).add(n);
+                }
+                return RefreshIndicator(
+                  color: C.accent,
+                  onRefresh: bank.refreshAll,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 30),
+                    children: [
+                      if (!_notifEnabled) _notifBlockedBanner(),
+                      if (items.isEmpty)
+                        _emptyState(context)
+                      else
+                        for (final g in groups.entries) ...[
+                          _groupHeader(context, g.key, g.value.length),
+                          for (final n in g.value)
+                            _NotifSwipeRow(
+                              key: ValueKey(n.id),
+                              notif: n,
+                              onOpen: () => _openDetail(n),
+                              onDelete: () => bank.deleteNotif(n),
+                            ),
+                        ],
+                    ],
+                  ),
+                );
+              }),
+            ),
+          ]),
+        ),
+      ));
+}
+
+// ── ជួរសារ: អូសឆ្វេងលុប (animation) · អូសស្ដាំ/ចុច → លម្អិត ──
+class _NotifSwipeRow extends StatefulWidget {
+  final AppNotif notif;
+  final VoidCallback onOpen;
+  final Future<void> Function() onDelete;
+  const _NotifSwipeRow({
+    super.key,
+    required this.notif,
+    required this.onOpen,
+    required this.onDelete,
+  });
+  @override
+  State<_NotifSwipeRow> createState() => _NotifSwipeRowState();
+}
+
+class _NotifSwipeRowState extends State<_NotifSwipeRow>
+    with TickerProviderStateMixin {
+  late final AnimationController _snap =
+      AnimationController.unbounded(vsync: this)
+        ..addListener(() {
+          if (mounted && !_deleting) setState(() => _dx = _snap.value);
+        });
+  late final AnimationController _exit =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 360));
+
+  double _dx = 0;
+  bool _deleting = false;
+  bool _openLock = false;
+
+  static const _deleteAt = 74.0;
+  static const _detailAt = 58.0;
+  static const _maxPull = 120.0;
+
+  @override
+  void dispose() {
+    _snap.dispose();
+    _exit.dispose();
+    super.dispose();
+  }
+
+  void _onStart(DragStartDetails _) {
+    if (_deleting) return;
+    _snap.stop();
+  }
+
+  void _onUpdate(DragUpdateDetails d) {
+    if (_deleting) return;
+    final next = (_dx + d.delta.dx).clamp(-_maxPull, _maxPull);
+    setState(() => _dx = next.toDouble());
+  }
+
+  Future<void> _onEnd(DragEndDetails d) async {
+    if (_deleting) return;
+    final v = d.velocity.pixelsPerSecond.dx;
+    if (_dx <= -_deleteAt || v < -800) {
+      await _runDelete();
       return;
     }
+    if (_dx >= _detailAt || v > 800) {
+      await _snapTo(0);
+      if (!mounted || _openLock) return;
+      _openLock = true;
+      widget.onOpen();
+      return;
+    }
+    await _snapTo(0);
+  }
+
+  Future<void> _snapTo(double target) async {
+    _snap.value = _dx;
+    try {
+      await _snap.animateTo(target,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic);
+    } catch (_) {}
+  }
+
+  Future<void> _runDelete() async {
+    if (_deleting) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _deleting = true);
+    try {
+      await _exit.forward();
+    } catch (_) {}
+    await widget.onDelete();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = widget.notif;
+    final unread = !n.read;
+    final bankLogo = n.bankLogoCode;
+    final width = MediaQuery.of(context).size.width;
+
+    final detailOpacity =
+        (_dx > 0 ? _dx / 56 : 0.0).clamp(0.0, 1.0).toDouble();
+    final deleteOpacity =
+        (_dx < 0 ? -_dx / 56 : 0.0).clamp(0.0, 1.0).toDouble();
+    final cardStart = unread
+        ? Color.alphaBlend(C.accent.withValues(alpha: .17), context.card)
+        : context.card;
+
+    final badge = _typeBadge(n);
+
+    final card = Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [cardStart, context.card],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+            color: unread
+                ? C.accent.withValues(alpha: .45)
+                : context.border),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: context.isDark ? .18 : .05),
+              blurRadius: 14,
+              offset: const Offset(0, 6))
+        ],
+      ),
+      padding: const EdgeInsets.all(13),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (bankLogo == null)
+          _NotifIconTile(notif: n)
+        else
+          _NotifBankAvatar(code: bankLogo),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Expanded(
+                  child: Text(n.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13.2,
+                          fontWeight:
+                              unread ? FontWeight.w800 : FontWeight.w700,
+                          color: context.ink)),
+                ),
+                if (unread) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: C.accent,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                            color: C.accent.withValues(alpha: .65),
+                            blurRadius: 7)
+                      ],
+                    ),
+                  ),
+                ],
+              ]),
+              const SizedBox(height: 3),
+              Text(n.body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 11.6, height: 1.4, color: context.muted)),
+              const SizedBox(height: 8),
+              Row(children: [
+                Icon(Icons.schedule_rounded, size: 11, color: context.muted),
+                const SizedBox(width: 4),
+                Text(_notifClock(n.time),
+                    style: TextStyle(
+                        fontSize: 9.8,
+                        fontWeight: FontWeight.w500,
+                        color: context.muted)),
+                if (bankLogo != null && n.bankLogoName != null) ...[
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(n.bankLogoName!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 9.8,
+                            fontWeight: FontWeight.w700,
+                            color: C.accent)),
+                  ),
+                ],
+                const Spacer(),
+                badge,
+              ]),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        Padding(
+          padding: const EdgeInsets.only(top: 11),
+          child: Icon(Icons.chevron_right_rounded,
+              size: 18, color: context.muted.withValues(alpha: .8)),
+        ),
+      ]),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: AnimatedBuilder(
+        animation: _exit,
+        builder: (context, child) {
+          final t = _exit.value;
+          final slide = _dx - (_deleting ? width * t : 0);
+          return SizeTransition(
+            sizeFactor: Tween<double>(begin: 1, end: 0).animate(
+                CurvedAnimation(
+                    parent: _exit,
+                    curve: const Interval(.55, 1, curve: Curves.easeInOutCubic))),
+            axisAlignment: -1,
+            child: Opacity(
+              opacity: (1 - t).clamp(0.0, 1.0).toDouble(),
+              child: Transform.translate(
+                  offset: Offset(slide, 0), child: child),
+            ),
+          );
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: _onStart,
+          onHorizontalDragUpdate: _onUpdate,
+          onHorizontalDragEnd: _onEnd,
+          onTap: _deleting ? null : widget.onOpen,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(children: [
+              Positioned.fill(
+                child: Row(children: [
+                  Expanded(
+                    child: Container(
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF2A8BC9), Color(0xFF0A5A87)],
+                        ),
+                      ),
+                      child: Opacity(
+                        opacity: detailOpacity,
+                        child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                          Icon(Icons.article_rounded,
+                              color: Colors.white, size: 21),
+                          SizedBox(width: 7),
+                          Text('លម្អិត',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800)),
+                        ]),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFFE05252), Color(0xFFB3261E)],
+                        ),
+                      ),
+                      child: Opacity(
+                        opacity: deleteOpacity,
+                        child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                          Text('លុប',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800)),
+                          SizedBox(width: 7),
+                          Icon(Icons.delete_outline_rounded,
+                              color: Colors.white, size: 21),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+              card,
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _typeBadge(AppNotif n) {
+    String label;
+    Color color;
+    if (n.isReversalNotice) {
+      label = 'ដកវិញ';
+      color = C.accentRed;
+    } else if (n.isTransferIn) {
+      label = 'ប្រាក់ចូល';
+      color = C.accentGreen;
+    } else if (n.isTransferOut) {
+      label = 'ផ្ទេរចេញ';
+      color = C.accent;
+    } else {
+      label = 'ធនាគារ';
+      color = C.accentPurple;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: .35)),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: 8.8, fontWeight: FontWeight.w800, color: color)),
+    );
+  }
+}
+
+class _NotifIconTile extends StatelessWidget {
+  final AppNotif notif;
+  const _NotifIconTile({required this.notif});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = notif.isReversalNotice
+        ? const [Color(0xFFF87171), Color(0xFFDC2626)]
+        : notif.isTransferIn
+            ? const [Color(0xFF34D399), Color(0xFF0E9F6E)]
+            : notif.isTransferOut
+                ? const [Color(0xFF3B9AD9), Color(0xFF0A5A87)]
+                : const [Color(0xFF7C8CF8), Color(0xFF3B9AD9)];
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: colors),
+        boxShadow: [
+          BoxShadow(
+              color: colors.first.withValues(alpha: .32),
+              blurRadius: 10,
+              offset: const Offset(0, 4))
+        ],
+      ),
+      child: Icon(notif.icon, color: Colors.white, size: 21),
+    );
+  }
+}
+
+// ── ផ្ទាំងលម្អិតសារ (ចុច/អូសស្ដាំ) ──
+class _NotificationDetailScreen extends StatefulWidget {
+  final AppNotif notif;
+  const _NotificationDetailScreen({required this.notif});
+  @override
+  State<_NotificationDetailScreen> createState() =>
+      _NotificationDetailScreenState();
+}
+
+class _NotificationDetailScreenState extends State<_NotificationDetailScreen> {
+  AppNotif get n => widget.notif;
+
+  List<Color> get _heroColors {
+    if (n.isReversalNotice) {
+      return const [Color(0xFFF59E0B), Color(0xFFDC2626), Color(0xFF7F1D1D)];
+    }
+    if (n.isTransferIn) {
+      return const [Color(0xFF10B981), Color(0xFF0E7490), Color(0xFF064E3B)];
+    }
+    if (n.isTransferOut) {
+      return const [Color(0xFF3B9AD9), Color(0xFF0A5A87), Color(0xFF033553)];
+    }
+    return const [Color(0xFF7C8CF8), Color(0xFF3B9AD9), Color(0xFF044466)];
+  }
+
+  String get _typeLabel {
+    if (n.isReversalNotice) return 'បដិសេធ / ដកប្រាក់វិញ';
+    if (n.isTransferIn) return 'ប្រាក់ចូល';
+    if (n.isTransferOut) return 'ផ្ទេរប្រាក់ចេញ';
+    return 'ការជូនដំណឹងពីធនាគារ';
+  }
+
+  void _openReceipt() {
+    final amt = n.transferAmount;
+    if (amt == null) return;
     final outgoing = n.isTransferOut;
+    final reversed = n.isReversalNotice;
     final name = outgoing ? n.transferRecipient : n.transferSender;
     final action = name == null
         ? null
@@ -7183,74 +8126,332 @@ class _NotificationScreenState extends State<NotificationScreen> {
     ));
   }
 
+  void _primaryAction() {
+    if (n.isTransferMessage) {
+      _openReceipt();
+    } else if (n.isReversalNotice) {
+      Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const KycVerificationScreen()));
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  String get _primaryLabel => n.isTransferMessage
+      ? 'មើលបង្កាន់ដៃ'
+      : n.isReversalNotice
+          ? 'ផ្ទៀងផ្ទាត់អត្តសញ្ញាណ'
+          : 'យល់ហើយ';
+
+  IconData get _primaryIcon => n.isTransferMessage
+      ? Icons.receipt_long_rounded
+      : n.isReversalNotice
+          ? Icons.verified_user_rounded
+          : Icons.check_circle_outline_rounded;
+
+  Widget _infoRow(
+      BuildContext context, IconData icon, String label, Widget value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+              color: C.accent.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(9)),
+          child: Icon(icon, size: 15, color: C.accent),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: context.muted)),
+            const SizedBox(height: 1),
+            value,
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _valueText(BuildContext context, String text) => Text(text,
+      style: TextStyle(
+          fontSize: 12.5, fontWeight: FontWeight.w700, color: context.ink));
+
   @override
-  Widget build(BuildContext context) => sb(() => Scaffold(
-        appBar: AppBar(title: const Text('ជូនដំណឹង')),
-        body: Column(children: [
-          if (!_notifEnabled) _notifBlockedBanner(),
+  Widget build(BuildContext context) {
+    final colors = _heroColors;
+    final amt = n.transferAmount;
+    final counterpart = n.isTransferOut
+        ? n.transferRecipient
+        : n.isTransferIn
+            ? n.transferSender
+            : null;
+
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 16, 2),
+            child: Row(children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: Icon(Icons.arrow_back_ios_new_rounded,
+                    size: 19, color: context.ink),
+                tooltip: 'ត្រឡប់ក្រោយ',
+              ),
+              Expanded(
+                child: Text('ព័ត៌មានលម្អិត',
+                    style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: context.ink)),
+              ),
+            ]),
+          ),
           Expanded(
-            child: RefreshIndicator(
-          color: C.accent,
-          onRefresh: bank.refreshAll,
-          child: bank.notifs.isEmpty
-              ? ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    const SizedBox(height: 180),
-                    Center(child: Text('គ្មានសារ',
-                        style: TextStyle(color: context.muted))),
-                  ])
-              : ListView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  itemCount: bank.notifs.length,
-                  itemBuilder: (_, i) {
-                    final n = bank.notifs[i];
-                    final tappable = n.isTransferMessage;
-                    final bankLogo = n.bankLogoCode;
-                    return Padding(padding: const EdgeInsets.only(bottom: 12),
-                        child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: tappable ? () => _openMessage(n) : null,
-                            child: NeuBox(padding: const EdgeInsets.all(14), radius: 14,
-                            child: Row(children: [
-                              if (bankLogo == null)
-                                Container(width: 42, height: 42,
-                                    decoration: BoxDecoration(
-                                        color: C.accent.withValues(alpha: 0.15),
-                                        shape: BoxShape.circle),
-                                    child: Icon(n.icon, color: C.accent, size: 20))
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+              children: [
+                // ── hero ──
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(26),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: colors,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                          color: colors.first.withValues(alpha: .34),
+                          blurRadius: 28,
+                          offset: const Offset(0, 14))
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(26),
+                    child: Stack(children: [
+                      Positioned(
+                          right: -46,
+                          top: -54,
+                          child: Container(
+                              width: 170,
+                              height: 170,
+                              decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color:
+                                      Colors.white.withValues(alpha: .09)))),
+                      Positioned(
+                          left: -30,
+                          bottom: -60,
+                          child: Container(
+                              width: 130,
+                              height: 130,
+                              decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color:
+                                      Colors.black.withValues(alpha: .12)))),
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              if (n.bankLogoCode != null)
+                                _NotifBankAvatar(code: n.bankLogoCode!)
                               else
-                                _NotifBankAvatar(code: bankLogo),
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(15),
+                                    color:
+                                        Colors.white.withValues(alpha: .18),
+                                    border: Border.all(
+                                        color: Colors.white
+                                            .withValues(alpha: .3)),
+                                  ),
+                                  child: Icon(n.icon,
+                                      color: Colors.white, size: 24),
+                                ),
                               const SizedBox(width: 12),
-                              Expanded(child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min, children: [
-                                Text(n.title, style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: context.ink, fontSize: 13)),
-                                Text(n.body, maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 12,
-                                    color: context.muted)),
-                                Text(fmtTime(n.time), style: TextStyle(
-                                    fontSize: 10.5, color: context.muted)),
-                              ])),
-                              if (!n.read) Container(width: 8, height: 8,
-                                  decoration: const BoxDecoration(
-                                      color: C.accentRed,
-                                      shape: BoxShape.circle)),
-                              if (tappable) ...[
-                                const SizedBox(width: 4),
-                                Icon(Icons.chevron_right_rounded,
-                                    size: 20, color: context.muted),
-                              ],
-                            ]))));
-                  }),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(_typeLabel.toUpperCase(),
+                                        style: TextStyle(
+                                            color: Colors.white
+                                                .withValues(alpha: .78),
+                                            fontSize: 9.5,
+                                            letterSpacing: 1.2,
+                                            fontWeight: FontWeight.w800)),
+                                    const SizedBox(height: 2),
+                                    Text(khDateLong(n.time) +
+                                        ' · ' +
+                                        khClock(n.time),
+                                        style: TextStyle(
+                                            color: Colors.white
+                                                .withValues(alpha: .92),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ]),
+                            const SizedBox(height: 16),
+                            Text(n.title,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 19,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.3)),
+                            if (amt != null) ...[
+                              const SizedBox(height: 14),
+                              Text(
+                                '${n.isTransferOut ? '−' : '+'}${money(amt)}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w900,
+                                    height: 1.05,
+                                    letterSpacing: .4),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                  n.isTransferOut
+                                      ? 'ទឹកប្រាក់ផ្ទេរចេញ'
+                                      : 'ទឹកប្រាក់ទទួលបាន',
+                                  style: TextStyle(
+                                      color: Colors.white
+                                          .withValues(alpha: .72),
+                                      fontSize: 11)),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // ── សារ ──
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: context.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: context.border),
+                  ),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Icon(Icons.chat_bubble_outline_rounded,
+                              size: 15, color: C.accent),
+                          const SizedBox(width: 7),
+                          Text('សារ',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: context.muted)),
+                        ]),
+                        const SizedBox(height: 10),
+                        SelectableText(n.body,
+                            style: TextStyle(
+                                fontSize: 13.5,
+                                height: 1.7,
+                                color: context.ink)),
+                      ]),
+                ),
+                const SizedBox(height: 12),
+
+                // ── ព័ត៌មាន ──
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: context.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: context.border),
+                  ),
+                  child: Column(children: [
+                    _infoRow(
+                        context, Icons.bolt_rounded, 'ប្រភេទ', _valueText(context, _typeLabel)),
+                    if (counterpart != null)
+                      _infoRow(context, Icons.swap_horiz_rounded,
+                          n.isTransferOut ? 'អ្នកទទួល' : 'អ្នកផ្ញើ',
+                          _valueText(context, counterpart)),
+                    if (n.bankLogoName != null)
+                      _infoRow(context, Icons.account_balance_rounded, 'ធនាគារ',
+                          _valueText(context, n.bankLogoName!)),
+                    if (n.isTransferMessage)
+                      _infoRow(context, Icons.tag_rounded, 'លេខយោង',
+                          _valueText(context, n.transferRef)),
+                    _infoRow(context, Icons.calendar_today_rounded, 'កាលបរិច្ឆេទ',
+                        _valueText(context, khDateLong(n.time))),
+                    _infoRow(
+                        context,
+                        Icons.mark_email_read_rounded,
+                        'ស្ថានភាព',
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.only(top: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: (n.read ? C.accentGreen : C.accent)
+                                  .withValues(alpha: .14),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(n.read ? 'បានអាន' : 'ថ្មី',
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: n.read
+                                        ? C.accentGreen
+                                        : C.accent)),
+                          ),
+                        )),
+                  ]),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _primaryAction,
+                    icon: Icon(_primaryIcon, size: 19),
+                    label: Text(_primaryLabel,
+                        style: const TextStyle(
+                            fontSize: 14.5, fontWeight: FontWeight.w800)),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Center(
+                  child: Text('អូសទៅឆ្វេងលើសារ ដើម្បីលុបចេញពីបញ្ជី',
+                      style:
+                          TextStyle(fontSize: 10, color: context.muted)),
+                ),
+              ],
             ),
           ),
         ]),
-      ));
+      ),
+    );
+  }
 }
 
 // ============================================================================

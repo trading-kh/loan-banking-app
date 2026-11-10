@@ -390,6 +390,20 @@ class ApiService {
 
   static Future<void> markAllRead() => _post('/notifications/read-all', {});
 
+  static Future<void> readNotification(int id) =>
+      _post('/notifications/$id/read', {});
+
+  static Future<void> deleteNotification(int id) =>
+      _delete('/notifications/$id');
+
+  /// បម្លែង path រូបភាព (ឧ. `/control/image/abc`) ទៅ URL ពេញ
+  static String? absoluteImage(String? path) {
+    final p = (path ?? '').trim();
+    if (p.isEmpty) return null;
+    if (p.startsWith('http://') || p.startsWith('https://')) return p;
+    return p.startsWith('/') ? '$baseUrl$p' : '$baseUrl/$p';
+  }
+
   // ============ CONTROL U (សារ/ការណែនាំផ្ទាល់ពីធនាគារ) ============
   static Future<List<dynamic>> getControlInbox() async =>
       await _get('/control/inbox') as List<dynamic>;
