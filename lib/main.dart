@@ -2680,17 +2680,32 @@ class _TransferFlowOverlayState extends State<_TransferFlowOverlay>
     final color = _accent;
     const dim = 132.0;
     if (phase == _FlowPhase.sending) {
-      return Container(
-        width: 56, height: 56,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(colors: [
-            C.accent.withValues(alpha: 0.22),
-            C.accentGold.withValues(alpha: 0.16),
+      // ផ្ទាំងកំពុងផ្ទេរ — Logo ធនាគារអ្នកទទួល + ពន្លឺរត់ជុំវិញ
+      return AnimatedBuilder(
+        animation: _spin,
+        builder: (_, __) => SizedBox(
+          width: dim, height: dim,
+          child: Stack(alignment: Alignment.center, children: [
+            CustomPaint(
+              size: const Size(dim, dim),
+              painter: _OrbitLogoPainter(
+                  angle: _spin.value * 2 * math.pi, color: C.accent),
+            ),
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.07),
+                border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16)),
+                boxShadow: [BoxShadow(
+                    color: C.accent.withValues(alpha: 0.38),
+                    blurRadius: 30, spreadRadius: 2)],
+              ),
+              child: BankLogo(code: widget.bankCode, size: 62),
+            ),
           ]),
-          border: Border.all(color: C.accent.withValues(alpha: 0.35)),
         ),
-        child: const Icon(Icons.bolt_rounded, color: C.accentGold, size: 28),
       );
     }
     final settled = phase == _FlowPhase.approved ||
@@ -2829,6 +2844,96 @@ class _FlowRingPainter extends CustomPainter {
       old.color != color;
 }
 
+/// ពន្លឺរត់ជុំវិញ Logo ធនាគារ — comet arc + halo
+class _OrbitLogoPainter extends CustomPainter {
+  final double angle;
+  final Color color;
+  const _OrbitLogoPainter({required this.angle, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.width / 2 - 9;
+
+    canvas.drawCircle(c, r * 1.2, Paint()
+      ..shader = RadialGradient(colors: [
+        color.withValues(alpha: 0.24),
+        color.withValues(alpha: 0.0),
+      ]).createShader(Rect.fromCircle(center: c, radius: r * 1.2)));
+
+    canvas.drawCircle(c, r, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..color = Colors.white.withValues(alpha: 0.10));
+
+    final rect = Rect.fromCircle(center: c, radius: r);
+    canvas.drawArc(
+      rect, 0, 2 * math.pi, false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round
+        ..shader = SweepGradient(
+          colors: [
+            color.withValues(alpha: 0.0),
+            color.withValues(alpha: 0.35),
+            color,
+            C.accentGold,
+            color.withValues(alpha: 0.0),
+          ],
+          stops: const [0.0, 0.35, 0.62, 0.80, 1.0],
+          transform: GradientRotation(angle),
+        ).createShader(rect),
+    );
+
+    final head = c + Offset(math.cos(angle) * r, math.sin(angle) * r);
+    canvas.drawCircle(head, 9, Paint()..color = color.withValues(alpha: 0.28));
+    canvas.drawCircle(head, 5, Paint()..color = color.withValues(alpha: 0.55));
+    canvas.drawCircle(head, 2.6, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(_OrbitLogoPainter old) =>
+      old.angle != angle || old.color != color;
+}
+
+/// ពន្លឺរត់ឆ្លងកាត់ skeleton (0 → 1 គឺពីឆ្វេងទៅស្តាំ)
+class _SlideGradient extends GradientTransform {
+  final double progress;
+  const _SlideGradient(this.progress);
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) =>
+      Matrix4.translationValues(
+          bounds.width * (progress * 2.4 - 1.2), 0, 0);
+}
+
+/// ចូលទំព័របង្កាន់ដៃបន្ទាប់ពី flow ផ្ទេរ — slide + fade + scale រលោង
+Route<void> flowReceiptRoute(Widget page) => PageRouteBuilder<void>(
+      transitionDuration: const Duration(milliseconds: 620),
+      reverseTransitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (_, __, ___) => page,
+      transitionsBuilder: (_, anim, __, child) {
+        final slide = CurvedAnimation(
+            parent: anim,
+            curve: Curves.easeOutQuint,
+            reverseCurve: Curves.easeInCubic);
+        final fade = CurvedAnimation(
+            parent: anim,
+            curve: const Interval(0.0, 0.55, curve: Curves.easeOut));
+        return FadeTransition(
+          opacity: fade,
+          child: SlideTransition(
+            position: Tween(begin: const Offset(0, 0.14), end: Offset.zero)
+                .animate(slide),
+            child: ScaleTransition(
+              scale: Tween(begin: 0.94, end: 1.0).animate(slide),
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+
 class ReceiptScreen extends StatefulWidget {
   final String title;
   final double amount;
@@ -2850,26 +2955,55 @@ class ReceiptScreen extends StatefulWidget {
   final bool incoming;
   final String? senderName;
 
+  /// បង្ហាញ skeleton រលោង រួចបើកបង្ហាញមាតិកាពិត (ប្រើពេលមកពី flow ផ្ទេរ)
+  final bool magicReveal;
+
   const ReceiptScreen({super.key, required this.title, required this.amount,
       this.recipient, this.ref, this.when, this.appBarTitle, this.actionText,
       this.bankCode, this.flowBankCode, this.flowRecipient,
-      this.flowStatus = 'success', this.incoming = false, this.senderName});
+      this.flowStatus = 'success', this.incoming = false, this.senderName,
+      this.magicReveal = false});
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
 }
 
 class _ReceiptScreenState extends State<ReceiptScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1150))..forward();
+      vsync: this, duration: const Duration(milliseconds: 1150));
+  late final AnimationController _shimmer = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1350));
+
+  bool _revealed = false;
+  Timer? _revealTimer;
 
   late final String _ref = widget.ref ??
       'TXN${DateTime.now().millisecondsSinceEpoch % 1000000000}';
   late final String _time = fmtTime(widget.when ?? DateTime.now());
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.magicReveal) {
+      _shimmer.repeat();
+      _revealed = false;
+      _revealTimer = Timer(const Duration(milliseconds: 560), () {
+        if (!mounted) return;
+        setState(() => _revealed = true);
+        _shimmer.stop();
+        _c.forward();
+      });
+    } else {
+      _revealed = true;
+      _c.forward();
+    }
+  }
+
+  @override
   void dispose() {
+    _revealTimer?.cancel();
     _c.dispose();
+    _shimmer.dispose();
     super.dispose();
   }
 
@@ -2893,18 +3027,113 @@ class _ReceiptScreenState extends State<ReceiptScreen>
   @override
   Widget build(BuildContext context) {
     final flow = widget.flowBankCode != null;
-    final body = SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: flow
-                ? SingleChildScrollView(child: _content(context, flow: true))
-                : _content(context, flow: false),
+    final body = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 460),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, if (current != null) current],
+      ),
+      transitionBuilder: (child, anim) {
+        final isReal = child.key == const ValueKey('receipt-real');
+        final t = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: t,
+          child: SlideTransition(
+            position: Tween(
+                    begin: Offset(0, isReal ? 0.05 : -0.02),
+                    end: Offset.zero)
+                .animate(t),
+            child: ScaleTransition(
+              scale: Tween(begin: isReal ? 0.975 : 1.0, end: 1.0).animate(t),
+              child: child,
+            ),
           ),
         );
+      },
+      child: _revealed
+          ? KeyedSubtree(
+              key: const ValueKey('receipt-real'),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: flow
+                      ? SingleChildScrollView(
+                          child: _content(context, flow: true))
+                      : _content(context, flow: false),
+                ),
+              ))
+          : KeyedSubtree(
+              key: const ValueKey('receipt-skeleton'),
+              child: _skeletonBody(context, flow: flow)),
+    );
     if (widget.appBarTitle == null) return Scaffold(body: body);
     return Scaffold(
       appBar: AppBar(title: Text(widget.appBarTitle!)),
       body: body,
+    );
+  }
+
+  /// Skeleton រលោង — ពន្លឺរត់ឆ្លងកាត់ រហូតមាតិកាពិតបើកបង្ហាញ
+  Widget _skeletonBody(BuildContext context, {required bool flow}) {
+    final base = context.isDark
+        ? const Color(0xFF172A3E)
+        : const Color(0xFFE2E9F1);
+    final hi = Color.lerp(base,
+        context.isDark ? Colors.white : C.accent, 0.20)!;
+    final dim = flow ? 108.0 : 136.0;
+
+    Widget bone({double? w, required double h, double r = 10}) => Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(
+              color: base, borderRadius: BorderRadius.circular(r)),
+        );
+
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 6),
+        bone(w: dim, h: dim, r: dim / 2),
+        const SizedBox(height: 18),
+        bone(w: 132, h: 13),
+        const SizedBox(height: 11),
+        bone(w: 198, h: 28, r: 13),
+        const SizedBox(height: 24),
+        bone(h: flow ? 104 : 148, r: 22),
+        const SizedBox(height: 14),
+        bone(h: 168, r: 22),
+        const SizedBox(height: 24),
+        bone(h: 52, r: 16),
+        const SizedBox(height: 10),
+      ],
+    );
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: SingleChildScrollView(
+          physics: const NeverScrollableScrollPhysics(),
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _shimmer,
+              builder: (_, child) => ShaderMask(
+                blendMode: BlendMode.srcATop,
+                shaderCallback: (rect) => LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [base, hi, base],
+                  stops: const [0.15, 0.5, 0.85],
+                  transform: _SlideGradient(_shimmer.value),
+                ).createShader(rect),
+                child: child,
+              ),
+              child: content,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -5205,18 +5434,14 @@ class _TransferScreenState extends State<TransferScreen> {
           : name.text.trim();
       _clearForm();
       final tx = r['transaction'];
-      Navigator.of(context).push(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) => ReceiptScreen(
-            title: (tx is Map ? tx['title'] : null)?.toString() ?? 'ផ្ទេរប្រាក់',
-            amount: a, recipient: rName.isEmpty ? null : rName,
-            ref: ref.isEmpty ? null : ref,
-            flowBankCode: flowBank,
-            flowRecipient: rName.isEmpty ? null : rName,
-            flowStatus: flowStatus),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ));
+      Navigator.of(context).push(flowReceiptRoute(ReceiptScreen(
+          title: (tx is Map ? tx['title'] : null)?.toString() ?? 'ផ្ទេរប្រាក់',
+          amount: a, recipient: rName.isEmpty ? null : rName,
+          ref: ref.isEmpty ? null : ref,
+          flowBankCode: flowBank,
+          flowRecipient: rName.isEmpty ? null : rName,
+          flowStatus: flowStatus,
+          magicReveal: true)));
     } on ApiException catch (e) {
       _flow.close();
       if (e.code == 'TIMEOUT' || e.code == 'NETWORK') {
@@ -6813,16 +7038,12 @@ class _QrPayScreenState extends State<QrPayScreen>
         await _flow.complete();
       }
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) => ReceiptScreen(
-            title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
-            ref: ref.isEmpty ? null : ref,
-            flowBankCode: 'AURA', flowRecipient: _name,
-            flowStatus: flowStatus),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ));
+      Navigator.of(context).pushReplacement(flowReceiptRoute(ReceiptScreen(
+          title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
+          ref: ref.isEmpty ? null : ref,
+          flowBankCode: 'AURA', flowRecipient: _name,
+          flowStatus: flowStatus,
+          magicReveal: true)));
     } on ApiException catch (e) {
       _flow.close();
       if (!mounted) return;
@@ -6900,16 +7121,12 @@ class _QrPayScreenState extends State<QrPayScreen>
       await _flow.complete();
     }
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(PageRouteBuilder(
-      transitionDuration: const Duration(milliseconds: 350),
-      pageBuilder: (_, __, ___) => ReceiptScreen(
-          title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
-          ref: ref.isEmpty ? null : ref,
-          flowBankCode: flowBank, flowRecipient: _name,
-          flowStatus: flowStatus),
-      transitionsBuilder: (_, anim, __, child) =>
-          FadeTransition(opacity: anim, child: child),
-    ));
+    Navigator.of(context).pushReplacement(flowReceiptRoute(ReceiptScreen(
+        title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
+        ref: ref.isEmpty ? null : ref,
+        flowBankCode: flowBank, flowRecipient: _name,
+        flowStatus: flowStatus,
+        magicReveal: true)));
   }
 
   @override
