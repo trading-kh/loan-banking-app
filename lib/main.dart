@@ -4353,6 +4353,7 @@ class _ControlTakeoverState extends State<_ControlTakeover>
       parent: _master,
       curve: const Interval(.60, .97, curve: Curves.easeOutCubic));
   bool _seenSent = false;
+  bool _closing = false;
 
   @override
   void initState() {
@@ -4377,12 +4378,20 @@ class _ControlTakeoverState extends State<_ControlTakeover>
     super.dispose();
   }
 
-  void _close() {
-    bank.dismissControl(widget.card);
+  void _end() {
+    if (_closing) return;
+    _closing = true;
     Navigator.of(context).pop();
   }
 
+  void _close() {
+    bank.dismissControl(widget.card);
+    _end();
+  }
+
   void _runCta() {
+    if (_closing) return;
+    _closing = true;
     final c = widget.card;
     _openControlTarget(context, c);
     bank.actOnControl(c);
@@ -4390,7 +4399,7 @@ class _ControlTakeoverState extends State<_ControlTakeover>
 
   void _ok() {
     bank.actOnControl(widget.card);
-    Navigator.of(context).pop();
+    _end();
   }
 
   @override
