@@ -4180,6 +4180,7 @@ class _MainShellState extends State<MainShell> {
                     _built.contains(k) ? _pages[k] : const SizedBox.shrink(),
                 ],
               ),
+              // គ្រាន់តែជា listener — ផ្ទាំង Control U បើកជា route ពេញអេក្រង់
               const _ControlUOverlay(),
             ],
           ),
@@ -4262,390 +4263,644 @@ class _Nav {
 // ============================================================================
 //  CONTROL U — Banner + ផ្ទាំងសារពីធនាគារ
 // ============================================================================
-class _ControlUOverlay extends StatelessWidget {
+/// តាមដាន Control U — បើកផ្ទាំង Takeover ពេញអេក្រង់ពីលើគ្រប់ route
+class _ControlUOverlay extends StatefulWidget {
   const _ControlUOverlay();
 
   @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: bank,
-      builder: (context, _) {
-        final cards = bank.controlCards;
-        if (cards.isEmpty) return const SizedBox.shrink();
-        final c = cards.first;
-        return Positioned(
-          left: 12,
-          right: 12,
-          bottom: 10,
-          child: TweenAnimationBuilder<double>(
-            key: ValueKey('ctl-${c.deliveryId}'),
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 460),
-            curve: Curves.easeOutCubic,
-            builder: (_, t, child) => Opacity(
-              opacity: t,
-              child: Transform.translate(
-                offset: Offset(0, (1 - t) * 34),
-                child: child,
-              ),
-            ),
-            child: _ControlBanner(
-              card: c,
-              more: cards.length - 1,
-              onOpen: () {
-                bank.markControlSeen(c);
-                push(context, ControlCardScreen(card: c));
-              },
-              onClose: () => bank.dismissControl(c),
-            ),
-          ),
-        );
-      },
-    );
-  }
+  State<_ControlUOverlay> createState() => _ControlUOverlayState();
 }
 
-class _ControlBanner extends StatelessWidget {
-  final ControlCard card;
-  final int more;
-  final VoidCallback onOpen, onClose;
-  const _ControlBanner({
-    required this.card,
-    required this.more,
-    required this.onOpen,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tint = card.tint;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [tint.withOpacity(.94), const Color(0xFF06233B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(.2)),
-        boxShadow: [
-          BoxShadow(
-            color: tint.withOpacity(.42),
-            blurRadius: 26,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onOpen,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(.18),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white.withOpacity(.28)),
-                  ),
-                  child: Text(card.icon, style: const TextStyle(fontSize: 22)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          if (card.isNew) ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text('ថ្មី',
-                                  style: TextStyle(
-                                      color: tint,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w800)),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Expanded(
-                            child: Text(
-                              card.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (card.body.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          card.body,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: Colors.white.withOpacity(.84),
-                              fontSize: 11.5,
-                              height: 1.35),
-                        ),
-                      ],
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Text(card.kindLabel,
-                              style: TextStyle(
-                                  color: Colors.white.withOpacity(.72),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700)),
-                          if (card.hasCta) ...[
-                            const SizedBox(width: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                (card.ctaLabel?.isNotEmpty ?? false)
-                                    ? card.ctaLabel!
-                                    : 'មើលបន្ថែម',
-                                style: TextStyle(
-                                    color: tint,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800),
-                              ),
-                            ),
-                          ],
-                          if (more > 0) ...[
-                            const SizedBox(width: 8),
-                            Text('+$more',
-                                style: TextStyle(
-                                    color: Colors.white.withOpacity(.8),
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w700)),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: onClose,
-                  icon: Icon(Icons.close_rounded,
-                      color: Colors.white.withOpacity(.8), size: 18),
-                  tooltip: 'បិទ',
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class ControlCardScreen extends StatefulWidget {
-  final ControlCard card;
-  const ControlCardScreen({super.key, required this.card});
-  @override
-  State<ControlCardScreen> createState() => _ControlCardScreenState();
-}
-
-class _ControlCardScreenState extends State<ControlCardScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _anim = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 900))
-    ..forward();
+class _ControlUOverlayState extends State<_ControlUOverlay> {
+  bool _routeOpen = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      bank.markControlSeen(widget.card);
-    });
+    bank.addListener(_sync);
+    _sync();
   }
 
   @override
   void dispose() {
-    _anim.dispose();
+    bank.removeListener(_sync);
     super.dispose();
   }
 
-  Future<void> _runCta() async {
+  void _sync() {
+    if (_routeOpen || bank.controlCards.isEmpty) return;
+    final cards = List<ControlCard>.from(bank.controlCards);
+    _routeOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _routeOpen = false;
+        return;
+      }
+      Navigator.of(context)
+          .push(PageRouteBuilder(
+            opaque: true,
+            transitionDuration: const Duration(milliseconds: 260),
+            reverseTransitionDuration: const Duration(milliseconds: 220),
+            pageBuilder: (_, __, ___) => _ControlTakeover(
+              card: cards.first,
+              more: cards.length - 1,
+            ),
+            transitionsBuilder: (_, a, __, child) =>
+                FadeTransition(opacity: a, child: child),
+          ))
+          .then((_) {
+        _routeOpen = false;
+        if (mounted) _sync();
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+/// ការបង្ហាញពេញអេក្រង់៖ skeleton រស់រវើក ~១វិនាទី → magic reveal → Banner
+class _ControlTakeover extends StatefulWidget {
+  final ControlCard card;
+  final int more;
+  const _ControlTakeover({required this.card, required this.more});
+
+  @override
+  State<_ControlTakeover> createState() => _ControlTakeoverState();
+}
+
+class _ControlTakeoverState extends State<_ControlTakeover>
+    with TickerProviderStateMixin {
+  late final AnimationController _master = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1750));
+  late final AnimationController _shimmer = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1300))
+    ..repeat();
+  late final AnimationController _aurora = AnimationController(
+      vsync: this, duration: const Duration(seconds: 7))
+    ..repeat(reverse: true);
+
+  late final Animation<double> _entryFade = CurvedAnimation(
+      parent: _master, curve: const Interval(0, .16, curve: Curves.easeOut));
+  late final Animation<double> _entry = CurvedAnimation(
+      parent: _master, curve: const Interval(0, .28, curve: Curves.easeOutBack));
+  late final Animation<double> _sweep = CurvedAnimation(
+      parent: _master,
+      curve: const Interval(.02, .38, curve: Curves.easeInOutCubic));
+  late final Animation<double> _skeletonOut = CurvedAnimation(
+      parent: _master, curve: const Interval(.56, .72, curve: Curves.easeInCubic));
+  late final Animation<double> _reveal = CurvedAnimation(
+      parent: _master,
+      curve: const Interval(.60, .97, curve: Curves.easeOutCubic));
+  bool _seenSent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _master
+      ..addListener(_markSeen)
+      ..forward();
+  }
+
+  void _markSeen() {
+    if (_seenSent || _master.value < .62) return;
+    _seenSent = true;
+    bank.markControlSeen(widget.card);
+  }
+
+  @override
+  void dispose() {
+    _master.dispose();
+    _shimmer.dispose();
+    _aurora.dispose();
+    super.dispose();
+  }
+
+  void _close() {
+    bank.dismissControl(widget.card);
+    Navigator.of(context).pop();
+  }
+
+  void _runCta() {
     final c = widget.card;
-    await bank.actOnControl(c);
-    if (!mounted) return;
-    await _openControlTarget(context, c);
+    _openControlTarget(context, c);
+    bank.actOnControl(c);
+  }
+
+  void _ok() {
+    bank.actOnControl(widget.card);
+    Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = widget.card;
     final tint = c.tint;
-    return Scaffold(
-      backgroundColor: const Color(0xFF04121F),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [tint.withOpacity(.45), const Color(0xFF04121F)],
-            stops: const [0, .55],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: IconButton(
-                  onPressed: () {
-                    bank.dismissControl(c);
-                    Navigator.of(context).pop();
-                  },
-                  icon: Icon(Icons.close_rounded,
-                      color: Colors.white.withOpacity(.85)),
-                  tooltip: 'បិទ',
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _close();
+      },
+      child: Material(
+        color: const Color(0xFF030B14),
+        child: Stack(
+          children: [
+            Positioned.fill(child: _auroraBackdrop(tint)),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        tint.withOpacity(.30),
+                        Colors.transparent,
+                        const Color(0xFF02080F),
+                      ],
+                      stops: const [0, .48, 1],
+                    ),
+                  ),
                 ),
               ),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+            ),
+            Positioned.fill(child: _sweepFlare()),
+            SafeArea(
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_entryFade, _entry]),
+                builder: (context, child) => Opacity(
+                  opacity: _entryFade.value.clamp(0.0, 1.0),
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - _entry.value) * 64),
+                    child: Transform.scale(
+                      scale: .93 + .07 * _entry.value,
+                      child: child,
+                    ),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ScaleTransition(
-                        scale: CurvedAnimation(parent: _anim, curve: Curves.elasticOut)
-                            .drive(Tween(begin: .55, end: 1)),
-                        child: Container(
-                          width: 84,
-                          height: 84,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(.16),
-                            borderRadius: BorderRadius.circular(26),
-                            border: Border.all(
-                                color: Colors.white.withOpacity(.3), width: 1.5),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: tint.withOpacity(.65),
-                                  blurRadius: 36,
-                                  spreadRadius: 2),
-                            ],
-                          ),
-                          child: Text(c.icon,
-                              style: const TextStyle(fontSize: 40)),
+                      _header(c, tint),
+                      const SizedBox(height: 6),
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (ctx, cons) {
+                            final landscape = cons.maxWidth > cons.maxHeight;
+                            return _body(c, landscape);
+                          },
                         ),
                       ),
-                      const SizedBox(height: 22),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(.16),
-                          borderRadius: BorderRadius.circular(999),
-                          border:
-                              Border.all(color: Colors.white.withOpacity(.25)),
-                        ),
-                        child: Text(c.kindLabel,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700)),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        c.title,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            height: 1.25),
-                      ),
-                      if (c.body.isNotEmpty) ...[
-                        const SizedBox(height: 14),
-                        Text(
-                          c.body,
-                          style: TextStyle(
-                              color: Colors.white.withOpacity(.86),
-                              fontSize: 15,
-                              height: 1.7),
-                        ),
-                      ],
                     ],
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
-                child: Column(
-                  children: [
-                    if (c.hasCta)
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: _runCta,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: tint,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16)),
-                          ),
-                          child: Text(
-                            (c.ctaLabel?.isNotEmpty ?? false)
-                                ? c.ctaLabel!
-                                : 'មើលបន្ថែម',
-                            style: const TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ),
-                    if (c.hasCta) const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: () async {
-                          await bank.actOnControl(c);
-                          if (context.mounted) Navigator.of(context).pop();
-                        },
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: Colors.white.withOpacity(.35)),
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
-                        ),
-                        child: Text('យល់ហើយ',
-                            style: TextStyle(
-                                color: Colors.white.withOpacity(.9),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700)),
-                      ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _body(ControlCard c, bool landscape) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_skeletonOut, _reveal]),
+      builder: (context, _) {
+        final so = _skeletonOut.value;
+        final rv = _reveal.value;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (so < 1)
+              IgnorePointer(
+                child: Opacity(
+                  opacity: 1 - so,
+                  child: Transform.translate(
+                    offset: Offset(0, -30 * so),
+                    child: Transform.scale(
+                      scale: 1 + .05 * so,
+                      child: _ControlSkeleton(
+                          landscape: landscape, shimmer: _shimmer),
                     ),
+                  ),
+                ),
+              ),
+            if (rv > 0)
+              IgnorePointer(
+                ignoring: rv < .6,
+                child: Opacity(
+                  opacity: rv,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - rv) * 30),
+                    child: _ControlContent(
+                      card: c,
+                      more: widget.more,
+                      landscape: landscape,
+                      onCta: _runCta,
+                      onOk: _ok,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _header(ControlCard c, Color tint) {
+    return Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              colors: [tint.withOpacity(.95), const Color(0xFF0B3E6B)],
+            ),
+            border: Border.all(color: Colors.white.withOpacity(.25)),
+            boxShadow: [
+              BoxShadow(color: tint.withOpacity(.5), blurRadius: 14),
+            ],
+          ),
+          child: const Text('A',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('AURA BANK',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2)),
+              Text(c.isNew ? 'សារថ្មីពីធនាគារ' : 'សារពីធនាគារ',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(.66), fontSize: 11)),
+            ],
+          ),
+        ),
+        IconButton(
+          onPressed: _close,
+          icon: Icon(Icons.close_rounded,
+              color: Colors.white.withOpacity(.8), size: 22),
+          tooltip: 'បិទ',
+        ),
+      ],
+    );
+  }
+
+  Widget _auroraBackdrop(Color tint) {
+    return AnimatedBuilder(
+      animation: _aurora,
+      builder: (context, _) {
+        final t = _aurora.value;
+        return Stack(
+          children: [
+            _blob(tint.withOpacity(.55), 400,
+                top: -160 + 50 * t, left: -130 + 40 * t),
+            _blob(const Color(0xFF1D5FD6).withOpacity(.40), 440,
+                bottom: -180 - 40 * t, right: -150 + 30 * t),
+            _blob(Colors.white.withOpacity(.07), 260,
+                top: 240 - 70 * t, right: -90 + 50 * t),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _blob(Color color, double size,
+      {double? top, double? left, double? right, double? bottom}) {
+    return Positioned(
+      top: top,
+      left: left,
+      right: right,
+      bottom: bottom,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: [color, color.withOpacity(0)]),
+        ),
+      ),
+    );
+  }
+
+  Widget _sweepFlare() {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _sweep,
+        builder: (context, _) {
+          final v = _sweep.value;
+          if (v >= 1) return const SizedBox.shrink();
+          return FractionallySizedBox(
+            widthFactor: .22,
+            alignment: Alignment(-3.2 + 6.4 * v, 0),
+            child: Transform.rotate(
+              angle: .30,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withOpacity(0),
+                      Colors.white.withOpacity(.16),
+                      Colors.white.withOpacity(0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ControlSkeleton extends StatelessWidget {
+  final bool landscape;
+  final Animation<double> shimmer;
+  const _ControlSkeleton({required this.landscape, required this.shimmer});
+
+  Widget _bar(double h, {double wf = 1, double r = 8}) => FractionallySizedBox(
+        widthFactor: wf,
+        alignment: Alignment.centerLeft,
+        child: Container(
+          height: h,
+          decoration: BoxDecoration(
+              color: Colors.white, borderRadius: BorderRadius.circular(r)),
+        ),
+      );
+
+  Widget _tile(double size, double r) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+            color: Colors.white, borderRadius: BorderRadius.circular(r)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: shimmer,
+      builder: (context, child) {
+        final dx = -1.9 + 3.8 * shimmer.value;
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (r) => LinearGradient(
+            begin: Alignment(dx - .55, .9),
+            end: Alignment(dx + .55, -.9),
+            colors: const [
+              Color(0x2EFFFFFF),
+              Color(0xB3FFFFFF),
+              Color(0x2EFFFFFF),
+            ],
+          ).createShader(r),
+          child: child,
+        );
+      },
+      child: landscape ? _landscape() : _portrait(),
+    );
+  }
+
+  Widget _portrait() => SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(top: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _tile(88, 28),
+            const SizedBox(height: 22),
+            _bar(20, wf: .28, r: 10),
+            const SizedBox(height: 18),
+            _bar(30, wf: .94, r: 9),
+            const SizedBox(height: 10),
+            _bar(30, wf: .72, r: 9),
+            const SizedBox(height: 22),
+            _bar(13),
+            const SizedBox(height: 9),
+            _bar(13, wf: .96),
+            const SizedBox(height: 9),
+            _bar(13, wf: .64),
+            const SizedBox(height: 30),
+            _bar(54, r: 18),
+            const SizedBox(height: 10),
+            _bar(54, r: 18),
+          ],
+        ),
+      );
+
+  Widget _landscape() => Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _tile(76, 24),
+              const SizedBox(width: 22),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _bar(20, wf: .30, r: 10),
+                    const SizedBox(height: 16),
+                    _bar(28, wf: .90, r: 9),
+                    const SizedBox(height: 9),
+                    _bar(28, wf: .62, r: 9),
+                    const SizedBox(height: 18),
+                    _bar(13),
+                    const SizedBox(height: 8),
+                    _bar(13, wf: .78),
                   ],
                 ),
               ),
             ],
           ),
+          const Spacer(),
+          Row(
+            children: [
+              Expanded(child: _bar(52, r: 16)),
+              const SizedBox(width: 12),
+              Expanded(child: _bar(52, r: 16)),
+            ],
+          ),
+        ],
+      );
+}
+
+class _ControlContent extends StatelessWidget {
+  final ControlCard card;
+  final int more;
+  final bool landscape;
+  final VoidCallback onCta, onOk;
+  const _ControlContent({
+    required this.card,
+    required this.more,
+    required this.landscape,
+    required this.onCta,
+    required this.onOk,
+  });
+
+  Widget _pill(String text, Color tint, {required bool solid}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: solid ? Colors.white : Colors.white.withOpacity(.16),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+              color: solid ? Colors.transparent : Colors.white.withOpacity(.28)),
+        ),
+        child: Text(text,
+            style: TextStyle(
+                color: solid ? tint : Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final c = card;
+    final tint = c.tint;
+    final hero = Container(
+      width: landscape ? 76 : 88,
+      height: landscape ? 76 : 88,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.white.withOpacity(.26), Colors.white.withOpacity(.10)],
+        ),
+        borderRadius: BorderRadius.circular(landscape ? 24 : 28),
+        border: Border.all(color: Colors.white.withOpacity(.34), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+              color: tint.withOpacity(.75), blurRadius: 36, spreadRadius: 2),
+          BoxShadow(color: Colors.white.withOpacity(.14), blurRadius: 14),
+        ],
+      ),
+      child: Text(c.icon, style: TextStyle(fontSize: landscape ? 34 : 40)),
+    );
+
+    final lines = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            _pill(c.kindLabel, tint, solid: false),
+            if (c.isNew) _pill('ថ្មី', tint, solid: true),
+            if (more > 0) _pill('+$more សារ', tint, solid: false),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Text(c.title,
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: landscape ? 23 : 27,
+                fontWeight: FontWeight.w800,
+                height: 1.22)),
+        if (c.body.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(c.body,
+              style: TextStyle(
+                  color: Colors.white.withOpacity(.87),
+                  fontSize: landscape ? 13.5 : 15,
+                  height: 1.65)),
+        ],
+      ],
+    );
+
+    final cta = SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: onCta,
+        style: FilledButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: tint,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
+        ),
+        child: Text(
+          (c.ctaLabel?.isNotEmpty ?? false) ? c.ctaLabel! : 'មើលបន្ថែម',
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
         ),
       ),
+    );
+    final ok = SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed: onOk,
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: Colors.white.withOpacity(.35)),
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
+        ),
+        child: Text('យល់ហើយ',
+            style: TextStyle(
+                color: Colors.white.withOpacity(.9),
+                fontSize: 14,
+                fontWeight: FontWeight.w700)),
+      ),
+    );
+
+    final actions = landscape
+        ? Row(
+            children: [
+              if (c.hasCta) Expanded(child: cta),
+              if (c.hasCta) const SizedBox(width: 12),
+              Expanded(child: ok),
+            ],
+          )
+        : Column(
+            children: [
+              if (c.hasCta) cta,
+              if (c.hasCta) const SizedBox(height: 10),
+              ok,
+            ],
+          );
+
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(top: 10, bottom: 14),
+            child: landscape
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      hero,
+                      const SizedBox(width: 22),
+                      Expanded(child: lines),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      hero,
+                      const SizedBox(height: 20),
+                      lines,
+                    ],
+                  ),
+          ),
+        ),
+        actions,
+      ],
     );
   }
 }
@@ -4654,6 +4909,8 @@ class _ControlCardScreenState extends State<ControlCardScreen>
 Future<void> _openControlTarget(BuildContext context, ControlCard c) async {
   final t = (c.ctaTarget ?? '').trim();
   if (t.isEmpty) return;
+  final nav = Navigator.of(context);
+  if (nav.canPop()) nav.pop(); // បិទផ្ទាំង Control U មុននឹងទៅមុខងារ
   if (t.startsWith('http://') || t.startsWith('https://')) {
     try {
       final ok = await launchUrl(Uri.parse(t),
@@ -4666,7 +4923,6 @@ Future<void> _openControlTarget(BuildContext context, ControlCard c) async {
     }
     return;
   }
-  final nav = Navigator.of(context);
   void goTab(int i) {
     nav.popUntil((r) => r.isFirst);
     tabIndex.value = i;
