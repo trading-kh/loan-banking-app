@@ -168,6 +168,26 @@ class ApiService {
         if (thumb != null) 'thumb': thumb,
       });
 
+  // ============ IDENTITY KYC (ផ្ទៀងផ្ទាត់អត្តសញ្ញាណ) ============
+
+  /// ស្ថានភាពផ្ទៀងផ្ទាត់ចុងក្រោយ (null បើមិនធ្លាប់ដាក់ស្នើ)
+  static Future<Map<String, dynamic>?> kycStatus() async {
+    final r = await _get('/kyc/status');
+    return r == null ? null : Map<String, dynamic>.from(r as Map);
+  }
+
+  /// ដាក់ស្នើឯកសារ ៣ សន្លឹក (data URL JPEG) ទៅ admin ពិនិត្យ
+  static Future<Map<String, dynamic>> submitKyc({
+    required String front,
+    required String back,
+    required String selfie,
+  }) async =>
+      Map<String, dynamic>.from(await _post('/kyc/submissions', {
+        'front': front,
+        'back': back,
+        'selfie': selfie,
+      }) as Map);
+
   // ============ TRANSFERS (ថ្មី) ============
 
   /// ស្វែងរកអ្នកទទួល (លេខទូរស័ព្ទ / អ៊ីមែល / uid)

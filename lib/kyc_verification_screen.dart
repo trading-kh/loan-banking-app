@@ -3,6 +3,7 @@
 //  Step 1: National ID front + back · Step 2: selfie with ID · Step 3: review
 // ============================================================================
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -12,6 +13,8 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'api_service.dart';
 
 /// ពណ៌ និង gradient របស់ flow KYC (dark violet + red-orange accent)
 class Kyc {
@@ -86,6 +89,22 @@ double _sharpnessOf(Uint8List bytes) {
   return sum2 / n - mean * mean;
 }
 
+/// បង្រួមរូបភាពសម្រាប់ផ្ញើទៅ server (អតិបរមា 1600px · JPEG 82%)
+String _encodeUploadBytes(Uint8List bytes) {
+  var im = img.decodeImage(bytes);
+  if (im == null) return '';
+  im = img.bakeOrientation(im);
+  const maxSide = 1600;
+  if (im.width > maxSide || im.height > maxSide) {
+    im = im.width >= im.height
+        ? img.copyResize(im,
+            width: maxSide, interpolation: img.Interpolation.average)
+        : img.copyResize(im,
+            height: maxSide, interpolation: img.Interpolation.average);
+  }
+  return 'data:image/jpeg;base64,${base64Encode(img.encodeJpg(im, quality: 82))}';
+}
+
 class KycVerificationScreen extends StatefulWidget {
   /// លេខយោងប្រតិបត្តិការ (បើបើកចេញពីបង្កាន់ដៃ)
   final String? ref;
@@ -112,9 +131,16 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   bool _toastError = true;
   Timer? _toastTimer;
 
-  late final String _ref = widget.ref ??
+  late String _ref = widget.ref ??
       'KYC${DateTime.now().millisecondsSinceEpoch % 1000000000}';
   DateTime _submittedAt = DateTime.now();
+
+  /// pending | approved | rejected (មកពី server)
+  String _status = 'pending';
+  String? _rejectReason;
+  DateTime? _decidedAt;
+  bool _submitting = false;
+  bool _refreshingStatus = false;
 
   late final AnimationController _pulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 2400))
@@ -130,10 +156,34 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   }
 
   Future<void> _restore() async {
+    // Server ជាអ្នកកាន់ស្ថានភាពពិត — prefs គ្រាន់តែជា fallback ពេលគ្មានបណ្តាញ
+    Map<String, dynamic>? remote;
+    try {
+      remote = await ApiService.kycStatus();
+    } catch (_) {
+      remote = null;
+    }
     final sp = await SharedPreferences.getInstance();
-    final pending = sp.getBool('kyc_pending') ?? false;
     final at = DateTime.tryParse(sp.getString('kyc_at') ?? '');
     if (!mounted) return;
+    if (remote != null) {
+      final r = remote;
+      setState(() {
+        _loadingSaved = false;
+        _status = (r['status'] ?? 'pending').toString();
+        _ref = (r['ref'] ?? _ref).toString();
+        _rejectReason = r['reason']?.toString();
+        _submittedAt =
+            DateTime.tryParse(r['submitted_at']?.toString() ?? '') ??
+                at ??
+                DateTime.now();
+        _decidedAt = DateTime.tryParse(r['decided_at']?.toString() ?? '');
+        _step = 2;
+        _dir = 1;
+      });
+      return;
+    }
+    final pending = sp.getBool('kyc_pending') ?? false;
     setState(() {
       _loadingSaved = false;
       if (pending) {
@@ -347,17 +397,72 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
   }
 
   Future<void> _submit() async {
-    if (_selfie == null) {
-      _toast('សូមថតរូបផ្ទាល់ខ្លួនជាមួយអត្តសញ្ញាណបណ្ណជាមុន');
+    if (_selfie == null || _front == null || _back == null) {
+      _toast('សូមបញ្ចូលឯកសារអត្តសញ្ញាណប័ណ្ណ និងរូប Selfie ជាមុន');
       return;
     }
-    final sp = await SharedPreferences.getInstance();
-    await sp.setBool('kyc_pending', true);
-    await sp.setString('kyc_at', DateTime.now().toIso8601String());
-    await sp.setString('kyc_ref', _ref);
-    if (!mounted) return;
-    setState(() => _submittedAt = DateTime.now());
-    _go(2);
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    try {
+      final front = await compute(_encodeUploadBytes, _front!.bytes);
+      final back = await compute(_encodeUploadBytes, _back!.bytes);
+      final selfie = await compute(_encodeUploadBytes, _selfie!.bytes);
+      if (front.isEmpty || back.isEmpty || selfie.isEmpty) {
+        throw ApiException('រូបភាពមិនអាចអានបាន — សូមជ្រើសរើសម្តងទៀត');
+      }
+      final r = await ApiService.submitKyc(
+          front: front, back: back, selfie: selfie);
+      _ref = (r['ref'] ?? _ref).toString();
+      _status = (r['status'] ?? 'pending').toString();
+      _rejectReason = null;
+      _decidedAt = null;
+
+      final sp = await SharedPreferences.getInstance();
+      await sp.setBool('kyc_pending', true);
+      await sp.setString('kyc_at', DateTime.now().toIso8601String());
+      await sp.setString('kyc_ref', _ref);
+      if (!mounted) return;
+      setState(() {
+        _submittedAt = DateTime.now();
+        _submitting = false;
+      });
+      _go(2);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _toast('ដាក់ស្នើមិនបាន — ${e.message}');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _toast('ដាក់ស្នើមិនបាន — សូមព្យាយាមម្តងទៀត');
+    }
+  }
+
+  Future<void> _refreshStatus() async {
+    if (_refreshingStatus) return;
+    setState(() => _refreshingStatus = true);
+    try {
+      final r = await ApiService.kycStatus();
+      if (!mounted) return;
+      if (r != null) {
+        setState(() {
+          _status = (r['status'] ?? _status).toString();
+          _rejectReason = r['reason']?.toString();
+          _ref = (r['ref'] ?? _ref).toString();
+          _decidedAt = DateTime.tryParse(r['decided_at']?.toString() ?? '');
+        });
+        _toast(
+          _status == 'pending'
+              ? 'នៅរង់ចាំក្រុមការងារពិនិត្យ'
+              : 'ស្ថានភាពត្រូវបានធ្វើបច្ចុប្បន្នភាព',
+          error: false,
+        );
+      }
+    } catch (_) {
+      _toast('មិនអាចពិនិត្យស្ថានភាពបាន — សូមព្យាយាមម្តងទៀត');
+    } finally {
+      if (mounted) setState(() => _refreshingStatus = false);
+    }
   }
 
   Future<void> _reset() async {
@@ -371,6 +476,9 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
       _back = null;
       _selfie = null;
       _submittedAt = DateTime.now();
+      _status = 'pending';
+      _rejectReason = null;
+      _decidedAt = null;
     });
     _go(0);
   }
@@ -965,10 +1073,15 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
             Expanded(
               flex: 2,
               child: _GradientButton(
-                label: 'បញ្ជូនការផ្ទៀងផ្ទាត់',
-                caption: 'SUBMIT FOR VERIFICATION',
-                icon: Icons.verified_rounded,
-                onTap: _submit,
+                label: _submitting
+                    ? 'កំពុងបញ្ជូន…'
+                    : 'បញ្ជូនការផ្ទៀងផ្ទាត់',
+                caption:
+                    _submitting ? 'UPLOADING…' : 'SUBMIT FOR VERIFICATION',
+                icon: _submitting
+                    ? Icons.cloud_upload_rounded
+                    : Icons.verified_rounded,
+                onTap: _submitting ? null : _submit,
               ),
             ),
           ]),
@@ -1075,35 +1188,82 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
 
   // ───────────────────────── STEP 3 ─────────────────────────
 
-  Widget _stepReview() => SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 26),
-        child: Column(children: [
-          const SizedBox(height: 6),
+  Widget _stepReview() {
+    final approved = _status == 'approved';
+    final rejected = _status == 'rejected';
+    final title = approved
+        ? 'អត្តសញ្ញាណបានផ្ទៀងផ្ទាត់'
+        : rejected
+            ? 'សំណើត្រូវបានបដិសេធ'
+            : 'កំពុងពិនិត្យទិន្នន័យ';
+    final english = approved
+        ? 'IDENTITY VERIFIED'
+        : rejected
+            ? 'VERIFICATION REJECTED'
+            : 'UNDER REVIEW';
+    final desc = approved
+        ? 'ឯកសាររបស់អ្នកឆ្លងកាត់ការផ្ទៀងផ្ទាត់ដោយជោគជ័យ។ ឥឡូវលោកអ្នកអាចប្រើសេវាធនាគារបានពេញលេញ។'
+        : rejected
+            ? 'ឯកសាររបស់អ្នកមិនត្រូវបានអនុម័តទេ។ សូមពិនិត្យមូលហេតុខាងក្រោម ហើយដាក់ឯកសារឡើងវិញ។'
+            : 'ក្រុមការងាររបស់យើងកំពុងពិនិត្យផ្ទៀងផ្ទាត់ឯកសាររបស់អ្នក។ លទ្ធផលនឹងជូនដំណឹងក្នុងរយៈពេលប្រហែល ១ ម៉ោង (អនុម័ត ឬ បដិសេធ)។';
+    final titleColors = approved
+        ? const [Color(0xFF7CF5C0), Color(0xFF34D399), Color(0xFF22D3EE)]
+        : rejected
+            ? const [Color(0xFFFFB199), Color(0xFFFF6B6B), Color(0xFFDD2476)]
+            : const [Color(0xFFFFB199), Color(0xFFFF8A3D), Color(0xFFFF5A8A)];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 26),
+      child: Column(children: [
+        const SizedBox(height: 6),
+        if (approved)
+          _statusEmblem(Icons.verified_rounded, Kyc.ok,
+              const [Color(0xFF10B981), Color(0xFF34D399)], Kyc.ok)
+        else if (rejected)
+          _statusEmblem(Icons.close_rounded, Kyc.bad,
+              const [Color(0xFFFF6B6B), Color(0xFFDD2476)], Kyc.bad)
+        else
           _clock(),
-          const SizedBox(height: 20),
-          ShaderMask(
-            blendMode: BlendMode.srcATop,
-            shaderCallback: (r) => const LinearGradient(
-                    colors: [Color(0xFFFFB199), Color(0xFFFF8A3D), Color(0xFFFF5A8A)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight)
-                .createShader(r),
-            child: Text('កំពុងពិនិត្យទិន្នន័យ',
-                textAlign: TextAlign.center,
-                style: _s(21, w: FontWeight.w900, c: Colors.white)),
-          ),
-          const SizedBox(height: 3),
-          Text('Under Review',
-              style: _s(11,
-                  c: Kyc.muted.withValues(alpha: 0.8), ls: 1.6)),
-          const SizedBox(height: 12),
-          Text(
-              'ក្រុមការងាររបស់យើងកំពុងពិនិត្យផ្ទៀងផ្ទាត់ឯកសាររបស់អ្នក។ លទ្ធផលនឹងជូនដំណឹងក្នុងរយៈពេលប្រហែល ១ ម៉ោង (អនុម័ត ឬ បដិសេធ)។',
+        const SizedBox(height: 20),
+        ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (r) => LinearGradient(
+                  colors: titleColors,
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight)
+              .createShader(r),
+          child: Text(title,
               textAlign: TextAlign.center,
-              style: _s(12, c: Kyc.muted, h: 1.7)),
-          const SizedBox(height: 20),
-          _summaryCard(),
-          const SizedBox(height: 18),
+              style: _s(21, w: FontWeight.w900, c: Colors.white)),
+        ),
+        const SizedBox(height: 3),
+        Text(english,
+            style: _s(11, c: Kyc.muted.withValues(alpha: 0.8), ls: 1.6)),
+        const SizedBox(height: 12),
+        Text(desc,
+            textAlign: TextAlign.center, style: _s(12, c: Kyc.muted, h: 1.7)),
+        if (rejected && (_rejectReason ?? '').isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _reasonCard(),
+        ],
+        const SizedBox(height: 20),
+        _summaryCard(),
+        const SizedBox(height: 18),
+        if (rejected) ...[
+          _GradientButton(
+            label: 'ដាក់ឯកសារឡើងវិញ',
+            caption: 'RESUBMIT DOCUMENTS',
+            icon: Icons.refresh_rounded,
+            onTap: _reset,
+          ),
+          const SizedBox(height: 4),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context).popUntil((r) => r.isFirst),
+            child: Text('ត្រឡប់ទៅទំព័រដើម',
+                style: _s(11.5, c: Kyc.muted.withValues(alpha: 0.85))),
+          ),
+        ] else
           _GradientButton(
             label: 'ត្រឡប់ទៅទំព័រដើម',
             caption: 'BACK TO HOME',
@@ -1111,12 +1271,96 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
             onTap: () =>
                 Navigator.of(context).popUntil((r) => r.isFirst),
           ),
+        if (!approved && !rejected) ...[
           const SizedBox(height: 4),
-          TextButton(
-            onPressed: _reset,
-            child: Text('ដាក់ឯកសារឡើងវិញ',
-                style: _s(11, c: Kyc.muted.withValues(alpha: 0.8))),
+          TextButton.icon(
+            onPressed: _refreshingStatus ? null : _refreshStatus,
+            icon: _refreshingStatus
+                ? const SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 1.8, color: Kyc.muted))
+                : const Icon(Icons.sync_rounded, size: 15, color: Kyc.muted),
+            label: Text('ពិនិត្យស្ថានភាពឡើងវិញ',
+                style: _s(11, c: Kyc.muted.withValues(alpha: 0.85))),
           ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _statusEmblem(
+          IconData icon, Color glow, List<Color> colors, Color ring) =>
+      SizedBox(
+        width: 168,
+        height: 168,
+        child: AnimatedBuilder(
+          animation: _pulse,
+          builder: (_, __) {
+            final p = _pulse.value;
+            return Stack(alignment: Alignment.center, children: [
+              Container(
+                width: 168,
+                height: 168,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      glow.withValues(
+                          alpha: 0.20 + 0.10 * (1 - (p - 0.5).abs() * 2)),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.32, 1.0],
+                  ),
+                ),
+              ),
+              for (var i = 0; i < 2; i++) _ring((p + i * 0.5) % 1.0, ring),
+              Container(
+                width: 98,
+                height: 98,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                      colors: colors,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight),
+                  boxShadow: [
+                    BoxShadow(
+                        color: glow.withValues(alpha: 0.55),
+                        blurRadius: 30,
+                        spreadRadius: 2),
+                  ],
+                ),
+                child: Icon(icon, color: Colors.white, size: 44),
+              ),
+            ]);
+          },
+        ),
+      );
+
+  Widget _reasonCard() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: Kyc.bad.withValues(alpha: 0.10),
+          border: Border.all(color: Kyc.bad.withValues(alpha: 0.45)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.info_outline_rounded, color: Kyc.bad, size: 17),
+            const SizedBox(width: 7),
+            Text('មូលហេតុបដិសេធ',
+                style: _s(12, w: FontWeight.w800, c: Kyc.bad)),
+          ]),
+          const SizedBox(height: 8),
+          Text(_rejectReason!, style: _s(12, c: Kyc.text, h: 1.6)),
+          if (_decidedAt != null) ...[
+            const SizedBox(height: 6),
+            Text('បដិសេធ ${_fmtWhen(_decidedAt!)}',
+                style: _s(10, c: Kyc.muted)),
+          ],
         ]),
       );
 
@@ -1169,7 +1413,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
         ),
       );
 
-  Widget _ring(double p) => Opacity(
+  Widget _ring(double p, [Color color = Kyc.accentStart]) => Opacity(
         opacity: (1 - p) * 0.5,
         child: Transform.scale(
           scale: 0.72 + p * 0.62,
@@ -1179,7 +1423,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                  color: Kyc.accentStart.withValues(alpha: 0.75), width: 1.6),
+                  color: color.withValues(alpha: 0.75), width: 1.6),
             ),
           ),
         ),
@@ -1210,32 +1454,59 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
           Row(children: [
             Text('ឯកសារបានផ្ទុក', style: _s(12.5, w: FontWeight.w800)),
             const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(99),
-                color: Kyc.accentStart.withValues(alpha: 0.16),
-                border:
-                    Border.all(color: Kyc.accentStart.withValues(alpha: 0.45)),
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                AnimatedBuilder(
-                  animation: _pulse,
-                  builder: (_, __) => Opacity(
-                    opacity: 0.45 + 0.55 * (0.5 + 0.5 * math.sin(_pulse.value * 2 * math.pi)),
-                    child: Container(
+            Builder(builder: (_) {
+              final approved = _status == 'approved';
+              final rejected = _status == 'rejected';
+              final color = approved
+                  ? Kyc.ok
+                  : rejected
+                      ? Kyc.bad
+                      : Kyc.gold;
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(99),
+                  color: color.withValues(alpha: 0.14),
+                  border: Border.all(color: color.withValues(alpha: 0.45)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (_status == 'pending')
+                    AnimatedBuilder(
+                      animation: _pulse,
+                      builder: (_, __) => Opacity(
+                        opacity: 0.45 +
+                            0.55 *
+                                (0.5 +
+                                    0.5 *
+                                        math.sin(
+                                            _pulse.value * 2 * math.pi)),
+                        child: Container(
+                          width: 6,
+                          height: 6,
+                          decoration:
+                              BoxDecoration(shape: BoxShape.circle, color: color),
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
                       width: 6,
                       height: 6,
-                      decoration: const BoxDecoration(
-                          shape: BoxShape.circle, color: Kyc.gold),
+                      decoration:
+                          BoxDecoration(shape: BoxShape.circle, color: color),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 5),
-                Text('រង់ចាំពិនិត្យ',
-                    style: _s(9.5, w: FontWeight.w800, c: Kyc.gold)),
-              ]),
-            ),
+                  const SizedBox(width: 5),
+                  Text(
+                      approved
+                          ? 'បានអនុម័ត'
+                          : rejected
+                              ? 'បានបដិសេធ'
+                              : 'រង់ចាំពិនិត្យ',
+                      style: _s(9.5, w: FontWeight.w800, c: color)),
+                ]),
+              );
+            }),
           ]),
           const SizedBox(height: 12),
           Row(children: [
@@ -1252,7 +1523,10 @@ class _KycVerificationScreenState extends State<KycVerificationScreen>
           Divider(color: Kyc.line.withValues(alpha: 0.8), height: 1),
           _row('លេខយោង', _ref),
           _row('កាលបរិច្ឆេទ', _fmtWhen(_submittedAt)),
-          _row('រយៈពេលពិនិត្យ', '≈ ១ ម៉ោង'),
+          if (_status == 'pending')
+            _row('រយៈពេលពិនិត្យ', '≈ ១ ម៉ោង')
+          else
+            _row('សម្រេចនៅ', _fmtWhen(_decidedAt ?? _submittedAt)),
           const SizedBox(height: 4),
         ]),
       );
