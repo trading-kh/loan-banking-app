@@ -4200,22 +4200,29 @@ class _MainShellState extends State<MainShell> {
       valueListenable: tabIndex,
       builder: (_, i, __) {
         _built.add(i);
-        return Scaffold(
-          body: Stack(
-            children: [
-              IndexedStack(
-                index: i,
-                children: [
-                  for (int k = 0; k < _pages.length; k++)
-                    _built.contains(k) ? _pages[k] : const SizedBox.shrink(),
-                ],
-              ),
-              // គ្រាន់តែជា listener — ផ្ទាំង Control U បើកជា route ពេញអេក្រង់
-              const _ControlUOverlay(),
-            ],
+        // back/swipe from any tab first returns home, a second back exits
+        return PopScope(
+          canPop: i == 0,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) tabIndex.value = 0;
+          },
+          child: Scaffold(
+            body: Stack(
+              children: [
+                IndexedStack(
+                  index: i,
+                  children: [
+                    for (int k = 0; k < _pages.length; k++)
+                      _built.contains(k) ? _pages[k] : const SizedBox.shrink(),
+                  ],
+                ),
+                // គ្រាន់តែជា listener — ផ្ទាំង Control U បើកជា route ពេញអេក្រង់
+                const _ControlUOverlay(),
+              ],
+            ),
+            bottomNavigationBar:
+                _AuraNav(current: i, onTap: (v) => tabIndex.value = v),
           ),
-          bottomNavigationBar:
-              _AuraNav(current: i, onTap: (v) => tabIndex.value = v),
         );
       },
     );

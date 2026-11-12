@@ -298,26 +298,11 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
   LoanKyc? _kyc;
   LoanRecord? _loan;
   List<LoanScheduleRow> _schedule = [];
-  Map<String, dynamic>? _quote;
-  bool _quoting = false;
-
-  double _amount = 3000;
-  double _months = 12;
-  double _rate = 18;
-  String _method = 'annuity';
-
-  Timer? _quoteTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
-  }
-
-  @override
-  void dispose() {
-    _quoteTimer?.cancel();
-    super.dispose();
   }
 
   Future<void> _load() async {
@@ -346,33 +331,10 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
       } else {
         _schedule = [];
       }
-      if (open == null && (_kyc?.submitted ?? false)) _fetchQuote();
     } on ApiException catch (e) {
       if (mounted) toast(context, e.message, error: true);
     } finally {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _scheduleQuote() {
-    _quoteTimer?.cancel();
-    _quoteTimer = Timer(const Duration(milliseconds: 350), _fetchQuote);
-  }
-
-  Future<void> _fetchQuote() async {
-    setState(() => _quoting = true);
-    try {
-      final q = await ApiService.loanQuote(
-        principal: _amount,
-        months: _months.round(),
-        annualRate: _rate,
-        interestMethod: _method,
-      );
-      if (mounted) setState(() => _quote = q);
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    } finally {
-      if (mounted) setState(() => _quoting = false);
     }
   }
 
@@ -453,7 +415,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
     }
     final loan = _loan;
     if (loan == null) {
-      return [_applyButton(context), ..._calculator(context), _quoteCard(context)];
+      return [_applyButton(context)];
     }
     return [
       _loanCard(context, loan),
@@ -475,7 +437,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
   Widget _applyButton(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: NeuButton(
-          label: 'ស្នើសុំកម្ចីថ្មី',
+          label: 'ស្នើសុំកម្ចី',
           icon: Icons.add_circle_outline,
           accent: C.accent,
           onPressed: () async {
@@ -569,118 +531,6 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
         ],
       );
 
-  // ---------- ម៉ាស៊ីនគណនា ----------
-  List<Widget> _calculator(BuildContext context) => [
-        const SectionTitle('ម៉ាស៊ីនគណនា'),
-        NeuBox(
-          child: Column(children: [
-            _slider(context, 'ចំនួន', money(_amount), _amount, 500, 50000, 99,
-                (v) {
-              setState(() => _amount = (v / 500).round() * 500.0);
-              _scheduleQuote();
-            }),
-            _slider(context, 'រយៈពេល', '${_months.round()} ខែ', _months, 3, 60,
-                57, (v) {
-              setState(() => _months = v);
-              _scheduleQuote();
-            }),
-            _slider(context, 'អត្រា', '${_rate.toStringAsFixed(1)}%', _rate, 6, 21.6,
-                30, (v) {
-              setState(() => _rate = v);
-              _scheduleQuote();
-            }),
-            const SizedBox(height: 6),
-            Row(children: [
-              Expanded(
-                child: Text('វិធីគណនា',
-                    style: TextStyle(color: context.muted, fontSize: 12.5)),
-              ),
-              ...loanMethodLabels.entries.map((e) => Padding(
-                    padding: const EdgeInsets.only(left: 6),
-                    child: _chip(
-                      context,
-                      e.value,
-                      _method == e.key,
-                      () {
-                        setState(() => _method = e.key);
-                        _scheduleQuote();
-                      },
-                    ),
-                  )),
-            ]),
-          ]),
-        ),
-      ];
-
-  Widget _chip(BuildContext context, String label, bool active,
-          VoidCallback onTap) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: active ? C.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: active ? C.accent : context.border),
-          ),
-          child: Text(label,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                  color: active ? Colors.white : context.muted)),
-        ),
-      );
-
-  // ---------- ផ្នែកគណនា ----------
-  Widget _quoteCard(BuildContext context) {
-    final q = _quote;
-    return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 14),
-          NeuBox(
-            inset: true,
-            child: Column(children: [
-              Text('បង់ប្រចាំខែ',
-                  style: TextStyle(color: context.muted, fontSize: 12)),
-              const SizedBox(height: 4),
-              if (_quoting && q == null)
-                const SizedBox(
-                    height: 34,
-                    child: Center(
-                        child: CircularProgressIndicator(
-                            color: C.accent, strokeWidth: 2)))
-              else
-                Text(money(_d(q?['monthly_payment'])),
-                    style: const TextStyle(
-                        fontSize: 30, fontWeight: FontWeight.w800,
-                        color: C.accent)),
-              if (q != null) ...[
-                const SizedBox(height: 10),
-                InfoRow('ប្រាក់ដាក់សរុប', money(_d(q['total_payable']))),
-                InfoRow('កាន្លោះសរុប',
-                    money(_d(q['total_interest']))),
-                InfoRow('វីនុបទសរុប', '${_i(q['row_count'])} វីនុបទ'),
-              ],
-            ]),
-          ),
-          const SizedBox(height: 20),
-          NeuButton(
-            label: 'ស្នើសុំកម្ចី',
-            icon: Icons.request_quote,
-            onPressed: () async {
-              final done = await push(context,
-                  LoanApplicationScreen(
-                      initialAmount: _amount,
-                      initialMonths: _months.round(),
-                      initialRate: _rate,
-                      initialMethod: _method));
-              if (done == true) await _load();
-            },
-          ),
-        ]);
-  }
-
   // ---------- កម្ចីកំពុងដំណើរការ ----------
   Widget _loanCard(BuildContext context, LoanRecord l) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -707,7 +557,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
                           fontSize: 28,
                           fontWeight: FontWeight.w800)),
                   Text(
-                      '${l.months} ខែ · ${l.annualRate}% · '
+                      '${l.months} ខែ · ${(l.annualRate / 12).toStringAsFixed(1)}% / ខែ · '
                       '${loanMethodLabels[l.interestMethod] ?? l.interestMethod}',
                       style: TextStyle(color: context.muted, fontSize: 12)),
                   const SizedBox(height: 16),
@@ -964,33 +814,6 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
     );
   }
 
-  Widget _slider(BuildContext context, String l, String v, double val,
-          double min, double max, int div, ValueChanged<double> on) =>
-      Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(l,
-                          style:
-                              TextStyle(color: context.muted, fontSize: 12.5)),
-                      Text(v,
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: context.ink,
-                              fontSize: 13)),
-                    ]),
-                Slider(
-                    value: val.clamp(min, max),
-                    min: min,
-                    max: max,
-                    divisions: div,
-                    activeColor: C.accent,
-                    onChanged: on),
-              ]));
 }
 
 // ============================================================

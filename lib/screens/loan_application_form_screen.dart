@@ -550,7 +550,7 @@ class _LoanApplicationFormScreenState extends State<LoanApplicationFormScreen> {
                   ),
                 ),
                 Text(
-                  'អត្រា 21.6%/ឆ្នាំ',
+                  'អត្រា 1.8% / ខែ',
                   style: TextStyle(color: context.muted, fontSize: 11),
                 ),
               ],

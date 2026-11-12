@@ -285,7 +285,7 @@ class _LoanSummaryScreenState extends State<LoanSummaryScreen> {
         _row('ចំនួនឥណទាន', '\$${_fmt(data.amount)}'),
         _row('រយៈពេល', '$months ខែ'),
         _row('គោលដៅឥណទាន', data.loanTarget ?? 'កម្ចី'),
-        _row('អត្រាការប្រាក់', '21.6% / ឆ្នាំ'),
+        _row('អត្រាការប្រាក់', '1.8% / ខែ'),
         _row('វិធីគិតការប្រាក់', 'បង់ស្មើគ្នា (Annuity)'),
         const SizedBox(height: 6),
         Container(
