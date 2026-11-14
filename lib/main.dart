@@ -990,6 +990,18 @@ class AppState extends ChangeNotifier {
   }
 
   String get _notifSeenKey => 'notif_seen_${userId ?? 0}';
+
+  /// id ដែល FCM បានបង្ហាញរួច — ការស្កេន polling មិនត្រូវបង្ហាញជា notification ទី២ ទៀតទេ
+  final Set<int> _pushedNotifIds = {};
+  void notePushedNotif(int id) {
+    _pushedNotifIds.add(id);
+    if (_pushedNotifIds.length > 60) {
+      final keep = _pushedNotifIds.toList()..sort();
+      _pushedNotifIds
+        ..clear()
+        ..addAll(keep.sublist(keep.length - 40));
+    }
+  }
   /// បង្ហាញ notification សម្រាប់ការជូនដំណឹងដែលទើបមកដល់ (fallback ពេល FCM មិនដំណើរការ)
   Future<void> _announceNewNotifs() async {
     if (_announcing || notifs.isEmpty) return;
@@ -1007,6 +1019,7 @@ class AppState extends ChangeNotifier {
       final fresh = notifs.where((n) => n.id > last).toList().reversed.toList();
       final from = fresh.length > 5 ? fresh.length - 5 : 0;
       for (final n in fresh.sublist(from)) {
+        if (_pushedNotifIds.contains(n.id)) continue; // FCM បង្ហាញរួចហើយ
         await NotificationService.showLocal(n.title, n.body,
             id: n.id, bankCode: n.bankLogoCode);
       }
@@ -12979,10 +12992,15 @@ class NotificationService {
       if (n != null) {
         final title = n.title ?? 'Aura Bank';
         final body = n.body ?? '';
+        // ត្រូវប្រើ id តែមួយជាមួយ polling ដើម្បីកុំឲ្យ notification ដូចគ្នាបង្ហាញ ២ ដង
+        final rawId = message.data['notification_id'] ??
+            (message.data['type'] == 'otp' ? message.data['id'] : null);
+        final notifId = int.tryParse(rawId?.toString() ?? '');
+        if (notifId != null) bank.notePushedNotif(notifId);
         showLocal(
           title,
           body,
-          id: int.tryParse(message.data['notification_id']?.toString() ?? ''),
+          id: notifId,
           bankCode: resolveBankCode(
             explicit: message.data['bank_code']?.toString(),
             title: title,
