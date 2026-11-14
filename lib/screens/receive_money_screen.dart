@@ -1,18 +1,25 @@
 // ============================================================================
-//  RECEIVE MONEY — ទទួលប្រាក់ (មុខងារមិនទាន់ដំណើរការ)
+//  UNAVAILABLE FEATURE — មុខងារមិនទាន់ដំណើរការ (ទទួលប្រាក់ · ទូទាត់ប្រាក់ · សន្សំ)
 //  អេក្រង់សារស្អាតៗ + icon animation
 // ============================================================================
 import 'package:flutter/material.dart';
 
 import '../main.dart';
 
-class ReceiveMoneyScreen extends StatefulWidget {
-  const ReceiveMoneyScreen({super.key});
+class UnavailableFeatureScreen extends StatefulWidget {
+  /// ឈ្មោះមុខងារ — បង្ហាញលើ AppBar និងក្នុងអត្ថបទ
+  final String label;
+  /// Icon ក្នុងរង្វង់ gradient (ទំហំ 44 · ពណ៌ស)
+  final Widget icon;
+  const UnavailableFeatureScreen(
+      {super.key, required this.label, required this.icon});
+
   @override
-  State<ReceiveMoneyScreen> createState() => _ReceiveMoneyScreenState();
+  State<UnavailableFeatureScreen> createState() =>
+      _UnavailableFeatureScreenState();
 }
 
-class _ReceiveMoneyScreenState extends State<ReceiveMoneyScreen>
+class _UnavailableFeatureScreenState extends State<UnavailableFeatureScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 2200))
@@ -26,7 +33,7 @@ class _ReceiveMoneyScreenState extends State<ReceiveMoneyScreen>
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('ទទួលប្រាក់')),
+        appBar: AppBar(title: Text(widget.label)),
         body: Container(
           decoration: const BoxDecoration(gradient: AuraGrad.soft),
           child: SafeArea(
@@ -77,7 +84,7 @@ class _ReceiveMoneyScreenState extends State<ReceiveMoneyScreen>
                     ),
                   ],
                 ),
-                child: ReceiveMoneyGlyph(size: 44, color: Colors.white),
+                child: Center(child: widget.icon),
               ),
             ]),
           ),
@@ -113,7 +120,7 @@ class _ReceiveMoneyScreenState extends State<ReceiveMoneyScreen>
                   fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
           Text(
-              'បច្ចុប្បន្នមុខងារ "ទទួលប្រាក់" មិនដំណើរការទេក្នុងពេលនេះ។\n'
+              'បច្ចុប្បន្នមុខងារ "${widget.label}" មិនដំណើរការទេក្នុងពេលនេះ។\n'
               'យើងកំពុងអភិវឌ្ឍវា ហើយនឹងប្រកាសឱ្យដឹងឆាប់ៗខាងមុខ។',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -165,6 +172,15 @@ class _ReceiveMoneyScreenState extends State<ReceiveMoneyScreen>
             },
           ),
       ];
+}
+
+class ReceiveMoneyScreen extends StatelessWidget {
+  const ReceiveMoneyScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const UnavailableFeatureScreen(
+        label: 'ទទួលប្រាក់',
+        icon: ReceiveMoneyGlyph(size: 44, color: Colors.white),
+      );
 }
 
 // ============================================================================

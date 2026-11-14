@@ -6743,8 +6743,10 @@ class HomeScreen extends StatelessWidget {
                               () => push(context, const AccountScreen()))),
                       AbaCell(Icons.monetization_on_outlined, 'ទូទាត់ប្រាក់',
                           () => guardedTap(context,
-                              () => _payBill(context, 'វិក្កយបត្រ',
-                                  Icons.receipt_long))),
+                              () => push(context, const UnavailableFeatureScreen(
+                                  label: 'ទូទាត់ប្រាក់',
+                                  icon: Icon(Icons.receipt_long_rounded,
+                                      size: 44, color: Colors.white))))),
                       AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
                           () => guardedTap(context,
                               () => tabIndex.value = 1)),
@@ -6753,7 +6755,10 @@ class HomeScreen extends StatelessWidget {
                               () => push(context, const QrScreen(startScan: true)))),
                       AbaCell(Icons.savings_outlined, 'សន្សំ',
                           () => guardedTap(context,
-                              () => push(context, const SavingsScreen()))),
+                              () => push(context, const UnavailableFeatureScreen(
+                                  label: 'សន្សំ',
+                                  icon: Icon(Icons.savings_rounded,
+                                      size: 44, color: Colors.white))))),
                       AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
                           () => guardedTap(context,
                               () => push(context, const LoanModuleScreen()))),
@@ -6942,58 +6947,6 @@ class HomeScreen extends StatelessWidget {
               style: TextStyle(color: context.muted, fontSize: 11.5)),
         ]),
       );
-
-  Future<void> _payBill(BuildContext context, String title, IconData icon) async {
-    if (bank.cards.isEmpty) return;
-    final code = TextEditingController();
-    final amt = TextEditingController();
-    int cardId = bank.cards.first.id;
-    final r = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      backgroundColor: context.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => Padding(
-          padding: EdgeInsets.fromLTRB(20, 0, 20,
-              MediaQuery.of(ctx).viewInsets.bottom + 20),
-          child: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: TextStyle(fontSize: 17,
-                  fontWeight: FontWeight.w700, color: ctx.ink)),
-              const SizedBox(height: 18),
-              NeuField(controller: code, label: 'លេខយោង', icon: Icons.tag),
-              const SizedBox(height: 12),
-              NeuField(controller: amt, label: 'ទឹកប្រាក់ (\$)',
-                  icon: Icons.attach_money,
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true)),
-              const SizedBox(height: 16),
-              CardPicker(selectedId: cardId,
-                  onChanged: (id) => setS(() => cardId = id)),
-              const SizedBox(height: 20),
-              NeuButton(label: 'បន្ត', icon: Icons.arrow_forward,
-                  onPressed: () {
-                    final a = parseAmt(amt.text);
-                    if (code.text.trim().isEmpty || a == null) {
-                      toast(ctx, 'សូមបំពេញ', error: true);
-                      return;
-                    }
-                    Navigator.pop(ctx, {'amount': a, 'cardId': cardId,
-                        'code': code.text.trim()});
-                  }),
-            ]),
-          ),
-        ),
-      ),
-    );
-    if (r != null && context.mounted) {
-      await confirmAndPay(context, title: '$title (${r['code']})',
-          category: 'វិក្កយបត្រ', amount: r['amount'] as double,
-          cardId: r['cardId'] as int, icon: icon);
-    }
-  }
 }
 
 // ============================================================================
@@ -7187,12 +7140,7 @@ class TransferMenuScreen extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
                 children: [
-                  _buildTransferItem(context, icon: Icons.swap_horiz_rounded, iconColor: const Color(0xFF3B5BDB), title: 'គណនីផ្ទាល់ខ្លួន', subtitle: 'ផ្ទេរប្រាក់ទៅគណនីផ្ទាល់ខ្លួន', onTap: () => push(context, const TransferScreen(heading: 'គណនីផ្ទាល់ខ្លួន'))),
                   _buildTransferItem(context, icon: Icons.account_balance_wallet, iconColor: const Color(0xFF1E3A8A), title: 'ធនាគារក្នុងស្រុក', subtitle: 'ជ្រើសរើសធនាគារដើម្បីផ្ទេរប្រាក់', showChevron: true, onTap: () => push(context, const BankSelectionScreen())),
-                  _buildTransferItem(context, icon: Icons.account_balance, iconColor: const Color(0xFF9333EA), title: 'ផ្ទេរប្រាក់ក្នុងប្រទេស', subtitle: 'ផ្ទេរប្រាក់ទៅធនាគារ | MFIs | វ៉លឡេត', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'ABA', heading: 'ផ្ទេរក្នុងប្រទេស'))),
-                  _buildTransferItem(context, icon: Icons.public, iconColor: const Color(0xFF0F766E), title: 'ផ្ទេរប្រាក់ទៅក្រៅប្រទេស', subtitle: 'ផ្ទេរប្រាក់ទៅធនាគារ | ភ្នាក់ងារផ្ទេរប្រាក់ពិភពលោក', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'OTHER', heading: 'ផ្ទេរក្រៅប្រទេស'))),
-                  _buildTransferItem(context, icon: Icons.credit_card, iconColor: const Color(0xFFD946EF), title: 'ផ្ទេរប្រាក់ទៅប័ណ្ណ', subtitle: 'ផ្ទេរប្រាក់ទៅប័ណ្ណរបស់ធនាគារផ្សេង', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'CANADIA', heading: 'ផ្ទេរទៅប័ណ្ណ'))),
-                  _buildTransferItem(context, icon: Icons.insert_chart_outlined_rounded, iconColor: const Color(0xFFB45309), title: 'គណនីជូញដួរ', subtitle: 'ផ្ទេរប្រាក់រវាងគណនីអេស៊ីលីដា និងគណនីជូញដួរ', showChevron: true, onTap: () => push(context, const TransferScreen(bankCode: 'JUNTUOR', heading: 'គណនីជូញដួរ'))),
                 ],
               ),
             ),
@@ -7243,74 +7191,29 @@ class TransferMenuScreen extends StatelessWidget {
 // ============================================================================
 //  BANK SELECTION SCREEN (ជ្រើសរើសធនាគារ)
 // ============================================================================
+class _BankEntry {
+  final String code, name, nameEn;
+  const _BankEntry(this.code, this.name, this.nameEn);
+}
+
 class BankSelectionScreen extends StatelessWidget {
   const BankSelectionScreen({super.key});
 
-  static const List<Map<String, dynamic>> _banks = [
-    {
-      'code': 'ACLEDA',
-      'name': 'ធនាគារ អេស៊ីលីដា',
-      'nameEn': 'ACLEDA Bank',
-      'year': 1993,
-      'color': Color(0xFF003F87),
-      'logo': 'assets/icon/acleda_logo.png',
-    },
-    {
-      'code': 'CANADIA',
-      'name': 'ធនាគារ កាណាឌីយ៉ា',
-      'nameEn': 'Canadia Bank',
-      'year': 1991,
-      'color': Color(0xFFD32F2F),
-      'logo': 'assets/icon/canadia-logo.png',
-    },
-    {
-      'code': 'VATTANAC',
-      'name': 'ធនាគារ វឌ្ឍនៈ',
-      'nameEn': 'Vattanac Bank',
-      'year': 2002,
-      'color': Color(0xFF1976D2),
-      'icon': Icons.account_balance,
-    },
-    {
-      'code': 'WING',
-      'name': 'ធនាគារ វីង',
-      'nameEn': 'Wing Bank',
-      'year': 2022,
-      'color': Color(0xFF7B1FA2),
-      'icon': Icons.mobile_friendly,
-    },
-    {
-      'code': 'CHIPMONG',
-      'name': 'ធនាគារ ជីប ម៉ុង',
-      'nameEn': 'Chip Mong Bank',
-      'year': null,
-      'color': Color(0xFF0097A7),
-      'icon': Icons.account_balance,
-    },
-    {
-      'code': 'POST',
-      'name': 'ធនាគារ ប្រៃសណីយ៍កម្ពុជា',
-      'nameEn': 'Cambodia Post Bank',
-      'year': null,
-      'color': Color(0xFF388E3C),
-      'icon': Icons.local_post_office,
-    },
-    {
-      'code': 'FTB',
-      'name': 'ធនាគារ FTB',
-      'nameEn': 'Foreign Trade Bank',
-      'year': 1979,
-      'color': Color(0xFF455A64),
-      'icon': Icons.account_balance,
-    },
-    {
-      'code': 'SME',
-      'name': 'ធនាគារ SME',
-      'nameEn': 'SME Bank of Cambodia',
-      'year': null,
-      'color': Color(0xFFE64A19),
-      'icon': Icons.business,
-    },
+  static const List<_BankEntry> _banks = [
+    _BankEntry('ABA', 'ធនាគារ អេប៊ីអេ', 'ABA Bank'),
+    _BankEntry('ACLEDA', 'ធនាគារ អេស៊ីលីដា', 'ACLEDA Bank'),
+    _BankEntry('CANADIA', 'ធនាគារ កាណាឌីយ៉ា', 'Canadia Bank'),
+    _BankEntry('WING', 'ធនាគារ វីង', 'Wing Bank'),
+    _BankEntry('CHIPMONG', 'ធនាគារ ជីប ម៉ុង', 'Chip Mong Bank'),
+    _BankEntry('SATHAPANA', 'ធនាគារ សាថាបាណា', 'Sathapana Bank'),
+    _BankEntry('VATTANAC', 'ធនាគារ វឌ្ឍនៈ', 'Vattanac Bank'),
+    _BankEntry('CPB', 'ធនាគារ ប្រៃសណីយ៍កម្ពុជា', 'Cambodia Post Bank'),
+    _BankEntry('PPCBANK', 'ធនាគារ ភីភីស៊ី', 'PPCBank'),
+    _BankEntry('HATTHA', 'ធនាគារ ហត្ថា', 'Hattha Bank'),
+    _BankEntry('MAYBANK', 'ធនាគារ មេយ៍បែង', 'Maybank Cambodia'),
+    _BankEntry('BAKONG', 'បាគង', 'Bakong'),
+    _BankEntry('TRUEMONEY', 'ទ្រូម៉ានី', 'TrueMoney'),
+    _BankEntry('LYF', 'កាបូប LYF', 'LYF Wallet'),
   ];
 
   @override
@@ -7369,17 +7272,14 @@ class BankSelectionScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildBankItem(BuildContext context, Map<String, dynamic> bank) {
-    final year = bank['year'];
-    final hasLogo = bank['logo'] != null;
-    
+  Widget _buildBankItem(BuildContext context, _BankEntry bank) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: GestureDetector(
         onTap: () {
           push(context, TransferScreen(
-            bankCode: bank['code'],
-            heading: bank['name'],
+            bankCode: bank.code,
+            heading: bank.name,
           ));
         },
         child: Container(
@@ -7391,48 +7291,21 @@ class BankSelectionScreen extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // Logo or Icon
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: hasLogo ? Colors.white : bank['color'],
-                  borderRadius: BorderRadius.circular(12),
-                  border: hasLogo ? Border.all(color: context.border, width: 1) : null,
-                ),
-                child: hasLogo
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(
-                          bank['logo'],
-                          width: 56,
-                          height: 56,
-                          fit: BoxFit.contain,
-                        ),
-                      )
-                    : Icon(bank['icon'], color: Colors.white, size: 28),
-              ),
+              BankLogo(code: bank.code, size: 56),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      bank['name'],
+                      bank.name,
                       style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: context.ink),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      bank['nameEn'],
+                      bank.nameEn,
                       style: TextStyle(fontSize: 12, color: context.muted),
                     ),
-                    if (year != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'បង្កើតឆ្នាំ $year',
-                        style: TextStyle(fontSize: 10, color: context.muted.withValues(alpha: 0.7)),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -8237,148 +8110,6 @@ class AnalyticsScreen extends StatelessWidget {
             Text(money(v), style: TextStyle(fontSize: 17,
                 fontWeight: FontWeight.w800, color: context.ink)),
           ]));
-}
-
-// ============================================================================
-//  SAVINGS
-// ============================================================================
-class SavingsScreen extends StatelessWidget {
-  const SavingsScreen({super.key});
-
-  Future<void> _addGoal(BuildContext context) async {
-    final n = TextEditingController();
-    final t = TextEditingController();
-    final ok = await showDialog<bool>(context: context,
-        builder: (ctx) => AlertDialog(backgroundColor: ctx.card,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: Text('បង្កើតគោលដៅ',
-              style: TextStyle(color: ctx.ink, fontSize: 16)),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            NeuField(controller: n, label: 'ឈ្មោះ'),
-            const SizedBox(height: 12),
-            NeuField(controller: t, label: 'គោលដៅ (\$)',
-                keyboardType: TextInputType.number),
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false),
-                child: Text('បោះបង់', style: TextStyle(color: ctx.muted))),
-            TextButton(onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('បង្កើត',
-                    style: TextStyle(color: C.accent,
-                        fontWeight: FontWeight.w700))),
-          ]));
-    final target = parseAmt(t.text);
-    if (ok == true && n.text.trim().isNotEmpty && target != null) {
-      try { await bank.addGoal(n.text.trim(), target); }
-      on ApiException catch (e) {
-        if (context.mounted) toast(context, e.message, error: true);
-      }
-    }
-  }
-
-  Future<void> _deposit(BuildContext context, Goal g) async {
-    if (bank.cards.isEmpty) return;
-    final amt = TextEditingController();
-    int cardId = bank.cards.first.id;
-    final r = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      backgroundColor: context.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => Padding(
-          padding: EdgeInsets.fromLTRB(20, 0, 20,
-              MediaQuery.of(ctx).viewInsets.bottom + 20),
-          child: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('សន្សំ: ${g.name}', style: TextStyle(fontSize: 16,
-                  fontWeight: FontWeight.w700, color: ctx.ink)),
-              const SizedBox(height: 16),
-              CardPicker(selectedId: cardId,
-                  onChanged: (id) => setS(() => cardId = id)),
-              const SizedBox(height: 12),
-              NeuField(controller: amt, label: 'ទឹកប្រាក់ (\$)',
-                  icon: Icons.attach_money,
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true)),
-              const SizedBox(height: 20),
-              NeuButton(label: 'សន្សំ', icon: Icons.savings, onPressed: () {
-                final a = parseAmt(amt.text);
-                if (a == null) return;
-                Navigator.pop(ctx, {'a': a, 'c': cardId});
-              }),
-            ]),
-          ),
-        ),
-      ),
-    );
-    if (r != null && context.mounted) {
-      final a = r['a'] as double;
-      final cid = r['c'] as int;
-      await confirmAndPay(context, title: 'សន្សំ: ${g.name}',
-          category: 'សន្សំ', amount: a, cardId: cid, icon: Icons.savings,
-          onSuccess: () async {
-        try { await bank.depositGoal(g, a); } catch (_) {}
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => sb(() => Scaffold(
-        appBar: AppBar(title: const Text('សន្សំ')),
-        floatingActionButton: FloatingActionButton.extended(
-            backgroundColor: C.abaRed, foregroundColor: Colors.white,
-            onPressed: () => _addGoal(context),
-            icon: const Icon(Icons.add), label: const Text('ថ្មី')),
-        body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-            children: [
-              NeuBox(radius: 18, padding: const EdgeInsets.all(22),
-                  child: Row(children: [
-                    Expanded(child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min, children: [
-                      Text('ការប្រាក់', style: TextStyle(color: context.muted,
-                          fontSize: 12)),
-                      const Text('6% / ឆ្នាំ', style: TextStyle(
-                          color: C.accentGreen, fontSize: 26,
-                          fontWeight: FontWeight.w800)),
-                    ])),
-                    Text(money(bank.goals.fold(0.0, (s, g) => s + g.saved)),
-                        style: TextStyle(color: context.ink, fontSize: 18,
-                            fontWeight: FontWeight.w700)),
-                  ])),
-              const SectionTitle('គោលដៅ'),
-              for (final g in bank.goals)
-                Padding(padding: const EdgeInsets.only(bottom: 14),
-                    child: NeuBox(padding: const EdgeInsets.all(14), radius: 14,
-                        onTap: () => _deposit(context, g),
-                        child: Row(children: [
-                          SizedBox(width: 58, height: 58,
-                              child: Stack(alignment: Alignment.center, children: [
-                            SizedBox(width: 58, height: 58,
-                                child: CircularProgressIndicator(
-                                    value: (g.saved / g.target).clamp(0.0, 1.0),
-                                    strokeWidth: 5, color: g.color,
-                                    backgroundColor:
-                                        Colors.white.withValues(alpha: 0.10))),
-                            Icon(g.icon, color: g.color, size: 22),
-                          ])),
-                          const SizedBox(width: 14),
-                          Expanded(child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min, children: [
-                            Text(g.name, style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14, color: context.ink)),
-                            Text('${money(g.saved)} / ${money(g.target)}',
-                                style: TextStyle(color: context.muted,
-                                    fontSize: 12)),
-                          ])),
-                          Icon(Icons.add_circle, color: g.color, size: 26),
-                        ]))),
-            ]),
-      ));
 }
 
 // ============================================================================
