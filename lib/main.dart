@@ -847,6 +847,11 @@ class AppState extends ChangeNotifier {
   String userName = '';
   String userEmail = '';
   String userPhone = '';
+  int? userAge;
+  String userGender = '';
+  String userAddress = '';
+  /// បានបំពេញព័ត៌មានគណនី (ឈ្មោះ/អាយុ/ភេទ/ទូរស័ព្ទ/ទីតាំង/PIN) រួចហើយ
+  bool onboarded = true;
   String? userAvatar;
   Uint8List? avatarBytes;
   String? _lastPin;
@@ -1071,6 +1076,12 @@ class AppState extends ChangeNotifier {
     userName = u['name'] as String? ?? userName;
     userEmail = u['email'] as String? ?? userEmail;
     userPhone = u['phone'] as String? ?? userPhone;
+    userAge = u['age'] as int?;
+    userGender = u['gender'] as String? ?? '';
+    userAddress = u['address'] as String? ?? '';
+    if (u['onboarded'] != null) {
+      onboarded = (u['onboarded'] as num).toInt() == 1;
+    }
     if (u.containsKey('avatar')) _applyAvatar(u['avatar'] as String?);
   }
 
@@ -1153,6 +1164,24 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// បំពេញព័ត៌មានគណនី + កំណត់ PIN ប្រតិបត្តិការ (លេខ/អក្សរ/សញ្ញា តាមចិត្ត)
+  Future<void> completeOnboarding({
+    required String name,
+    required int age,
+    required String gender,
+    required String phone,
+    required String address,
+    required String pin,
+  }) async {
+    final user = await ApiService.completeOnboarding(
+        name: name, age: age, gender: gender,
+        phone: phone, address: address, pin: pin);
+    _applyUser(user);
+    _lastPin = pin;
+    onboarded = true;
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     DeviceCommandHandler.instance.disconnect();
     await ApiService.logout();
@@ -1166,6 +1195,10 @@ class AppState extends ChangeNotifier {
     userPhone = '';
     userAvatar = null;
     avatarBytes = null;
+    userAge = null;
+    userGender = '';
+    userAddress = '';
+    onboarded = true;
     cards = [];
     txs = [];
     goals = [];
@@ -3965,6 +3998,11 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await bank.loginWithGoogle();
       if (!mounted) return;
+      if (!bank.onboarded) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => const AccountSetupScreen()));
+        return;
+      }
       toast(context, 'ចូលប្រើដោយ Google ជោគជ័យ 🎉');
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -4391,14 +4429,526 @@ class _GoogleSignInSheetState extends State<_GoogleSignInSheet> {
   }
 }
 
+/// ធានាថាអ្នកប្រើបានចូល + បំពេញព័ត៌មានរួច — បើអត់ ៖ បង្ហាញ Google sheet រួច onboarding
+Future<bool> ensureSignedIn(BuildContext context) async {
+  if (!bank.loggedIn) {
+    final ok = await showGoogleSignInSheet(context);
+    if (!ok) return false;
+  }
+  if (!bank.onboarded) {
+    if (!context.mounted) return false;
+    await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const AccountSetupScreen()));
+  }
+  return bank.loggedIn && bank.onboarded;
+}
+
 /// ដំណើរការត្រូវ Login សិន — បើមិនទាន់ login បង្ហាញ alert Google
 Future<void> guardedTap(BuildContext context, VoidCallback action) async {
-  if (bank.loggedIn) {
-    action();
-    return;
+  if (await ensureSignedIn(context)) action();
+}
+
+// ============================================================================
+//  ONBOARDING — បំពេញព័ត៌មានបន្ទាប់ពីចូលដោយ Google
+//  ជំហាន៖ ព័ត៌មានផ្ទាល់ខ្លួន → ទីតាំង → PIN ប្រតិបត្តិការ
+// ============================================================================
+class _RegionDirectory {
+  final List<String> provinces;
+  /// province → district → communes
+  final Map<String, Map<String, List<String>>> tree;
+  const _RegionDirectory(this.provinces, this.tree);
+}
+
+Future<_RegionDirectory> _loadRegionDirectory() async {
+  final raw = await rootBundle.loadString('assets/data/cambodia_admin.json');
+  final j = jsonDecode(raw) as Map<String, dynamic>;
+  final provinces = <String>[];
+  final tree = <String, Map<String, List<String>>>{};
+  for (final p in (j['p'] as List)) {
+    final pm = Map<String, dynamic>.from(p as Map);
+    final pn = pm['n'] as String;
+    provinces.add(pn);
+    final ds = <String, List<String>>{};
+    for (final d in (pm['d'] as List)) {
+      final dm = Map<String, dynamic>.from(d as Map);
+      ds[dm['n'] as String] = [
+        for (final m in (dm['m'] as List))
+          (Map<String, dynamic>.from(m as Map))['n'] as String
+      ];
+    }
+    tree[pn] = ds;
   }
-  final ok = await showGoogleSignInSheet(context);
-  if (ok && context.mounted) action();
+  return _RegionDirectory(provinces, tree);
+}
+
+/// បញ្ជីជម្រើស + ស្វែងរក (ប្រើសម្រាប់ ខេត្ត/ស្រុក/ឃុំ)
+Future<String?> _pickOption(BuildContext context, String title,
+    List<String> items, {String? selected}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: context.card,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+    builder: (ctx) {
+      String q = '';
+      return StatefulBuilder(builder: (ctx, setS) {
+        final list = q.isEmpty
+            ? items
+            : items.where((e) => e.toLowerCase().contains(q.toLowerCase()))
+                .toList();
+        return Padding(
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.72,
+            child: Column(children: [
+              const SizedBox(height: 10),
+              Container(width: 42, height: 4,
+                  decoration: BoxDecoration(
+                      color: ctx.muted.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(4))),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+                child: Row(children: [
+                  Expanded(child: Text(title, style: TextStyle(
+                      color: ctx.ink, fontSize: 16,
+                      fontWeight: FontWeight.w800))),
+                  IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: Icon(Icons.close_rounded, color: ctx.muted)),
+                ]),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: TextField(
+                  onChanged: (v) => setS(() => q = v.trim()),
+                  style: TextStyle(color: ctx.ink, fontSize: 13.5),
+                  decoration: InputDecoration(
+                    hintText: 'ស្វែងរក...',
+                    hintStyle: TextStyle(color: ctx.muted, fontSize: 13),
+                    prefixIcon: Icon(Icons.search, color: ctx.muted, size: 20),
+                    filled: true,
+                    fillColor: ctx.isDark ? const Color(0xFF0B2A42)
+                        : const Color(0xFFF1F4F8),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                itemCount: list.length,
+                itemBuilder: (_, i) {
+                  final it = list[i];
+                  final sel = it == selected;
+                  return ListTile(
+                    dense: true,
+                    title: Text(it, style: TextStyle(
+                        color: sel ? C.accent : ctx.ink, fontSize: 13.5,
+                        fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
+                    trailing: sel
+                        ? const Icon(Icons.check_rounded,
+                            color: C.accent, size: 18)
+                        : null,
+                    onTap: () => Navigator.pop(ctx, it),
+                  );
+                },
+              )),
+            ]),
+          ),
+        );
+      });
+    },
+  );
+}
+
+class AccountSetupScreen extends StatefulWidget {
+  const AccountSetupScreen({super.key});
+  @override
+  State<AccountSetupScreen> createState() => _AccountSetupScreenState();
+}
+
+class _AccountSetupScreenState extends State<AccountSetupScreen> {
+  final _name = TextEditingController();
+  final _age = TextEditingController();
+  final _phone = TextEditingController();
+  final _pin = TextEditingController();
+  String _gender = '';
+  String? _province, _district, _commune;
+  _RegionDirectory? _regions;
+  int _step = 0;
+  bool _busy = false, _ob = true;
+
+  static const _titles = ['ព័ត៌មានផ្ទាល់ខ្លួន', 'ទីតាំងរបស់អ្នក', 'កំណត់ PIN'];
+  static const _subs = [
+    'ឈ្មោះត្រូវបានទាញពីគណនី Google របស់អ្នក',
+    'ជ្រើសរើស ខេត្ត/ក្រុង · ស្រុក/ខណ្ឌ · ឃុំ/សង្កាត់',
+    'PIN ប្រើសម្រាប់រាល់ប្រតិបត្តិការ — លេខ អក្សរ ឬសញ្ញាពិសេស',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _name.text = bank.userName.trim();
+    _phone.text = bank.userPhone.trim();
+    if (bank.userAge != null) _age.text = '${bank.userAge}';
+    _gender = bank.userGender;
+    _loadRegions();
+  }
+
+  Future<void> _loadRegions() async {
+    try {
+      final r = await _loadRegionDirectory();
+      if (mounted) setState(() => _regions = r);
+    } catch (_) {
+      if (mounted) toast(context, 'មិនអាចផ្ទុកទិន្នន័យខេត្ត', error: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _name.dispose(); _age.dispose(); _phone.dispose(); _pin.dispose();
+    super.dispose();
+  }
+
+  List<String> get _districts =>
+      _province == null ? [] : (_regions?.tree[_province!]?.keys.toList() ?? []);
+
+  List<String> get _communes => (_province == null || _district == null)
+      ? []
+      : (_regions?.tree[_province!]?[_district!] ?? []);
+
+  bool get _infoValid {
+    final age = int.tryParse(_age.text.trim());
+    return _name.text.trim().length >= 2 &&
+        age != null && age >= 18 && age <= 100 &&
+        _gender.isNotEmpty &&
+        RegExp(r'^\+?\d[\d\s-]{7,16}$').hasMatch(_phone.text.trim());
+  }
+
+  void _next() {
+    FocusScope.of(context).unfocus();
+    if (_step == 0) {
+      if (!_infoValid) {
+        toast(context, 'សូមបំពេញឈ្មោះ អាយុ(១៨+) ភេទ និងលេខទូរស័ព្ទ',
+            error: true);
+        return;
+      }
+      setState(() => _step = 1);
+      return;
+    }
+    if (_step == 1) {
+      if (_province == null || _district == null || _commune == null) {
+        toast(context, 'សូមជ្រើសរើសទីតាំងឱ្យបានគ្រប់', error: true);
+        return;
+      }
+      setState(() => _step = 2);
+      return;
+    }
+    _submit();
+  }
+
+  void _back() {
+    if (_step == 0) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    setState(() {
+      if (_step == 2) {
+        _step = 1;
+      } else {
+        _step = 0;
+      }
+    });
+  }
+
+  Future<void> _submit() async {
+    final pin = _pin.text;
+    if (!RegExp(r'^\S{4,64}$').hasMatch(pin)) {
+      toast(context, 'PIN ត្រូវមានយ៉ាងតិច ៤ តួ (គ្មានចន្លោះ)', error: true);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await bank.completeOnboarding(
+        name: _name.text.trim(),
+        age: int.parse(_age.text.trim()),
+        gender: _gender,
+        phone: _phone.text.trim(),
+        address: '$_province, $_district, $_commune',
+        pin: pin,
+      );
+      if (!mounted) return;
+      toast(context, 'គណនីរួចរាល់ 🎉');
+      Navigator.of(context).pop(true);
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    } catch (_) {
+      if (mounted) toast(context, 'មិនអាចភ្ជាប់ server', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: _step == 0,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _back();
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+                icon: const Icon(Icons.arrow_back), onPressed: _back),
+            title: const Text('បំពេញព័ត៌មាន'),
+          ),
+          body: SafeArea(
+            child: Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Row(children: [
+                    for (var i = 0; i < 3; i++) ...[
+                      Expanded(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 220),
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: i <= _step
+                                ? C.accent
+                                : (context.isDark
+                                    ? Colors.white.withValues(alpha: 0.10)
+                                    : const Color(0xFFE4E9F0)),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                      ),
+                      if (i < 2) const SizedBox(width: 6),
+                    ],
+                  ]),
+                  const SizedBox(height: 18),
+                  Text(_titles[_step],
+                      style: TextStyle(color: context.ink, fontSize: 20,
+                          fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+                  const SizedBox(height: 4),
+                  Text(_subs[_step],
+                      style: TextStyle(color: context.muted, fontSize: 12.5,
+                          height: 1.4)),
+                ]),
+              ),
+              const SizedBox(height: 18),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: SingleChildScrollView(
+                    key: ValueKey(_step),
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: switch (_step) {
+                      0 => _infoStep(context),
+                      1 => _locationStep(context),
+                      _ => _pinStep(context),
+                    },
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                child: _busy
+                    ? const Center(child: SizedBox(width: 26, height: 26,
+                        child: CircularProgressIndicator(
+                            color: C.accent, strokeWidth: 2.5)))
+                    : NeuButton(
+                        label: _step == 2 ? 'រួចរាល់' : 'បន្ត',
+                        icon: _step == 2
+                            ? Icons.check_circle_rounded : Icons.arrow_forward,
+                        onPressed: _next),
+              ),
+            ]),
+          ),
+        ),
+      );
+
+  Widget _infoStep(BuildContext context) => NeuBox(
+        padding: const EdgeInsets.all(18),
+        radius: 18,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          NeuField(controller: _name, icon: Icons.person_outline,
+              label: 'ឈ្មោះពេញ',
+              textCapitalization: TextCapitalization.words),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: NeuField(controller: _age,
+                icon: Icons.cake_outlined, label: 'អាយុ',
+                keyboardType: TextInputType.number, maxLength: 3)),
+            const SizedBox(width: 12),
+            Expanded(child: NeuField(controller: _phone,
+                icon: Icons.phone_outlined, label: 'លេខទូរស័ព្ទ',
+                keyboardType: TextInputType.phone, maxLength: 15)),
+          ]),
+          const SizedBox(height: 6),
+          Text('ភេទ', style: TextStyle(color: context.muted, fontSize: 12,
+              fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Row(children: [
+            for (final g in const [
+              ['male', 'ប្រុស', Icons.male_rounded],
+              ['female', 'ស្រី', Icons.female_rounded],
+              ['other', 'ផ្សេងៗ', Icons.transgender_rounded],
+            ])
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _gender = g[0] as String),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _gender == g[0]
+                            ? C.accent.withValues(alpha: 0.16)
+                            : (context.isDark
+                                ? Colors.white.withValues(alpha: 0.04)
+                                : const Color(0xFFF1F4F8)),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: _gender == g[0] ? C.accent : context.border),
+                      ),
+                      child: Column(children: [
+                        Icon(g[2] as IconData,
+                            size: 20,
+                            color: _gender == g[0] ? C.accent : context.muted),
+                        const SizedBox(height: 4),
+                        Text(g[1] as String, style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: _gender == g[0]
+                                ? FontWeight.w700 : FontWeight.w500,
+                            color: _gender == g[0] ? C.accent : context.muted)),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+          ]),
+        ]),
+      );
+
+  Widget _locationStep(BuildContext context) {
+    if (_regions == null) {
+      return const Padding(padding: EdgeInsets.only(top: 60),
+          child: Center(child: CircularProgressIndicator(color: C.accent)));
+    }
+    Widget row(String label, String? value, VoidCallback onTap) => GestureDetector(
+          onTap: onTap,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            decoration: BoxDecoration(
+              color: context.isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : const Color(0xFFF1F4F8),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.border),
+            ),
+            child: Row(children: [
+              const Icon(Icons.place_outlined, color: C.accent, size: 19),
+              const SizedBox(width: 10),
+              Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min, children: [
+                Text(label, style: TextStyle(color: context.muted,
+                    fontSize: 11, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(value ?? 'ជ្រើសរើស...', style: TextStyle(
+                    color: value == null ? context.muted : context.ink,
+                    fontSize: 13.5,
+                    fontWeight: value == null
+                        ? FontWeight.w400 : FontWeight.w700)),
+              ])),
+              Icon(Icons.keyboard_arrow_down_rounded, color: context.muted),
+            ]),
+          ),
+        );
+
+    return NeuBox(padding: const EdgeInsets.all(16), radius: 18,
+      child: Column(children: [
+        row('ខេត្ត / ក្រុង', _province, () async {
+          final v = await _pickOption(context, 'ខេត្ត / ក្រុង',
+              _regions!.provinces, selected: _province);
+          if (v != null && v != _province) {
+            setState(() {
+              _province = v;
+              _district = null;
+              _commune = null;
+            });
+          }
+        }),
+        row('ស្រុក / ខណ្ឌ', _district, () async {
+          if (_province == null) {
+            toast(context, 'សូមជ្រើសរើសខេត្តជាមុន', error: true);
+            return;
+          }
+          final v = await _pickOption(context, 'ស្រុក / ខណ្ឌ',
+              _districts, selected: _district);
+          if (v != null && v != _district) {
+            setState(() {
+              _district = v;
+              _commune = null;
+            });
+          }
+        }),
+        row('ឃុំ / សង្កាត់', _commune, () async {
+          if (_district == null) {
+            toast(context, 'សូមជ្រើសរើសស្រុកជាមុន', error: true);
+            return;
+          }
+          final v = await _pickOption(context, 'ឃុំ / សង្កាត់',
+              _communes, selected: _commune);
+          if (v != null) setState(() => _commune = v);
+        }),
+      ]),
+    );
+  }
+
+  Widget _pinStep(BuildContext context) => Column(children: [
+        NeuBox(padding: const EdgeInsets.all(18), radius: 18,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+            NeuField(
+              controller: _pin,
+              icon: Icons.lock_outline,
+              label: 'PIN ប្រតិបត្តិការ',
+              obscure: _ob,
+              maxLength: 64,
+              suffix: IconButton(
+                icon: Icon(_ob ? Icons.visibility : Icons.visibility_off,
+                    color: context.muted, size: 18),
+                onPressed: () => setState(() => _ob = !_ob),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              Icon(Icons.info_outline, size: 15, color: context.muted),
+              const SizedBox(width: 6),
+              Expanded(child: Text(
+                  'ប្រើបានទាំងលេខ អក្សរ និងសញ្ញាពិសេស — យ៉ាងតិច ៤ តួ',
+                  style: TextStyle(color: context.muted, fontSize: 11.5))),
+            ]),
+          ])),
+        const SizedBox(height: 14),
+        Row(children: [
+          Icon(Icons.shield_outlined, size: 16, color: C.accentGreen),
+          const SizedBox(width: 8),
+          Expanded(child: Text(
+              'PIN នេះត្រូវបានផ្ទៀងផ្ទាត់នៅ server រាល់ពេលធ្វើប្រតិបត្តិការ',
+              style: TextStyle(color: context.muted, fontSize: 11.5,
+                  height: 1.4))),
+        ]),
+      ]);
 }
 
 // ============================================================================
@@ -4532,10 +5082,7 @@ class _MainShellState extends State<MainShell> {
               ],
             ),
             bottomNavigationBar: _AuraNav(current: i, onTap: (v) async {
-              if (v != 0 && bank.guest) {
-                final ok = await showGoogleSignInSheet(context);
-                if (!ok) return;
-              }
+              if (v != 0 && !await ensureSignedIn(context)) return;
               tabIndex.value = v;
             }),
           ),
@@ -5584,7 +6131,7 @@ class HomeScreen extends StatelessWidget {
                   if (bank.booting && bank.txs.isEmpty)
                     const _HomeSkeleton()
                   else ...[
-                    bank.guest ? _guestHero(context) : _hero(context),
+                    _hero(context),
                     const SectionTitle('សេវាកម្មរហ័ស'),
                     AbaGrid(items: [
                       AbaCell(Icons.account_balance_wallet_outlined, 'គណនី',
@@ -5770,57 +6317,6 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
             ]),
-          ]),
-        ]),
-      );
-
-  // ── Hero សម្រាប់ភ្ញៀវ (មិនទាន់ចូល) — អំពាវនាវចូលដោយ Google ──
-  Widget _guestHero(BuildContext context) => Container(
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          gradient: AuraGrad.brand,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-        ),
-        child: Stack(children: [
-          Positioned(right: -30, top: -30, child: Container(
-            width: 140, height: 140,
-            decoration: BoxDecoration(shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.06)))),
-          Positioned(right: 40, bottom: -50, child: Container(
-            width: 120, height: 120,
-            decoration: BoxDecoration(shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.05)))),
-          Column(crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min, children: [
-            Row(children: [
-              Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    shape: BoxShape.circle),
-                child: const Icon(Icons.waving_hand_rounded,
-                    color: Colors.white, size: 19),
-              ),
-              const SizedBox(width: 10),
-              Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min, children: const [
-                Text('សូមស្វាគមន៍មក AURA',
-                    style: TextStyle(color: Colors.white, fontSize: 17,
-                        fontWeight: FontWeight.w800)),
-                Text('ធនាគារឌីជីថល ងាយស្រួល និងរហ័ស',
-                    style: TextStyle(color: Colors.white70, fontSize: 11.5)),
-              ])),
-            ]),
-            const SizedBox(height: 16),
-            Text('ចូលដើម្បីមើលសមតុល្យ និងធ្វើប្រតិបត្តិការ',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.78),
-                    fontSize: 12, height: 1.45)),
-            const SizedBox(height: 14),
-            GooglePillButton(
-                label: 'បន្តជាមួយ Google',
-                onPressed: () => guardedTap(context, () {})),
           ]),
         ]),
       );

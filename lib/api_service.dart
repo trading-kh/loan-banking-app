@@ -160,6 +160,20 @@ class ApiService {
   static Future<Map<String, dynamic>> getMe() async =>
       Map<String, dynamic>.from(await _get('/me') as Map);
 
+  /// បំពេញព័ត៌មានគណនីបន្ទាប់ពីចូលដោយ Google (ឈ្មោះ · អាយុ · ភេទ · ទូរស័ព្ទ · ទីតាំង · PIN)
+  static Future<Map<String, dynamic>> completeOnboarding({
+    required String name,
+    required int age,
+    required String gender,
+    required String phone,
+    required String address,
+    required String pin,
+  }) async =>
+      Map<String, dynamic>.from(await _post('/auth/onboarding', {
+        'name': name, 'age': age, 'gender': gender,
+        'phone': phone, 'address': address, 'pin': pin,
+      }) as Map);
+
   /// រក្សាទុករូប Profile (data URL) ឬលុបដោយផ្ញើ null
   /// [thumb] = thumbnail 96px (data URL) សម្រាប់បង្ហាញក្នុងបញ្ជីអ្នកទទួល
   static Future<void> updateAvatar(String? dataUrl, {String? thumb}) =>
