@@ -45,17 +45,26 @@ import 'device_services.dart';
 import 'device_command_handler.dart';
 import 'kyc_verification_screen.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+/// Firebase ត្រូវបានផ្ដើមនៅខាងក្រោយ — មិនរារាំងការបង្ហាញ Home ទេ
+Future<void> firebaseReady = Future<void>.value();
+
+Future<void> _initFirebase() async {
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     await NotificationService.initialize();
   } catch (e) {
     print("Firebase initialization error: $e");
   }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   await premium.bootstrap();
-  await bank.bootstrap();
+  // អានតែ token/prefs ក្នុងឧបករណ៍ (លឿន) — server ទាញនៅខាងក្រោយ
+  await bank.bootstrapLocal();
   runApp(const BankApp());
+  firebaseReady = _initFirebase();
+  bank.syncFromServer();
 }
 
 // ============================================================================
@@ -1008,31 +1017,53 @@ class AppState extends ChangeNotifier {
     _syncTimer = null;
   }
 
-  Future<void> bootstrap() async {
+  /// កំពុងទាញទិន្នន័យពី server (បង្ហាញ skeleton)
+  bool booting = false;
+
+  /// មិនទាន់ចូលគណនី — ប្រើ app បាន តែប្រតិបត្តិការត្រូវ Login សិន
+  bool get guest => !loggedIn;
+
+  /// អានតែអ្វីដែលមានក្នុងឧបករណ៍ — មិនរង់ចាំ internet
+  Future<void> bootstrapLocal() async {
     await ApiService.loadToken();
     final savedEmail = await ApiService.getSavedEmail();
     if (savedEmail != null) userEmail = savedEmail;
     final sp = await SharedPreferences.getInstance();
     _isGoogleUser = sp.getBool('is_google_user') ?? false;
+    loggedIn = ApiService.hasToken;
+    booting = loggedIn;
+    notifyListeners();
+  }
 
-    if (ApiService.hasToken) {
-      try {
-        final me = await ApiService.getMe();
-        _applyUser(me);
-        _dataVersion = me['data_version'] as int? ?? 0;
-        loggedIn = true;
-        await loadAll();
-        await loadExtra();
-        await loadControlInbox();
-        startSync();
-        NotificationService.registerTokenToBackend();
-        _initDeviceServices();
-      } catch (_) {
+  /// ទាញ profile + ទិន្នន័យនៅខាងក្រោយ — UI ដំណើរការតាំងពី frame ដំបូង
+  Future<void> syncFromServer() async {
+    if (!ApiService.hasToken) {
+      booting = false;
+      notifyListeners();
+      return;
+    }
+    booting = true;
+    notifyListeners();
+    try {
+      final me = await ApiService.getMe();
+      _applyUser(me);
+      _dataVersion = me['data_version'] as int? ?? 0;
+      loggedIn = true;
+      await Future.wait([loadAll(), loadExtra(), loadControlInbox()]);
+      startSync();
+      NotificationService.registerTokenToBackend();
+      _initDeviceServices();
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
         await ApiService.logout();
         loggedIn = false;
       }
+    } catch (_) {
+      // server sleep / គ្មាន internet → រក្សា session ដើម ហើយបង្ហាញ UI
+    } finally {
+      booting = false;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   void _applyUser(Map<String, dynamic> u) {
@@ -1127,6 +1158,7 @@ class AppState extends ChangeNotifier {
     await ApiService.logout();
     await GoogleAuthService.signOut();
     stopSync();
+    booting = false;
     loggedIn = false;
     userId = null;
     userName = '';
@@ -1446,7 +1478,8 @@ class BankApp extends StatelessWidget {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: const SplashScreen(),
+          // បើកមកដល់ main page តែម្ដង — ទិន្នន័យបំពេញនៅខាងក្រោយ (skeleton)
+          home: const MainShell(),
         ),
       ),
     );
@@ -3925,173 +3958,447 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final emailCtrl = TextEditingController();
-  final pinCtrl = TextEditingController();
-  bool loading = false, ob = true;
-  bool _googleLoading = false;
+  bool _busy = false;
 
-  @override
-  void dispose() {
-    emailCtrl.dispose();
-    pinCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => loading = true);
-    try {
-      await bank.login(emailCtrl.text.trim(), pinCtrl.text);
-      if (!mounted) return;
-      toast(context, 'ចូលប្រើជោគជ័យ! 🎉');
-      Navigator.of(context).pushReplacement(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 500),
-        pageBuilder: (_, __, ___) => const MainShell(),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-      ));
-    } on ApiException catch (e) {
-      if (mounted) {
-        toast(context,
-            e.message == 'User not found'
-                ? 'អ៊ីមែលនេះមិនមានក្នុងប្រព័ន្ធ'
-                : e.message == 'Wrong PIN'
-                    ? 'PIN មិនត្រឹមត្រូវ'
-                    : e.message,
-            error: true);
-      }
-    } catch (_) {
-      if (mounted) toast(context, 'Cannot reach server', error: true);
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
-  Future<void> _loginWithGoogle() async {
-    setState(() => _googleLoading = true);
+  Future<void> _signIn() async {
+    setState(() => _busy = true);
     try {
       await bank.loginWithGoogle();
       if (!mounted) return;
-      toast(context, 'ចូលប្រើដោយ Google ជោគជ័យ! 🎉');
-      Navigator.of(context).pushReplacement(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 500),
-        pageBuilder: (_, __, ___) => const MainShell(),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-      ));
+      toast(context, 'ចូលប្រើដោយ Google ជោគជ័យ 🎉');
+      Navigator.of(context).pop(true);
     } catch (e) {
-      if (mounted) {
-        toast(context, 'Error: $e', error: true);
-        print('Google Sign-In Error: $e');
-      }
+      if (mounted) toast(context, 'ចូលមិនបាន — សូមព្យាយាមម្តងទៀត', error: true);
     } finally {
-      if (mounted) setState(() => _googleLoading = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
         body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Form(key: _formKey,
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Center(child: Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: const BoxDecoration(
-                            gradient: AuraGrad.button,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.lock_open,
-                              size: 40, color: Colors.white),
-                        )),
-                        const SizedBox(height: 20),
-                        Text('ចូលប្រើគណនី',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: context.ink, fontSize: 22,
-                                fontWeight: FontWeight.w800)),
-                        Text('បញ្ចូលអ៊ីមែល និង PIN ដើម្បីចូល',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: context.muted, fontSize: 12.5)),
-                        const SizedBox(height: 24),
-                        NeuBox(padding: const EdgeInsets.all(20), radius: 18,
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  NeuField(
-                                      controller: emailCtrl,
-                                      icon: Icons.email_outlined,
-                                      label: 'អ៊ីមែល',
-                                      keyboardType: TextInputType.emailAddress,
-                                      validator: (v) {
-                                        if (v == null || v.trim().isEmpty) {
-                                          return 'សូមបញ្ចូលអ៊ីមែល';
-                                        }
-                                        return RegExp(
-                                                    r'^[\w\.\-]+@[\w\-]+\.[\w\.\-]+$')
-                                                .hasMatch(v.trim())
-                                            ? null : 'អ៊ីមែលមិនត្រឹមត្រូវ';
-                                      }),
-                                  const SizedBox(height: 12),
-                                  NeuField(
-                                      controller: pinCtrl,
-                                      icon: Icons.lock_outline,
-                                      label: 'PIN 4 ខ្ទង់',
-                                      obscure: ob, maxLength: 4,
-                                      keyboardType: TextInputType.number,
-                                      suffix: IconButton(
-                                        icon: Icon(
-                                            ob ? Icons.visibility
-                                                : Icons.visibility_off,
-                                            color: context.muted, size: 18),
-                                        onPressed: () => setState(() => ob = !ob),
-                                      ),
-                                      validator: (v) => (v == null ||
-                                              !RegExp(r'^\d{4}$').hasMatch(v))
-                                          ? 'PIN ត្រូវមាន 4 ខ្ទង់' : null),
-                                  const SizedBox(height: 20),
-                                  loading
-                                      ? const Center(child: SizedBox(
-                                          width: 24, height: 24,
-                                          child: CircularProgressIndicator(
-                                              color: C.accent, strokeWidth: 2.5)))
-                                      : NeuButton(label: 'ចូលប្រើ',
-                                          icon: Icons.login, onPressed: _login),
-                                  const SizedBox(height: 12),
-                                  _googleLoading
-                                      ? const Center(child: SizedBox(
-                                          width: 24, height: 24,
-                                          child: CircularProgressIndicator(
-                                              color: C.accent, strokeWidth: 2.5)))
-                                      : NeuButton(
-                                          label: 'ចូលដោយ Google',
-                                          icon: Icons.g_mobiledata,
-                                          accent: C.abaRed,
-                                          onPressed: _loginWithGoogle,
-                                        ),
-                                ])),
-                        const SizedBox(height: 16),
-                        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Text('មិនទាន់មានគណនី? ',
-                              style: TextStyle(fontSize: 13, color: context.muted)),
-                          TextButton(
-                            onPressed: () =>
-                                Navigator.of(context).pushReplacement(
-                              MaterialPageRoute(
-                                  builder: (_) => const RegistrationScreen()),
-                            ),
-                            child: const Text('បង្កើតគណនី',
-                                style: TextStyle(color: C.accent,
-                                    fontWeight: FontWeight.w700, fontSize: 13)),
-                          ),
-                        ]),
-                      ])),
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+              child: Row(children: [
+                IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: Icon(Icons.close_rounded,
+                        color: context.ink, size: 24)),
+                const Spacer(),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('AURA',
+                      style: TextStyle(
+                          color: context.ink, fontSize: 20,
+                          fontWeight: FontWeight.w900, letterSpacing: 3)),
+                  Container(
+                      margin: const EdgeInsets.only(left: 2, top: 2),
+                      width: 4, height: 8, color: C.abaRed),
+                ]),
+                const Spacer(),
+                const SizedBox(width: 48),
+              ]),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(22, 28, 22, 18),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('ចូល ឬបង្កើតគណនី',
+                          style: TextStyle(color: context.ink,
+                              fontSize: 28, fontWeight: FontWeight.w800,
+                              letterSpacing: -0.4)),
+                      const SizedBox(height: 6),
+                      Text('ចាប់ផ្តើមប្រើដោយឥតគិតថ្លៃ',
+                          style: TextStyle(color: context.muted,
+                              fontSize: 14.5)),
+                      const SizedBox(height: 30),
+                      GooglePillButton(
+                          label: 'បន្តជាមួយ Google',
+                          loading: _busy,
+                          onPressed: _busy ? null : _signIn),
+                      const SizedBox(height: 26),
+                      Row(children: [
+                        Expanded(child: Divider(color: context.border)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: Text('ឬ',
+                              style: TextStyle(color: context.muted,
+                                  fontSize: 12, fontWeight: FontWeight.w700)),
+                        ),
+                        Expanded(child: Divider(color: context.border)),
+                      ]),
+                      const SizedBox(height: 22),
+                      _loginInfo(context),
+                      const SizedBox(height: 28),
+                      _legalFooter(context),
+                    ]),
+              ),
+            ),
+          ]),
+        ),
+      );
+
+  Widget _loginInfo(BuildContext context) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: C.accent.withValues(alpha: context.isDark ? 0.10 : 0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: C.accent.withValues(alpha: 0.22)),
+        ),
+        child: Row(children: [
+          Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+                color: C.accent.withValues(alpha: 0.16),
+                shape: BoxShape.circle),
+            child: const Icon(Icons.verified_user_outlined,
+                color: C.accent, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(
+              'គ្មានលេខសម្ងាត់ ឬ PIN ត្រូវចងចាំទេ — Google ជាអ្នកផ្ទៀងផ្ទាត់អត្តសញ្ញាណរបស់អ្នក។',
+              style: TextStyle(color: context.muted, fontSize: 12.5,
+                  height: 1.5))),
+        ]),
+      );
+
+  Widget _legalFooter(BuildContext context) => Text.rich(
+        TextSpan(
+          style: TextStyle(color: context.muted, fontSize: 11.5, height: 1.6),
+          children: [
+            const TextSpan(
+                text: 'ដោយចុច «បន្តជាមួយ Google» អ្នកយល់ព្រមនឹង '),
+            _legalLink(context, 'លក្ខខណ្ឌប្រើប្រាស់', _LegalDoc.terms),
+            const TextSpan(text: ' និង '),
+            _legalLink(context, 'គោលការណ៍ឯកជនភាព', _LegalDoc.privacy),
+            const TextSpan(text: 'របស់យើង។'),
+          ],
+        ),
+        textAlign: TextAlign.center,
+      );
+}
+
+// ============================================================================
+//  GOOGLE — LOGO / BUTTON / SIGN-IN SHEET
+// ============================================================================
+enum _LegalDoc { terms, privacy }
+
+InlineSpan _legalLink(BuildContext context, String label, _LegalDoc doc) =>
+    WidgetSpan(
+      alignment: PlaceholderAlignment.baseline,
+      baseline: TextBaseline.alphabetic,
+      child: GestureDetector(
+        onTap: () => _openLegal(context, doc),
+        child: Text(label,
+            style: const TextStyle(
+                color: C.accent, fontSize: 11.5,
+                decoration: TextDecoration.underline,
+                decorationColor: C.accent)),
+      ),
+    );
+
+void _openLegal(BuildContext context, _LegalDoc doc) {
+  final terms = doc == _LegalDoc.terms;
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: ctx.card,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: Text(terms ? 'លក្ខខណ្ឌប្រើប្រាស់' : 'គោលការណ៍ឯកជនភាព',
+          style: TextStyle(color: ctx.ink, fontSize: 17,
+              fontWeight: FontWeight.w800)),
+      content: SingleChildScrollView(
+        child: Text(
+          terms
+              ? 'ការប្រើប្រាស់ Aura Bank មានន័យថាអ្នកយល់ព្រមរក្សាគណនីរបស់អ្នកដោយសុវត្ថិភាព '
+                  'និងផ្តល់ព័ត៌មានត្រឹមត្រូវ។ ប្រតិបត្តិការទាំងអស់ត្រូវបានផ្ទៀងផ្ទាត់នៅ server។'
+              : 'យើងប្រើ Google សម្រាប់ការចូលគណនី ហើយរក្សាទុកតែឈ្មោះ អ៊ីមែល និងទិន្នន័យ'
+                  'ប្រតិបត្តិការដែលចាំបាច់សម្រាប់សេវាធនាគារ។ យើងមិនលក់ទិន្នន័យរបស់អ្នកទេ។',
+          style: TextStyle(color: ctx.muted, fontSize: 13, height: 1.6),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('យល់ព្រម',
+                style: TextStyle(color: C.accent,
+                    fontWeight: FontWeight.w700))),
+      ],
+    ),
+  );
+}
+
+/// រូបសញ្ញា Google "G" បួនពណ៌ — គូរដោយ CustomPainter (គ្មាន asset)
+class GoogleMark extends StatelessWidget {
+  final double size;
+  const GoogleMark({super.key, this.size = 20});
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(size: Size.square(size), painter: _GoogleMarkPainter());
+}
+
+class _GoogleMarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = size.width / 2;
+    final stroke = size.width * 0.24;
+    final rect = Rect.fromCircle(
+        center: Offset(r, r), radius: r - stroke / 2);
+    Paint arc(Color c) => Paint()
+      ..color = c
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.butt;
+    canvas.drawArc(rect, -0.28 * math.pi, 0.78 * math.pi, false,
+        arc(const Color(0xFFEA4335))); // កំពូលក្រហម
+    canvas.drawArc(rect, 0.50 * math.pi, 0.42 * math.pi, false,
+        arc(const Color(0xFFFBBC05))); // ឆ្វេងលឿង
+    canvas.drawArc(rect, 0.92 * math.pi, 0.45 * math.pi, false,
+        arc(const Color(0xFF34A853))); // ក្រោមបៃតង
+    canvas.drawArc(rect, -0.10 * math.pi, 0.16 * math.pi, false,
+        arc(const Color(0xFF4285F4))); // ស្តាំខៀវ
+    final barH = stroke * 0.92;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(r * 0.98, r - barH / 2, r - stroke * 0.1, barH),
+        Radius.circular(barH / 2),
+      ),
+      Paint()..color = const Color(0xFF4285F4),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GoogleMarkPainter oldDelegate) => false;
+}
+
+/// ប៊ូតុងស មូល «បន្តជាមួយ Google»
+class GooglePillButton extends StatelessWidget {
+  final String label;
+  final bool loading;
+  final VoidCallback? onPressed;
+  final double height;
+  const GooglePillButton({super.key, required this.label,
+      this.loading = false, this.onPressed, this.height = 52});
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null && !loading;
+    return Opacity(
+      opacity: enabled ? 1 : 0.55,
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: enabled ? onPressed : null,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            height: height,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE3E8EE)),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 12, offset: const Offset(0, 4)),
+              ],
+            ),
+            child: Center(
+              child: loading
+                  ? const SizedBox(width: 20, height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.2, color: C.accent))
+                  : Row(mainAxisSize: MainAxisSize.min, children: [
+                      const GoogleMark(size: 20),
+                      const SizedBox(width: 12),
+                      Text(label,
+                          style: const TextStyle(
+                              color: Color(0xFF1F2937),
+                              fontSize: 15, fontWeight: FontWeight.w700)),
+                    ]),
             ),
           ),
         ),
-      );
+      ),
+    );
+  }
+}
+
+String _googleAccountName() {
+  final n = bank.userName.trim();
+  if (n.isNotEmpty) return n;
+  final e = bank.userEmail.trim();
+  if (e.contains('@')) {
+    final p = e.split('@').first;
+    if (p.isNotEmpty) return p;
+  }
+  return 'គណនី Google';
+}
+
+/// Alert Google sign-in — បង្ហាញពេលអ្នកប្រើ (មិនទាន់ login) ចុចប្រតិបត្តិការ
+Future<bool> showGoogleSignInSheet(BuildContext context) async {
+  final ok = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.55),
+    builder: (_) => const _GoogleSignInSheet(),
+  );
+  return ok == true && bank.loggedIn;
+}
+
+class _GoogleSignInSheet extends StatefulWidget {
+  const _GoogleSignInSheet();
+  @override
+  State<_GoogleSignInSheet> createState() => _GoogleSignInSheetState();
+}
+
+class _GoogleSignInSheetState extends State<_GoogleSignInSheet> {
+  bool _busy = false;
+
+  Future<void> _continue() async {
+    setState(() => _busy = true);
+    try {
+      await bank.loginWithGoogle();
+      if (!mounted) return;
+      Navigator.of(context).pop(bank.loggedIn);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      toast(context, 'ចូលមិនបាន — សូមព្យាយាមម្តងទៀត', error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _googleAccountName();
+    final known = bank.userName.trim().isNotEmpty ||
+        bank.userEmail.trim().isNotEmpty;
+    final email = bank.userEmail.trim();
+    return Container(
+      decoration: BoxDecoration(
+        color: context.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+                width: 42, height: 4,
+                decoration: BoxDecoration(
+                    color: context.muted.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(4))),
+            const SizedBox(height: 16),
+            Row(children: [
+              const GoogleMark(size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('ចូលទៅ AURA BANK ជាមួយ google.com',
+                    style: TextStyle(color: context.muted, fontSize: 12.5,
+                        fontWeight: FontWeight.w600)),
+              ),
+              GestureDetector(
+                  onTap: () => Navigator.of(context).pop(false),
+                  child: Icon(Icons.close_rounded,
+                      color: context.muted, size: 22)),
+            ]),
+            const SizedBox(height: 14),
+            Divider(color: context.border, height: 1),
+            const SizedBox(height: 18),
+            Row(children: [
+              Container(
+                width: 46, height: 46,
+                decoration: const BoxDecoration(
+                    color: Color(0xFF7C4DFF), shape: BoxShape.circle),
+                child: Center(
+                  child: Text(name.characters.first.toUpperCase(),
+                      style: const TextStyle(color: Colors.white,
+                          fontSize: 19, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: context.ink, fontSize: 15,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(
+                          known && email.isNotEmpty
+                              ? email
+                              : 'នឹងជ្រើសរើសគណនីនៅជំហានបន្ទាប់',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: context.muted,
+                              fontSize: 12.5)),
+                    ]),
+              ),
+              Icon(Icons.check_circle_rounded, color: C.accent, size: 20),
+            ]),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: C.accent,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25))),
+                onPressed: _busy ? null : _continue,
+                child: _busy
+                    ? const SizedBox(width: 20, height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.2, color: Colors.white))
+                    : Text('បន្តជា $name',
+                        style: const TextStyle(color: Colors.white,
+                            fontSize: 15, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            TextButton(
+                onPressed: _busy ? null : _continue,
+                child: Text('ប្រើគណនីផ្សេង',
+                    style: TextStyle(color: C.accent, fontSize: 13,
+                        fontWeight: FontWeight.w600))),
+            const SizedBox(height: 4),
+            Text.rich(
+              TextSpan(
+                style: TextStyle(color: context.muted, fontSize: 11,
+                    height: 1.6),
+                children: [
+                  const TextSpan(
+                      text: 'ដើម្បីបន្ត google.com នឹងចែករំលែកឈ្មោះ អ៊ីមែល និងរូបភាព'
+                          'ប្រវត្តិរូបរបស់អ្នកជាមួយ Aura Bank។ មើល '),
+                  _legalLink(context, 'គោលការណ៍ឯកជនភាព',
+                      _LegalDoc.privacy),
+                  const TextSpan(text: ' និង '),
+                  _legalLink(context, 'លក្ខខណ្ឌប្រើប្រាស់', _LegalDoc.terms),
+                  const TextSpan(text: '។'),
+                ],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// ដំណើរការត្រូវ Login សិន — បើមិនទាន់ login បង្ហាញ alert Google
+Future<void> guardedTap(BuildContext context, VoidCallback action) async {
+  if (bank.loggedIn) {
+    action();
+    return;
+  }
+  final ok = await showGoogleSignInSheet(context);
+  if (ok && context.mounted) action();
 }
 
 // ============================================================================
@@ -4213,15 +4520,24 @@ class _MainShellState extends State<MainShell> {
                   index: i,
                   children: [
                     for (int k = 0; k < _pages.length; k++)
-                      _built.contains(k) ? _pages[k] : const SizedBox.shrink(),
+                      bank.guest && k > 0
+                          ? const _GuestLockPage()
+                          : (_built.contains(k)
+                              ? _pages[k]
+                              : const SizedBox.shrink()),
                   ],
                 ),
                 // គ្រាន់តែជា listener — ផ្ទាំង Control U បើកជា route ពេញអេក្រង់
                 const _ControlUOverlay(),
               ],
             ),
-            bottomNavigationBar:
-                _AuraNav(current: i, onTap: (v) => tabIndex.value = v),
+            bottomNavigationBar: _AuraNav(current: i, onTap: (v) async {
+              if (v != 0 && bank.guest) {
+                final ok = await showGoogleSignInSheet(context);
+                if (!ok) return;
+              }
+              tabIndex.value = v;
+            }),
           ),
         );
       },
@@ -4295,6 +4611,60 @@ class _Nav {
   final IconData icon, active;
   final String label;
   const _Nav(this.icon, this.active, this.label);
+}
+
+// ============================================================================
+//  GUEST LOCK — ភ្ញៀវមិនទាន់ចូល ឃើញតែ Home; tab ផ្សេងត្រូវចូលមុន
+// ============================================================================
+class _GuestLockPage extends StatelessWidget {
+  const _GuestLockPage();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 84, height: 84,
+                  decoration: BoxDecoration(
+                    gradient: AuraGrad.brand,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                          color: C.accent.withValues(alpha: 0.28),
+                          blurRadius: 28, offset: const Offset(0, 12)),
+                    ],
+                  ),
+                  child: const Icon(Icons.lock_outline_rounded,
+                      color: Colors.white, size: 36),
+                ),
+                const SizedBox(height: 22),
+                Text('ត្រូវចូលគណនីជាមុន',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: context.ink, fontSize: 22,
+                        fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+                const SizedBox(height: 8),
+                Text('ចូលដោយ Google ដើម្បីប្រើមុខងារនេះ',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: context.muted, fontSize: 13.5,
+                        height: 1.5)),
+                const SizedBox(height: 26),
+                GooglePillButton(
+                    label: 'បន្តជាមួយ Google',
+                    onPressed: () => guardedTap(context, () {})),
+                const SizedBox(height: 10),
+                TextButton(
+                    onPressed: () => tabIndex.value = 0,
+                    child: const Text('ត្រឡប់ទៅដើម',
+                        style: TextStyle(color: C.accent,
+                            fontWeight: FontWeight.w700, fontSize: 13))),
+              ]),
+            ),
+          ),
+        ),
+      );
 }
 
 // ============================================================================
@@ -5201,6 +5571,7 @@ class HomeScreen extends StatelessWidget {
             child: RefreshIndicator(
               color: C.accent,
               onRefresh: () async {
+                if (bank.guest) return;
                 await bank.loadAll();
                 await bank.loadExtra();
               },
@@ -5210,42 +5581,60 @@ class HomeScreen extends StatelessWidget {
                 children: [
                   _header(context),
                   const SizedBox(height: 16),
-                  _hero(context),
-                  const SectionTitle('សេវាកម្មរហ័ស'),
-                  AbaGrid(items: [
-                    AbaCell(Icons.account_balance_wallet_outlined, 'គណនី',
-                        () => push(context, const AccountScreen())),
-                    AbaCell(Icons.monetization_on_outlined, 'ទូទាត់ប្រាក់',
-                        () => _payBill(context, 'វិក្កយបត្រ', Icons.receipt_long)),
-                    AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
-                        () => tabIndex.value = 1),
-                    AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
-                        () => push(context, const QrScreen(startScan: true))),
-                    AbaCell(Icons.savings_outlined, 'សន្សំ',
-                        () => push(context, const SavingsScreen())),
-                    AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
-                        () => push(context, const LoanModuleScreen())),
-                    AbaCell(Icons.south_west_rounded, 'ទទួលប្រាក់',
-                        () => push(context, const ReceiveMoneyScreen()),
-                        iconWidget: ReceiveMoneyGlyph(
-                            size: 40,
-                            color: context.isDark
-                                ? C.iconTint
-                                : C.bgDark)),
-                    AbaCell(Icons.notifications_active_outlined, 'រំលឹក',
-                        () => push(context, const RemindersScreen())),
-                    AbaCell(Icons.apps_rounded, 'សមិទ្ធផល',
-                        () => push(context, const AchievementsScreen())),
-                  ]),
-                  SectionTitle('ប្រតិបត្តិការចុងក្រោយ',
-                      trailing: TextButton(
-                          onPressed: () => push(context, const HistoryScreen()),
-                          child: const Text('មើលទាំងអស់',
-                              style: TextStyle(color: C.accent,
-                                  fontWeight: FontWeight.w700, fontSize: 13)))),
-                  for (var i = 0; i < bank.txs.take(4).length; i++)
-                    StaggeredItem(index: i,
-                        child: TxTile(bank.txs.take(4).elementAt(i))),
+                  if (bank.booting && bank.txs.isEmpty)
+                    const _HomeSkeleton()
+                  else ...[
+                    bank.guest ? _guestHero(context) : _hero(context),
+                    const SectionTitle('សេវាកម្មរហ័ស'),
+                    AbaGrid(items: [
+                      AbaCell(Icons.account_balance_wallet_outlined, 'គណនី',
+                          () => guardedTap(context,
+                              () => push(context, const AccountScreen()))),
+                      AbaCell(Icons.monetization_on_outlined, 'ទូទាត់ប្រាក់',
+                          () => guardedTap(context,
+                              () => _payBill(context, 'វិក្កយបត្រ',
+                                  Icons.receipt_long))),
+                      AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
+                          () => guardedTap(context,
+                              () => tabIndex.value = 1)),
+                      AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
+                          () => guardedTap(context,
+                              () => push(context, const QrScreen(startScan: true)))),
+                      AbaCell(Icons.savings_outlined, 'សន្សំ',
+                          () => guardedTap(context,
+                              () => push(context, const SavingsScreen()))),
+                      AbaCell(Icons.request_quote_outlined, 'ប្រាក់កម្ចី',
+                          () => guardedTap(context,
+                              () => push(context, const LoanModuleScreen()))),
+                      AbaCell(Icons.south_west_rounded, 'ទទួលប្រាក់',
+                          () => guardedTap(context,
+                              () => push(context, const ReceiveMoneyScreen())),
+                          iconWidget: ReceiveMoneyGlyph(
+                              size: 40,
+                              color: context.isDark
+                                  ? C.iconTint
+                                  : C.bgDark)),
+                      AbaCell(Icons.notifications_active_outlined, 'រំលឹក',
+                          () => guardedTap(context,
+                              () => push(context, const RemindersScreen()))),
+                      AbaCell(Icons.apps_rounded, 'សមិទ្ធផល',
+                          () => guardedTap(context,
+                              () => push(context, const AchievementsScreen()))),
+                    ]),
+                    SectionTitle('ប្រតិបត្តិការចុងក្រោយ',
+                        trailing: TextButton(
+                            onPressed: () => guardedTap(context,
+                                () => push(context, const HistoryScreen())),
+                            child: const Text('មើលទាំងអស់',
+                                style: TextStyle(color: C.accent,
+                                    fontWeight: FontWeight.w700, fontSize: 13)))),
+                    if (bank.guest)
+                      _guestTxHint(context)
+                    else
+                      for (var i = 0; i < bank.txs.take(4).length; i++)
+                        StaggeredItem(index: i,
+                            child: TxTile(bank.txs.take(4).elementAt(i))),
+                  ],
                 ],
               ),
             ),
@@ -5278,7 +5667,8 @@ class HomeScreen extends StatelessWidget {
             child: Icon(Icons.chat_bubble_outline, color: col, size: 26)),
         const SizedBox(width: 18),
         GestureDetector(
-          onTap: () => push(context, const NotificationScreen()),
+          onTap: () => guardedTap(context,
+              () => push(context, const NotificationScreen())),
           child: Stack(clipBehavior: Clip.none, children: [
             Icon(Icons.notifications_none, color: col, size: 28),
             if (bank.unread > 0)
@@ -5292,7 +5682,7 @@ class HomeScreen extends StatelessWidget {
         ),
         const SizedBox(width: 14),
         GestureDetector(
-          onTap: () => push(context, const QrScreen()),
+          onTap: () => guardedTap(context, () => push(context, const QrScreen())),
           child: Container(
             width: 42, height: 42,
             decoration: BoxDecoration(
@@ -5381,6 +5771,75 @@ class HomeScreen extends StatelessWidget {
               ),
             ]),
           ]),
+        ]),
+      );
+
+  // ── Hero សម្រាប់ភ្ញៀវ (មិនទាន់ចូល) — អំពាវនាវចូលដោយ Google ──
+  Widget _guestHero(BuildContext context) => Container(
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          gradient: AuraGrad.brand,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        ),
+        child: Stack(children: [
+          Positioned(right: -30, top: -30, child: Container(
+            width: 140, height: 140,
+            decoration: BoxDecoration(shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.06)))),
+          Positioned(right: 40, bottom: -50, child: Container(
+            width: 120, height: 120,
+            decoration: BoxDecoration(shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.05)))),
+          Column(crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    shape: BoxShape.circle),
+                child: const Icon(Icons.waving_hand_rounded,
+                    color: Colors.white, size: 19),
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min, children: const [
+                Text('សូមស្វាគមន៍មក AURA',
+                    style: TextStyle(color: Colors.white, fontSize: 17,
+                        fontWeight: FontWeight.w800)),
+                Text('ធនាគារឌីជីថល ងាយស្រួល និងរហ័ស',
+                    style: TextStyle(color: Colors.white70, fontSize: 11.5)),
+              ])),
+            ]),
+            const SizedBox(height: 16),
+            Text('ចូលដើម្បីមើលសមតុល្យ និងធ្វើប្រតិបត្តិការ',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.78),
+                    fontSize: 12, height: 1.45)),
+            const SizedBox(height: 14),
+            GooglePillButton(
+                label: 'បន្តជាមួយ Google',
+                onPressed: () => guardedTap(context, () {})),
+          ]),
+        ]),
+      );
+
+  Widget _guestTxHint(BuildContext context) => NeuBox(
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 18),
+        radius: 16,
+        child: Column(children: [
+          Icon(Icons.receipt_long_outlined,
+              color: context.muted, size: 30),
+          const SizedBox(height: 10),
+          Text('ចូលដើម្បីមើលប្រតិបត្តិការរបស់អ្នក',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.ink, fontSize: 13.5,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text('ប្រវត្តិផ្ទេរ · ទទួល · ទូទាត់ នឹងបង្ហាញនៅទីនេះ',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.muted, fontSize: 11.5)),
         ]),
       );
 
@@ -7025,7 +7484,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             children: [
-              Center(child: Column(children: [
+              Center(child: bank.guest
+                  ? Column(children: [
+                      Container(
+                        width: 84, height: 84,
+                        decoration: BoxDecoration(
+                          gradient: AuraGrad.brand,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: C.accent.withValues(alpha: 0.25),
+                                blurRadius: 26, offset: const Offset(0, 10)),
+                          ],
+                        ),
+                        child: const Icon(Icons.person_outline_rounded,
+                            color: Colors.white, size: 38),
+                      ),
+                      const SizedBox(height: 14),
+                      Text('អ្នកកំពុងរកមើលជាភ្ញៀវ',
+                          style: TextStyle(fontSize: 18,
+                              fontWeight: FontWeight.w800, color: context.ink)),
+                      const SizedBox(height: 4),
+                      Text('ចូលដើម្បីប្រើមុខងារទាំងអស់',
+                          style: TextStyle(color: context.muted,
+                              fontSize: 12.5)),
+                      const SizedBox(height: 16),
+                      GooglePillButton(
+                          label: 'ចូល ឬបង្កើតគណនី',
+                          onPressed: () {
+                            Navigator.of(context).pop(); // បិទ drawer
+                            push(context, const LoginScreen());
+                          }),
+                    ])
+                  : Column(children: [
                 UserAvatar(
                     radius: 46, showEditBadge: true, busy: _uploading,
                     onTap: _uploading ? null : _showAvatarSheet),
@@ -7040,13 +7531,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Text(bank.userEmail, style: TextStyle(color: context.muted,
                     fontSize: 12.5)),
               ])),
-              const SizedBox(height: 24),
-              NeuBox(inset: true, child: Column(children: [
-                const InfoRow('ប្រភេទ', 'VIP'),
-                InfoRow('ទូរស័ព្ទ',
-                    bank.userPhone.isEmpty ? '—' : bank.userPhone),
-                InfoRow('អ៊ីមែល', bank.userEmail),
-              ])),
+              if (!bank.guest) ...[
+                const SizedBox(height: 24),
+                NeuBox(inset: true, child: Column(children: [
+                  const InfoRow('ប្រភេទ', 'VIP'),
+                  InfoRow('ទូរស័ព្ទ',
+                      bank.userPhone.isEmpty ? '—' : bank.userPhone),
+                  InfoRow('អ៊ីមែល', bank.userEmail),
+                ])),
+              ],
               const SectionTitle('ការកំណត់'),
               NeuBox(padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(children: [
@@ -7112,14 +7605,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         }),
                   ])),
               const SizedBox(height: 24),
-              NeuButton(label: 'ចាកចេញ', icon: Icons.logout,
-                  accent: C.accentRed, onPressed: () async {
+              if (!bank.guest)
+                NeuButton(label: 'ចាកចេញ', icon: Icons.logout,
+                    accent: C.accentRed, onPressed: () async {
                 final ok = await showDialog<bool>(context: context,
                     builder: (ctx) => AlertDialog(backgroundColor: ctx.card,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(18)),
                       title: Text('ចាកចេញ?', style: TextStyle(color: ctx.ink)),
-                      content: Text('ត្រូវបញ្ចូល PIN ម្តងទៀត',
+                      content: Text('អ្នកនឹងត្រូវចូលដោយ Google ម្តងទៀត',
                           style: TextStyle(color: ctx.muted)),
                       actions: [
                         TextButton(onPressed: () => Navigator.pop(ctx, false),
@@ -7136,7 +7630,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   if (context.mounted) {
                     Navigator.of(context).pushAndRemoveUntil(
                         MaterialPageRoute(
-                            builder: (_) => const RegistrationScreen()),
+                            builder: (_) => const MainShell()),
                         (r) => false);
                   }
                 }
@@ -9283,6 +9777,115 @@ class _SkeletonSlide extends GradientTransform {
 }
 
 // ============================================================================
+//  HOME SKELETON — shimmer ពេលទាញទិន្នន័យដំបូង (មិនឱ្យមើលទៅយឺត)
+// ============================================================================
+class _HomeSkeleton extends StatefulWidget {
+  const _HomeSkeleton();
+  @override
+  State<_HomeSkeleton> createState() => _HomeSkeletonState();
+}
+
+class _HomeSkeletonState extends State<_HomeSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1300))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = context.isDark
+        ? const Color(0xFF0B2A42) : const Color(0xFFE4E9F0);
+    final hi = context.isDark
+        ? const Color(0xFF16435F) : const Color(0xFFF7F9FC);
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) => ShaderMask(
+        blendMode: BlendMode.srcATop,
+        shaderCallback: (bounds) => LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [base, hi, base],
+          stops: const [0.15, 0.5, 0.85],
+          transform: _SkeletonSlide(_c.value),
+        ).createShader(bounds),
+        child: child,
+      ),
+      child: _layout(context, base),
+    );
+  }
+
+  Widget _layout(BuildContext context, Color base) {
+    Widget bone(double? w, double h, {double r = 10}) => Container(
+          width: w, height: h,
+          decoration: BoxDecoration(
+              color: base, borderRadius: BorderRadius.circular(r)),
+        );
+
+    Widget cell() => Column(mainAxisSize: MainAxisSize.min, children: [
+          bone(52, 52, r: 16),
+          const SizedBox(height: 8),
+          bone(46, 9, r: 5),
+        ]);
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // hero
+      Container(
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+            color: base, borderRadius: BorderRadius.circular(18)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          bone(120, 12, r: 6),
+          const SizedBox(height: 14),
+          bone(178, 28, r: 8),
+          const SizedBox(height: 16),
+          Row(children: [
+            bone(74, 24, r: 12),
+            const SizedBox(width: 8),
+            bone(64, 24, r: 12),
+          ]),
+        ]),
+      ),
+      const SizedBox(height: 22),
+      bone(96, 12, r: 6),
+      const SizedBox(height: 16),
+      for (var row = 0; row < 3; row++) ...[
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [for (var i = 0; i < 3; i++) cell()]),
+        if (row < 2) const SizedBox(height: 20),
+      ],
+      const SizedBox(height: 26),
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        bone(140, 12, r: 6),
+        bone(52, 12, r: 6),
+      ]),
+      const SizedBox(height: 16),
+      for (var i = 0; i < 3; i++) ...[
+        Row(children: [
+          bone(42, 42, r: 14),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min, children: [
+            bone(150, 11, r: 6),
+            const SizedBox(height: 7),
+            bone(90, 9, r: 5),
+          ])),
+          const SizedBox(width: 12),
+          bone(56, 13, r: 6),
+        ]),
+        if (i < 2) const SizedBox(height: 18),
+      ],
+    ]);
+  }
+}
+
+// ============================================================================
 //  BankLogo — Logo ពិតរបស់ធនាគារនីមួយៗ (asset) + fallback monogram
 // ============================================================================
 class BankLogo extends StatelessWidget {
@@ -11165,6 +11768,8 @@ class GoogleAuthService {
 
   static Future<UserCredential?> signInWithGoogle() async {
     try {
+      // Firebase ចាប់ផ្ដើមនៅខាងក្រោយ — រង់ចាំឱ្យរួចមុនប្រើ auth
+      await firebaseReady;
       if (kIsWeb) {
         final GoogleAuthProvider googleProvider = GoogleAuthProvider();
         return await _auth.signInWithPopup(googleProvider);
