@@ -1182,6 +1182,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// កែព័ត៌មានគណនី (ឈ្មោះ · អាយុ · ភេទ · ទូរស័ព្ទ · ទីតាំង) — PIN ជាជម្រើស
+  Future<void> updateProfile({
+    required String name,
+    required int age,
+    required String gender,
+    required String phone,
+    required String address,
+    String? pin,
+  }) async {
+    final user = await ApiService.updateProfile(
+        name: name, age: age, gender: gender,
+        phone: phone, address: address, pin: pin);
+    _applyUser(user);
+    if (pin != null && pin.isNotEmpty) _lastPin = pin;
+    onboarded = true;
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     DeviceCommandHandler.instance.disconnect();
     await ApiService.logout();
@@ -4573,7 +4591,11 @@ Future<String?> _pickOption(BuildContext context, String title,
 }
 
 class AccountSetupScreen extends StatefulWidget {
-  const AccountSetupScreen({super.key});
+  const AccountSetupScreen({super.key, this.editMode = false});
+
+  /// true = កែព័ត៌មានគណនីដែលមានស្រាប់ (PIN ជាជម្រើស)
+  final bool editMode;
+
   @override
   State<AccountSetupScreen> createState() => _AccountSetupScreenState();
 }
@@ -4589,7 +4611,9 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
   int _step = 0;
   bool _busy = false, _ob = true, _done = false;
 
-  static const _titles = ['ព័ត៌មានផ្ទាល់ខ្លួន', 'ទីតាំងរបស់អ្នក', 'កំណត់ PIN'];
+  List<String> get _titles => widget.editMode
+      ? const ['ព័ត៌មានផ្ទាល់ខ្លួន', 'ទីតាំងរបស់អ្នក', 'ប្តូរ PIN (ជម្រើស)']
+      : const ['ព័ត៌មានផ្ទាល់ខ្លួន', 'ទីតាំងរបស់អ្នក', 'កំណត់ PIN'];
 
   @override
   void initState() {
@@ -4604,10 +4628,33 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
   Future<void> _loadRegions() async {
     try {
       final r = await _loadRegionDirectory();
-      if (mounted) setState(() => _regions = r);
+      if (!mounted) return;
+      setState(() {
+        _regions = r;
+        if (widget.editMode) _prefillAddress(r);
+      });
     } catch (_) {
       if (mounted) toast(context, 'មិនអាចផ្ទុកទិន្នន័យខេត្ត', error: true);
     }
+  }
+
+  /// ញែកអាសយដ្ឋានដែលបានរក្សាទុក (ខេត្ត, ស្រុក, ឃុំ, ភូមិ) មកជាជម្រើសនីមួយៗ
+  void _prefillAddress(_RegionDirectory r) {
+    final parts =
+        bank.userAddress.split(',').map((s) => s.trim()).toList();
+    if (parts.length < 4) return;
+    final p = parts[0], d = parts[1], c = parts[2];
+    final v = parts.sublist(3).join(', ').trim();
+    final districts = r.tree[p];
+    if (districts == null) return;
+    _province = p;
+    final communes = districts[d];
+    if (communes == null) return;
+    _district = d;
+    final villages = communes[c];
+    if (villages == null) return;
+    _commune = c;
+    if (villages.contains(v)) _village = v;
   }
 
   @override
@@ -4680,20 +4727,31 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
 
   Future<void> _submit() async {
     final pin = _pin.text;
-    if (!RegExp(r'^\S{4,64}$').hasMatch(pin)) {
-      toast(context, 'PIN ត្រូវមានយ៉ាងតិច ៤ តួ (គ្មានចន្លោះ)', error: true);
+    if (!widget.editMode) {
+      if (!RegExp(r'^\S{4,64}$').hasMatch(pin)) {
+        toast(context, 'PIN ត្រូវមានយ៉ាងតិច ៤ តួ (គ្មានចន្លោះ)', error: true);
+        return;
+      }
+    } else if (pin.isNotEmpty && !RegExp(r'^\S{4,64}$').hasMatch(pin)) {
+      toast(context, 'PIN ថ្មីត្រូវមានយ៉ាងតិច ៤ តួ (គ្មានចន្លោះ)', error: true);
       return;
     }
     setState(() => _busy = true);
     try {
-      await bank.completeOnboarding(
-        name: _name.text.trim(),
-        age: int.parse(_age.text.trim()),
-        gender: _gender,
-        phone: _phone.text.trim(),
-        address: _address,
-        pin: pin,
-      );
+      final name = _name.text.trim();
+      final age = int.parse(_age.text.trim());
+      final phone = _phone.text.trim();
+      if (widget.editMode) {
+        await bank.updateProfile(
+          name: name, age: age, gender: _gender, phone: phone,
+          address: _address, pin: pin.isEmpty ? null : pin,
+        );
+      } else {
+        await bank.completeOnboarding(
+          name: name, age: age, gender: _gender, phone: phone,
+          address: _address, pin: pin,
+        );
+      }
       // ផ្ទៀងផ្ទាត់ថាទិន្នន័យបានរក្សាទុកនៅ server ពិត (GET /me)
       await bank.refreshProfile();
       if (!mounted) return;
@@ -4782,7 +4840,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
           _circleBtn(context, Icons.arrow_back_rounded, _back),
           Expanded(
             child: Column(children: [
-              Text('បំពេញព័ត៌មានគណនី',
+              Text(widget.editMode ? 'ព័ត៌មានគណនី' : 'បំពេញព័ត៌មានគណនី',
                   style: TextStyle(color: context.ink, fontSize: 16,
                       fontWeight: FontWeight.w800, letterSpacing: -0.2)),
               const SizedBox(height: 2),
@@ -4910,10 +4968,14 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                   )
                 : NeuButton(
                     key: const ValueKey('next'),
-                    label: _step == 2 ? 'រួចរាល់' : 'បន្ត',
-                    icon: _step == 2
-                        ? Icons.check_rounded
-                        : Icons.arrow_forward_rounded,
+                    label: _step < 2
+                        ? 'បន្ត'
+                        : (widget.editMode ? 'រក្សាទុក' : 'រួចរាល់'),
+                    icon: _step < 2
+                        ? Icons.arrow_forward_rounded
+                        : (widget.editMode
+                            ? Icons.save_rounded
+                            : Icons.check_rounded),
                     onPressed: _next),
           ),
         ]),
@@ -4944,11 +5006,15 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              Text('ភ្ជាប់រួចរាល់ 🎉',
+              Text(widget.editMode ? 'បានរក្សាទុក 🎉' : 'ភ្ជាប់រួចរាល់ 🎉',
                   style: TextStyle(color: context.ink, fontSize: 19,
                       fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
-              Text('ព័ត៌មានរបស់អ្នកត្រូវបានរក្សាទុកនៅ Backend',
+              Text(
+                  widget.editMode
+                      ? 'ព័ត៌មានគណនីរបស់អ្នកត្រូវបានធ្វើបច្ចុប្បន្នភាពនៅ Backend'
+                      : 'ព័ត៌មានរបស់អ្នកត្រូវបានរក្សាទុកនៅ Backend',
+                  textAlign: TextAlign.center,
                   style: TextStyle(color: context.muted, fontSize: 12.5)),
             ]),
           ),
@@ -5088,7 +5154,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                   const Icon(Icons.verified_rounded,
                       size: 13, color: C.accentGreen),
                   const SizedBox(width: 4),
-                  Text('Google',
+                  Text(widget.editMode ? 'គណនី' : 'Google',
                       style: TextStyle(
                           color: C.accentGreen,
                           fontSize: 10.5,
@@ -5108,7 +5174,9 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                       controller: _name,
                       label: 'ឈ្មោះពេញ',
                       icon: Icons.person_outline_rounded,
-                      hint: 'ឈ្មោះតាមគណនី Google',
+                      hint: widget.editMode
+                          ? 'ឈ្មោះពេញតាមឯកសារ'
+                          : 'ឈ្មោះតាមគណនី Google',
                       textCapitalization: TextCapitalization.words),
                   const SizedBox(height: 14),
                   Row(
@@ -5155,8 +5223,12 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                 ]),
           ),
           const SizedBox(height: 14),
-          _note(context, Icons.info_outline_rounded,
-              'ឈ្មោះត្រូវបានទាញពីគណនី Google — អាចកែជាឈ្មោះតាមឯកសារពិតរបស់អ្នក។'),
+          _note(
+              context,
+              Icons.info_outline_rounded,
+              widget.editMode
+                  ? 'ព័ត៌មាននេះត្រូវបានភ្ជាប់ទៅ KYC និងឯកសារកម្ចីរបស់អ្នក — សូមបំពេញឱ្យត្រូវនឹងឯកសារពិត។'
+                  : 'ឈ្មោះត្រូវបានទាញពីគណនី Google — អាចកែជាឈ្មោះតាមឯកសារពិតរបស់អ្នក។'),
         ],
       );
 
@@ -5427,8 +5499,9 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _field(context,
               controller: _pin,
-              label: 'PIN ប្រតិបត្តិការ',
+              label: widget.editMode ? 'PIN ថ្មី (ជម្រើស)' : 'PIN ប្រតិបត្តិការ',
               icon: Icons.lock_outline_rounded,
+              hint: widget.editMode ? 'ទុកទទេ បើមិនចង់ប្តូរ' : null,
               obscure: _ob,
               maxLength: 64,
               onChanged: (_) => setState(() {}),
@@ -5443,6 +5516,11 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
               )),
         ]),
       ),
+      if (widget.editMode) ...[
+        const SizedBox(height: 12),
+        _note(context, Icons.shield_outlined,
+            'បើអ្នកបញ្ចូល PIN ថ្មី វានឹងប្រើសម្រាប់ចូល និងអនុម័តប្រតិបត្តិការបន្ទាប់។'),
+      ],
       const SizedBox(height: 14),
       NeuBox(
         padding: const EdgeInsets.all(14),
@@ -8483,6 +8561,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ])));
   }
 
+  String _genderLabel(String g) => switch (g) {
+        'male' => 'ប្រុស',
+        'female' => 'ស្រី',
+        'other' => 'ផ្សេងៗ',
+        _ => '—',
+      };
+
   @override
   Widget build(BuildContext context) => sb(() => Scaffold(
         appBar: AppBar(title: const Text('ព័ត៌មាន')),
@@ -8547,7 +8632,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   InfoRow('ទូរស័ព្ទ',
                       bank.userPhone.isEmpty ? '—' : bank.userPhone),
                   InfoRow('អ៊ីមែល', bank.userEmail),
+                  InfoRow('អាយុ',
+                      bank.userAge == null ? '—' : '${bank.userAge} ឆ្នាំ'),
+                  InfoRow('ភេទ', _genderLabel(bank.userGender)),
+                  InfoRow('អាសយដ្ឋាន',
+                      bank.userAddress.isEmpty ? '—' : bank.userAddress),
                 ])),
+                const SizedBox(height: 12),
+                NeuBox(padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: ListTile(
+                  leading: const Icon(Icons.badge_outlined, color: C.accent),
+                  title: const Text('បំពេញ / កែព័ត៌មានគណនី'),
+                  subtitle: Text(
+                      bank.onboarded
+                          ? 'ឈ្មោះ · អាយុ · ភេទ · ទីតាំង · PIN'
+                          : 'នៅមិនទាន់បំពេញពេញលេញ',
+                      style: TextStyle(
+                          color: bank.onboarded ? context.muted : C.accentRed,
+                          fontSize: 11.5)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    final saved = await push(
+                        context, const AccountSetupScreen(editMode: true));
+                    if (!context.mounted) return;
+                    if (saved == true) toast(context, 'បានធ្វើបច្ចុប្បន្នភាពព័ត៌មាន');
+                  },
+                )),
               ],
               const SectionTitle('ការកំណត់'),
               NeuBox(padding: const EdgeInsets.symmetric(vertical: 6),

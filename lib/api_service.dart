@@ -174,6 +174,22 @@ class ApiService {
         'phone': phone, 'address': address, 'pin': pin,
       }) as Map);
 
+  /// កែព័ត៌មានគណនីដោយខ្លួនឯង (ឈ្មោះ · អាយុ · ភេទ · ទូរស័ព្ទ · ទីតាំង)
+  /// [pin] បើផ្ញើមក នឹងប្តូរ PIN ថ្មីផងដែរ
+  static Future<Map<String, dynamic>> updateProfile({
+    required String name,
+    required int age,
+    required String gender,
+    required String phone,
+    required String address,
+    String? pin,
+  }) async =>
+      Map<String, dynamic>.from(await _patch('/me/profile', {
+        'name': name, 'age': age, 'gender': gender,
+        'phone': phone, 'address': address,
+        if (pin != null && pin.isNotEmpty) 'pin': pin,
+      }) as Map);
+
   /// រក្សាទុករូប Profile (data URL) ឬលុបដោយផ្ញើ null
   /// [thumb] = thumbnail 96px (data URL) សម្រាប់បង្ហាញក្នុងបញ្ជីអ្នកទទួល
   static Future<void> updateAvatar(String? dataUrl, {String? thumb}) =>
