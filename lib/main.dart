@@ -4437,8 +4437,11 @@ Future<bool> ensureSignedIn(BuildContext context) async {
   }
   if (!bank.onboarded) {
     if (!context.mounted) return false;
-    await Navigator.of(context).push(
+    final done = await Navigator.of(context).push<bool>(
         MaterialPageRoute(builder: (_) => const AccountSetupScreen()));
+    // បំពេញរួច → ត្រឡប់ទៅ Home វិញ (មិនបន្តសកម្មភាពដែលបានចុច)
+    if (done == true) tabIndex.value = 0;
+    return false;
   }
   return bank.loggedIn && bank.onboarded;
 }
@@ -4782,11 +4785,11 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
               textCapitalization: TextCapitalization.words),
           const SizedBox(height: 12),
           Row(children: [
-            Expanded(child: NeuField(controller: _age,
+            Expanded(flex: 2, child: NeuField(controller: _age,
                 icon: Icons.cake_outlined, label: 'អាយុ',
                 keyboardType: TextInputType.number, maxLength: 3)),
             const SizedBox(width: 12),
-            Expanded(child: NeuField(controller: _phone,
+            Expanded(flex: 3, child: NeuField(controller: _phone,
                 icon: Icons.phone_outlined, label: 'លេខទូរស័ព្ទ',
                 keyboardType: TextInputType.phone, maxLength: 15)),
           ]),
