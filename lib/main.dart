@@ -4457,8 +4457,8 @@ Future<void> guardedTap(BuildContext context, VoidCallback action) async {
 // ============================================================================
 class _RegionDirectory {
   final List<String> provinces;
-  /// province → district → communes
-  final Map<String, Map<String, List<String>>> tree;
+  /// province → district → commune → villages
+  final Map<String, Map<String, Map<String, List<String>>>> tree;
   const _RegionDirectory(this.provinces, this.tree);
 }
 
@@ -4466,18 +4466,22 @@ Future<_RegionDirectory> _loadRegionDirectory() async {
   final raw = await rootBundle.loadString('assets/data/cambodia_admin.json');
   final j = jsonDecode(raw) as Map<String, dynamic>;
   final provinces = <String>[];
-  final tree = <String, Map<String, List<String>>>{};
+  final tree = <String, Map<String, Map<String, List<String>>>>{};
   for (final p in (j['p'] as List)) {
     final pm = Map<String, dynamic>.from(p as Map);
     final pn = pm['n'] as String;
     provinces.add(pn);
-    final ds = <String, List<String>>{};
+    final ds = <String, Map<String, List<String>>>{};
     for (final d in (pm['d'] as List)) {
       final dm = Map<String, dynamic>.from(d as Map);
-      ds[dm['n'] as String] = [
-        for (final m in (dm['m'] as List))
-          (Map<String, dynamic>.from(m as Map))['n'] as String
-      ];
+      final ms = <String, List<String>>{};
+      for (final m in (dm['m'] as List)) {
+        final mm = Map<String, dynamic>.from(m as Map);
+        ms[mm['n'] as String] = [
+          for (final v in ((mm['v'] as List?) ?? const [])) v as String
+        ];
+      }
+      ds[dm['n'] as String] = ms;
     }
     tree[pn] = ds;
   }
@@ -4580,7 +4584,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
   final _phone = TextEditingController();
   final _pin = TextEditingController();
   String _gender = '';
-  String? _province, _district, _commune;
+  String? _province, _district, _commune, _village;
   _RegionDirectory? _regions;
   int _step = 0;
   bool _busy = false, _ob = true, _done = false;
@@ -4617,7 +4621,15 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
 
   List<String> get _communes => (_province == null || _district == null)
       ? []
-      : (_regions?.tree[_province!]?[_district!] ?? []);
+      : (_regions?.tree[_province!]?[_district!]?.keys.toList() ?? []);
+
+  List<String> get _villages =>
+      (_province == null || _district == null || _commune == null)
+          ? []
+          : (_regions?.tree[_province!]?[_district!]?[_commune!] ?? []);
+
+  String get _address =>
+      '$_province, $_district, $_commune, $_village';
 
   bool get _infoValid {
     final age = int.tryParse(_age.text.trim());
@@ -4639,7 +4651,10 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
       return;
     }
     if (_step == 1) {
-      if (_province == null || _district == null || _commune == null) {
+      if (_province == null ||
+          _district == null ||
+          _commune == null ||
+          _village == null) {
         toast(context, 'សូមជ្រើសរើសទីតាំងឱ្យបានគ្រប់', error: true);
         return;
       }
@@ -4676,7 +4691,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
         age: int.parse(_age.text.trim()),
         gender: _gender,
         phone: _phone.text.trim(),
-        address: '$_province, $_district, $_commune',
+        address: _address,
         pin: pin,
       );
       // ផ្ទៀងផ្ទាត់ថាទិន្នន័យបានរក្សាទុកនៅ server ពិត (GET /me)
@@ -4867,19 +4882,6 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
           ],
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            Icon(_step == 2 ? Icons.cloud_done_outlined : Icons.lock_outline,
-                size: 13, color: C.accentGreen),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                  _step == 2
-                      ? 'ចុច «រួចរាល់» ដើម្បីរក្សាទុកព័ត៌មានទៅ Backend'
-                      : 'ព័ត៌មាននឹងរក្សាទុកនៅ Backend ពេលចុច «រួចរាល់»',
-                  style: TextStyle(color: context.muted, fontSize: 11)),
-            ),
-          ]),
-          const SizedBox(height: 8),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
             child: _busy
@@ -4899,7 +4901,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                               child: CircularProgressIndicator(
                                   strokeWidth: 2.2, color: Colors.white)),
                           SizedBox(width: 12),
-                          Text('កំពុងភ្ជាប់ទៅ Backend…',
+                          Text('កំពុងរក្សាទុក…',
                               style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 14,
@@ -4908,11 +4910,9 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                   )
                 : NeuButton(
                     key: const ValueKey('next'),
-                    label: _step == 2
-                        ? 'រួចរាល់ និងភ្ជាប់ទៅ Backend'
-                        : 'បន្ត',
+                    label: _step == 2 ? 'រួចរាល់' : 'បន្ត',
                     icon: _step == 2
-                        ? Icons.cloud_done_rounded
+                        ? Icons.check_rounded
                         : Icons.arrow_forward_rounded,
                     onPressed: _next),
           ),
@@ -5203,7 +5203,10 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
           padding: EdgeInsets.only(top: 80),
           child: Center(child: CircularProgressIndicator(color: C.accent)));
     }
-    final ready = _province != null && _district != null && _commune != null;
+    final ready = _province != null &&
+        _district != null &&
+        _commune != null &&
+        _village != null;
 
     Widget selector(int index, String label, String hint, String? value,
         VoidCallback onTap) {
@@ -5295,6 +5298,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                 _province = v;
                 _district = null;
                 _commune = null;
+                _village = null;
               });
             }
           }),
@@ -5311,6 +5315,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
               setState(() {
                 _district = v;
                 _commune = null;
+                _village = null;
               });
             }
           }),
@@ -5323,7 +5328,26 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
             }
             final v = await _pickOption(context, 'ឃុំ / សង្កាត់',
                 _communes, selected: _commune);
-            if (v != null) setState(() => _commune = v);
+            if (v != null && v != _commune) {
+              setState(() {
+                _commune = v;
+                _village = null;
+              });
+            }
+          }),
+          const SizedBox(height: 14),
+          selector(4, 'ភូមិ', 'ជ្រើសរើសភូមិ', _village, () async {
+            if (_commune == null) {
+              toast(context, 'សូមជ្រើសរើសឃុំជាមុន', error: true);
+              return;
+            }
+            if (_villages.isEmpty) {
+              toast(context, 'ឃុំនេះមិនមានទិន្នន័យភូមិ', error: true);
+              return;
+            }
+            final v = await _pickOption(context, 'ភូមិ', _villages,
+                selected: _village);
+            if (v != null) setState(() => _village = v);
           }),
         ]),
       ),
@@ -5359,8 +5383,8 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                   const SizedBox(height: 3),
                   Text(
                       ready
-                          ? '$_province, $_district, $_commune'
-                          : 'ជ្រើសរើសទីតាំងទាំង ៣ ដើម្បីបន្ត',
+                          ? _address
+                          : 'ជ្រើសរើស ខេត្ត · ស្រុក · ឃុំ · ភូមិ ដើម្បីបន្ត',
                       style: TextStyle(
                           color: ready ? context.ink : context.muted,
                           fontSize: 12.5,
@@ -5378,32 +5402,6 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
   }
 
   Widget _pinStep(BuildContext context) {
-    final pin = _pin.text;
-    final okLen = RegExp(r'^\S{4,64}$').hasMatch(pin);
-    final noSpace = pin.isNotEmpty && pin.trim() == pin;
-    final score = pin.isEmpty
-        ? 0.0
-        : ((pin.length >= 8 ? 0.6 : 0.3) +
-                (RegExp(r'[0-9]').hasMatch(pin) ? 0.15 : 0) +
-                (RegExp(r'[A-Za-z]').hasMatch(pin) ? 0.15 : 0) +
-                (RegExp(r'[^A-Za-z0-9]').hasMatch(pin) ? 0.1 : 0))
-            .clamp(0.0, 1.0);
-
-    Widget req(bool ok, String label) => Row(children: [
-          Icon(ok ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-              size: 13, color: ok ? C.accentGreen : context.muted),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: ok ? context.ink : context.muted,
-                    fontSize: 10.5,
-                    fontWeight: ok ? FontWeight.w600 : FontWeight.w400)),
-          ),
-        ]);
-
     Widget review(IconData icon, String text) => Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: Row(children: [
@@ -5411,7 +5409,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(text.isEmpty ? '—' : text,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       color: context.ink,
@@ -5431,7 +5429,6 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
               controller: _pin,
               label: 'PIN ប្រតិបត្តិការ',
               icon: Icons.lock_outline_rounded,
-              hint: 'យ៉ាងតិច ៤ តួ',
               obscure: _ob,
               maxLength: 64,
               onChanged: (_) => setState(() {}),
@@ -5444,35 +5441,8 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                     size: 19,
                     color: context.muted),
               )),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: score,
-              minHeight: 4,
-              backgroundColor: context.border,
-              valueColor: AlwaysStoppedAnimation(score >= 0.8
-                  ? C.accentGreen
-                  : score >= 0.5
-                      ? C.accentGold
-                      : C.accent),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: req(okLen, 'យ៉ាងតិច ៤ តួ')),
-            Expanded(child: req(noSpace, 'គ្មានចន្លោះ')),
-            Expanded(child: req(true, 'លេខ/អក្សរ/សញ្ញា')),
-          ]),
         ]),
       ),
-      const SizedBox(height: 14),
-      _note(context, Icons.cloud_done_outlined,
-          'ព័ត៌មាន និង PIN រក្សាទុកនៅ Backend ភ្លាមៗ ពេលអ្នកចុច «រួចរាល់»។',
-          color: C.accentGreen),
-      const SizedBox(height: 10),
-      _note(context, Icons.shield_outlined,
-          'PIN ត្រូវបានផ្ទៀងផ្ទាត់នៅ server រាល់ពេលធ្វើប្រតិបត្តិការ។'),
       const SizedBox(height: 14),
       NeuBox(
         padding: const EdgeInsets.all(14),
@@ -5487,7 +5457,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
           const SizedBox(height: 8),
           review(Icons.person_outline_rounded, _name.text.trim()),
           review(Icons.phone_outlined, _phone.text.trim()),
-          review(Icons.place_outlined, '$_province, $_district, $_commune'),
+          review(Icons.place_outlined, _address),
         ]),
       ),
     ]);
