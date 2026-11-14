@@ -30,6 +30,30 @@ DateTime? _dt(Object? v) {
   return DateTime.tryParse(v.toString())?.toLocal();
 }
 
+List<Map<String, dynamic>> _parts(Object? v) {
+  Object? raw = v;
+  if (raw is String) {
+    try {
+      raw = jsonDecode(raw);
+    } catch (_) {
+      raw = null;
+    }
+  }
+  if (raw is! List) return const [];
+  return [
+    for (final e in raw)
+      if (e is Map) Map<String, dynamic>.from(e)
+  ];
+}
+
+String _cbcLabel(String? status) => switch (status) {
+      'hit' => 'មានកំណត់ត្រាឥណទាន',
+      'clear' => 'គ្មានកំណត់ត្រាអវិជ្ជមាន',
+      'error' => 'ផ្ទៀងផ្ទាត់បរាជ័យ',
+      'unavailable' || null || '' => 'មិនទាន់ភ្ជាប់ប្រព័ន្ធ',
+      _ => status,
+    };
+
 // ============================================================
 //  MODELS
 // ============================================================
@@ -138,7 +162,8 @@ class LoanRecord {
   final String interestMethod, province, district, commune, village;
   final String purpose, rejectReason, channel;
   final int? score;
-  final String? scoreBand, cbcStatus;
+  final String? scoreBand, scoreBandLabel, cbcStatus, recommendation;
+  final List<Map<String, dynamic>> scoreParts;
   final DateTime? firstDueDate, approvedAt;
   final bool autoDebit;
 
@@ -164,7 +189,10 @@ class LoanRecord {
     required this.channel,
     required this.score,
     required this.scoreBand,
+    required this.scoreBandLabel,
     required this.cbcStatus,
+    required this.recommendation,
+    required this.scoreParts,
     required this.firstDueDate,
     required this.approvedAt,
     required this.autoDebit,
@@ -192,7 +220,10 @@ class LoanRecord {
         channel: _s(j['channel']),
         score: j['score'] == null ? null : _i(j['score']),
         scoreBand: j['score_band']?.toString(),
+        scoreBandLabel: j['score_band_label']?.toString(),
         cbcStatus: j['cbc_status']?.toString(),
+        recommendation: j['recommendation']?.toString(),
+        scoreParts: _parts(j['score_detail']),
         firstDueDate: _dt(j['first_due_date']),
         approvedAt: _dt(j['approved_at']),
         autoDebit: _i(j['auto_debit']) == 1,
@@ -419,7 +450,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
     }
     return [
       _loanCard(context, loan),
-      if (loan.score != null) _scoreCard(context, loan),
+      _scoreCard(context, loan),
       _scheduleCard(context, loan),
       if (loan.canPay && _nextDue != null) ...[
         const SizedBox(height: 14),
@@ -679,41 +710,183 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
 
   // ---------- វាយតម្លៃ ----------
   Widget _scoreCard(BuildContext context, LoanRecord l) {
-    final score = l.score ?? 0;
-    final color = score >= 80
-        ? C.accentGreen
-        : score >= 65
-            ? C.accent
-            : score >= 50
-                ? C.accentGold
-                : C.accentRed;
+    final score = l.score;
+    final color = score == null
+        ? context.muted
+        : score >= 80
+            ? C.accentGreen
+            : score >= 65
+                ? C.accent
+                : score >= 50
+                    ? C.accentGold
+                    : C.accentRed;
+    final official = l.status != 'submitted';
+    final sub = score == null
+        ? 'ពិន្ទុនឹងគណនាពេលដាក់ស្នើកម្ចី'
+        : official
+            ? 'វាយតម្លៃដោយមន្ត្រីឥណទាន'
+            : 'ការវាយតម្លៃបឋម · ស្វ័យប្រវត្តិ';
     return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SectionTitle('លទ្ធផលវាយតម្លៃឥណទិសជាតិ'),
+          const SectionTitle('លទ្ធផលវាយតម្លៃឥណទានជាតិ'),
           NeuBox(
-            child: Column(children: [
-              Row(children: [
-                Text('$score',
-                    style: TextStyle(
-                        fontSize: 30, fontWeight: FontWeight.w800, color: color)),
-                const SizedBox(width: 10),
-                Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('ក្រុម ${l.scoreBand ?? '—'}',
+            padding: const EdgeInsets.all(18),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      width: 74,
+                      height: 74,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: color.withValues(alpha: 0.12),
+                        border: Border.all(
+                            color: color.withValues(alpha: 0.55), width: 2),
+                      ),
+                      child: score == null
+                          ? Icon(Icons.hourglass_top_rounded, color: color)
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text('$score',
+                                    style: TextStyle(
+                                        color: color,
+                                        fontSize: 25,
+                                        height: 1.05,
+                                        fontWeight: FontWeight.w900)),
+                                Text('/100',
+                                    style: TextStyle(
+                                        color: context.muted, fontSize: 9.5)),
+                              ]),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                score == null
+                                    ? 'មិនទាន់មានពិន្ទុ'
+                                    : (l.scoreBandLabel ??
+                                        'ក្រុម ${l.scoreBand ?? '—'}'),
+                                style: TextStyle(
+                                    color: context.ink,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 3),
+                            Text(sub,
+                                style: TextStyle(
+                                    color: context.muted, fontSize: 11)),
+                          ]),
+                    ),
+                  ]),
+                  if (score != null && l.recommendation != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                        border:
+                            Border.all(color: color.withValues(alpha: 0.30)),
+                      ),
+                      child: Text(
+                          l.recommendation == 'approve'
+                              ? 'លទ្ធផល៖ មានសិទ្ធិខ្ពស់ក្នុងការទទួលកម្ចី'
+                              : l.recommendation == 'review'
+                                  ? 'លទ្ធផល៖ ត្រូវការមន្ត្រីឥណទានពិនិត្យបន្ថែម'
+                                  : 'លទ្ធផល៖ មិនទាន់គ្រប់លក្ខខណ្ឌ — សូមបង្កើនព័ត៌មាន ឬសមត្ថភាពសង',
                           style: TextStyle(
-                              color: context.ink,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700)),
-                      Text('CBC: ${l.cbcStatus ?? '—'}',
-                          style:
-                              TextStyle(color: context.muted, fontSize: 11.5)),
-                    ]),
-              ]),
-            ]),
+                              color: color,
+                              fontSize: 12,
+                              height: 1.45,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                  if (l.scoreParts.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text('កត្តាវាយតម្លៃ',
+                        style: TextStyle(
+                            color: context.ink,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    for (final p in l.scoreParts) ...[
+                      _scorePartBar(context, p),
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                  const SizedBox(height: 4),
+                  Divider(color: context.border, height: 1),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Icon(Icons.account_balance_outlined,
+                        size: 15, color: context.muted),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                          'ឥណទានជាតិ (CBC): ${_cbcLabel(l.cbcStatus)}',
+                          style: TextStyle(
+                              color: context.muted, fontSize: 11.5)),
+                    ),
+                  ]),
+                  if (score != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                        'ពិន្ទុគណនាពី KYC · ប្រាក់ចំណូល · ប្រវត្តិកម្ចីរបស់អ្នក',
+                        style:
+                            TextStyle(color: context.muted, fontSize: 10.5)),
+                  ],
+                ]),
           ),
         ]);
+  }
+
+  Widget _scorePartBar(BuildContext context, Map<String, dynamic> p) {
+    final points = _d(p['points']);
+    final max = _d(p['max']);
+    final denom = max <= 0 ? 1.0 : max;
+    final value = (points / denom).clamp(0.0, 1.0);
+    final color = value >= 0.8
+        ? C.accentGreen
+        : value >= 0.5
+            ? C.accent
+            : value >= 0.3
+                ? C.accentGold
+                : C.accentRed;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(
+          child: Text(_s(p['label']),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: context.ink,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600)),
+        ),
+        Text('${points.round()}/${max.round()}',
+            style: TextStyle(
+                color: context.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700)),
+      ]),
+      const SizedBox(height: 5),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: LinearProgressIndicator(
+          value: value,
+          minHeight: 7,
+          backgroundColor: Colors.white.withValues(alpha: 0.10),
+          valueColor: AlwaysStoppedAnimation(color),
+        ),
+      ),
+    ]);
   }
 
   // ---------- តារាងសងប្រាក់តាមខែ ----------
