@@ -880,6 +880,14 @@ class AppState extends ChangeNotifier {
   int _dataVersion = -1;
   Timer? _syncTimer;
   bool _announcing = false;
+  bool _syncBusy = false;
+
+  // រូបភាពទិន្នន័យចុងក្រោយក្នុងឧបករណ៍ — បើក app មកបង្ហាញភ្លាមមិនរង់ចាំ server
+  static const _snapKey = 'state_snapshot_v1';
+  bool _hasSnapshot = false;
+  Map<String, dynamic>? _rawUser;
+  List<dynamic> _rawCards = [], _rawTxs = [], _rawGoals = [], _rawNotifs = [];
+  String _notifSig = '';
 
   /// សុំ permission + ភ្ជាប់ WebSocket ទៅ backend
   Future<void> _initDeviceServices() async {
@@ -931,9 +939,15 @@ class AppState extends ChangeNotifier {
   void startSync() {
     _syncTimer?.cancel();
     _syncTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
-      await _pollNotifs();
-      await loadControlInbox();
-      syncIfChanged();
+      if (_syncBusy) return;
+      _syncBusy = true;
+      try {
+        await _pollNotifs();
+        await loadControlInbox();
+        await syncIfChanged();
+      } finally {
+        _syncBusy = false;
+      }
     });
   }
 
@@ -941,12 +955,19 @@ class AppState extends ChangeNotifier {
   Future<void> _pollNotifs() async {
     if (!loggedIn) return;
     try {
-      final list = (await ApiService.getNotifications())
+      final raw = await ApiService.getNotifications();
+      final list = raw
           .map((e) => AppNotif.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       if (list.isNotEmpty) {
         notifs = list;
+        _rawNotifs = raw;
         notifyListeners();
+        final sig = _signatureOf(list);
+        if (sig != _notifSig) {
+          _notifSig = sig;
+          await _saveSnapshot();
+        }
       }
       await _announceNewNotifs();
     } catch (_) {}
@@ -1049,8 +1070,69 @@ class AppState extends ChangeNotifier {
     final sp = await SharedPreferences.getInstance();
     _isGoogleUser = sp.getBool('is_google_user') ?? false;
     loggedIn = ApiService.hasToken;
-    booting = loggedIn;
+    if (loggedIn) await _restoreSnapshot(sp);
+    // មានទិន្នន័យចាស់ក្នុងឧបករណ៍ → បង្ហាញ app ពេញលេញភ្លាម (គ្មាន skeleton)
+    booting = loggedIn && !_hasSnapshot;
     notifyListeners();
+  }
+
+  /// ដាក់ទិន្នន័យចុងក្រោយ (profile · កាត · ប្រតិបត្តិការ · សារ) ចូល state ភ្លាម
+  Future<void> _restoreSnapshot(SharedPreferences sp) async {
+    final raw = sp.getString(_snapKey);
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      final u = j['user'];
+      if (u is! Map) return;
+      _rawUser = Map<String, dynamic>.from(u);
+      _applyUser(_rawUser!);
+      _rawCards = (j['cards'] as List?) ?? [];
+      _rawTxs = (j['txs'] as List?) ?? [];
+      _rawGoals = (j['goals'] as List?) ?? [];
+      _rawNotifs = (j['notifs'] as List?) ?? [];
+      cards = _rawCards
+          .map((e) => BankCard.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      txs = _rawTxs
+          .map((e) => Tx.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      goals = _rawGoals
+          .map((e) => Goal.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      notifs = _rawNotifs
+          .map((e) => AppNotif.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      _dataVersion = j['data_version'] as int? ?? _dataVersion;
+      _notifSig = _signatureOf(notifs);
+      loggedIn = true;
+      _hasSnapshot = true;
+    } catch (_) {
+      _hasSnapshot = false;
+    }
+  }
+
+  String _signatureOf(List<AppNotif> list) => list.isEmpty
+      ? ''
+      : '${list.length}|${list.where((n) => !n.read).length}|${list.first.id}';
+
+  /// រក្សាទុកទិន្នន័យបច្ចុប្បន្នចូលឧបករណ៍ សម្រាប់ការបើក app លើកក្រោយ
+  Future<void> _saveSnapshot() async {
+    final u = _rawUser;
+    if (!loggedIn || u == null) return;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(
+          _snapKey,
+          jsonEncode({
+            'user': Map<String, dynamic>.from(u)..['avatar'] = userAvatar,
+            'cards': _rawCards,
+            'txs': _rawTxs,
+            'goals': _rawGoals,
+            'notifs': _rawNotifs,
+            'data_version': _dataVersion,
+            'saved_at': DateTime.now().millisecondsSinceEpoch,
+          }));
+    } catch (_) {}
   }
 
   /// ទាញ profile + ទិន្នន័យនៅខាងក្រោយ — UI ដំណើរការតាំងពី frame ដំបូង
@@ -1060,7 +1142,8 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    booting = true;
+    // សំណើដំបូងក៏ជាសញ្ញាដាស់ server ដែរ — ប៉ុន្តែមិនរារាំង UI
+    booting = !_hasSnapshot;
     notifyListeners();
     try {
       final me = await ApiService.getMe();
@@ -1071,6 +1154,7 @@ class AppState extends ChangeNotifier {
       startSync();
       NotificationService.registerTokenToBackend();
       _initDeviceServices();
+      await _saveSnapshot();
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
         await ApiService.logout();
@@ -1080,11 +1164,14 @@ class AppState extends ChangeNotifier {
       // server sleep / គ្មាន internet → រក្សា session ដើម ហើយបង្ហាញ UI
     } finally {
       booting = false;
+      // បើ server ទើបដេក ការសួររៀងរាល់ ១៥ វិនាទី នឹងបន្តដាស់វារហូតដល់ភ្ញាក់
+      if (loggedIn) startSync();
       notifyListeners();
     }
   }
 
   void _applyUser(Map<String, dynamic> u) {
+    _rawUser = Map<String, dynamic>.from(u);
     userId = u['id'] as int?;
     userName = u['name'] as String? ?? userName;
     userEmail = u['email'] as String? ?? userEmail;
@@ -1115,6 +1202,7 @@ class AppState extends ChangeNotifier {
     await ApiService.updateAvatar(dataUrl, thumb: thumb);
     _applyAvatar(dataUrl);
     notifyListeners();
+    await _saveSnapshot();
   }
 
   Future<void> register({required String name, required String email,
@@ -1211,6 +1299,7 @@ class AppState extends ChangeNotifier {
     if (pin != null && pin.isNotEmpty) _lastPin = pin;
     onboarded = true;
     notifyListeners();
+    await _saveSnapshot();
   }
 
   Future<void> logout() async {
@@ -1240,8 +1329,16 @@ class AppState extends ChangeNotifier {
     reminders = [];
     recurring = [];
     achievements = [];
+    _hasSnapshot = false;
+    _rawUser = null;
+    _rawCards = [];
+    _rawTxs = [];
+    _rawGoals = [];
+    _rawNotifs = [];
+    _notifSig = '';
     final sp = await SharedPreferences.getInstance();
     await sp.setBool('is_google_user', false);
+    await sp.remove(_snapKey);
     notifyListeners();
   }
 
@@ -1265,10 +1362,16 @@ class AppState extends ChangeNotifier {
         ApiService.getGoals(),
         ApiService.getNotifications(),
       ]);
+      _rawCards = r[0];
+      _rawTxs = r[1];
+      _rawGoals = r[2];
+      _rawNotifs = r[3];
       cards = r[0].map((e) => BankCard.fromJson(e)).toList();
       txs = r[1].map((e) => Tx.fromJson(e)).toList();
       goals = r[2].map((e) => Goal.fromJson(e)).toList();
       notifs = r[3].map((e) => AppNotif.fromJson(e)).toList();
+      _notifSig = _signatureOf(notifs);
+      await _saveSnapshot();
       await _announceNewNotifs();
     } on ApiException catch (e) {
       if (e.statusCode == 401) await logout();
