@@ -5833,18 +5833,22 @@ class _AuraNav extends StatelessWidget {
           color: context.isDark ? const Color(0xFF022B45) : context.card,
           border: Border(top: BorderSide(color: context.border)),
         ),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 76,
-            child: Row(
-              children: [
-                _tab(context, 0),
-                _tab(context, 1),
-                SizedBox(width: 86, child: _scanButton(context)),
-                _tab(context, 2),
-                _tab(context, 3),
-              ],
+        // ពន្លឺហូរពីគែមឆ្វេង-ស្ដាំចូលកណ្ដាល (ភ្លឺបំផុតត្រង់ KHQR) + សរសៃអំបោះ
+        child: CustomPaint(
+          painter: _NavAuraPainter(dark: context.isDark),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 76,
+              child: Row(
+                children: [
+                  _tab(context, 0),
+                  _tab(context, 1),
+                  SizedBox(width: 86, child: _scanButton(context)),
+                  _tab(context, 2),
+                  _tab(context, 3),
+                ],
+              ),
             ),
           ),
         ),
@@ -5895,26 +5899,31 @@ class _AuraNav extends StatelessWidget {
               child: Container(
                 width: 58,
                 height: 58,
+                padding: const EdgeInsets.all(13),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFFF6B6B), C.abaRed, Color(0xFFB93A3A)],
+                    colors: [Color(0xFFFF7A7A), C.abaRed, Color(0xFFB12F2F)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  border: Border.all(color: Colors.white, width: 3),
+                  border: Border.all(color: Colors.white, width: 2.6),
                   boxShadow: [
                     BoxShadow(
-                        color: C.abaRed.withValues(alpha: 0.45),
-                        blurRadius: 16,
-                        offset: const Offset(0, 5)),
+                        color: C.abaRed.withValues(alpha: 0.55),
+                        blurRadius: 22,
+                        spreadRadius: 2,
+                        offset: const Offset(0, 6)),
+                    BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        blurRadius: 10,
+                        spreadRadius: 1),
                   ],
                 ),
-                child: const Icon(Icons.qr_code_scanner_rounded,
-                    color: Colors.white, size: 30),
+                child: const _ScanGlyph(),
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text('KHQR',
                 style: TextStyle(
                     color: context.isDark ? Colors.white : C.bgDark,
@@ -5924,6 +5933,206 @@ class _AuraNav extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// រូបស្កេនគូរដោយ vector — ដំណើរការលើគ្រប់វេទិកា ហើយមើលឃើញច្បាស់
+class _ScanGlyph extends StatefulWidget {
+  const _ScanGlyph();
+  @override
+  State<_ScanGlyph> createState() => _ScanGlyphState();
+}
+
+class _ScanGlyphState extends State<_ScanGlyph>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1900))
+    ..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) => CustomPaint(
+          painter: _ScanGlyphPainter(_c.value),
+        ),
+      );
+}
+
+class _ScanGlyphPainter extends CustomPainter {
+  _ScanGlyphPainter(this.t);
+  final double t;
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final inset = 1.5;
+    final w = s.width, h = s.height;
+    final corner = w * 0.30;
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white;
+
+    // ស៊ុមជ្រុងទាំង ៤
+    for (final left in [true, false]) {
+      final x = left ? inset : w - inset;
+      final sx = left ? 1.0 : -1.0;
+      canvas.drawPath(
+          Path()
+            ..moveTo(x + sx * corner, inset)
+            ..lineTo(x, inset)
+            ..lineTo(x, inset + corner),
+          stroke);
+      canvas.drawPath(
+          Path()
+            ..moveTo(x + sx * corner, h - inset)
+            ..lineTo(x, h - inset)
+            ..lineTo(x, h - inset - corner),
+          stroke);
+    }
+
+    // ចំណុច QR តូចៗនៅចំកណ្តាល
+    final dot = Paint()..color = Colors.white.withValues(alpha: .85);
+    final d = w * 0.10;
+    for (final o in [
+      const Offset(-.14, -.14), const Offset(.14, -.14),
+      const Offset(-.14, .14), const Offset(.14, .14),
+    ]) {
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                  center: Offset(w / 2 + o.dx * w, h / 2 + o.dy * h),
+                  width: d,
+                  height: d),
+              Radius.circular(d * .3)),
+          dot);
+    }
+
+    // បន្ទាត់ស្កេនរត់ឡើងចុះ + ពន្លឺ soft glow
+    final y = inset + corner * 0.4 + t * (h - 2 * inset - corner * 0.8);
+    final glow = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0),
+          Colors.white.withValues(alpha: .95),
+          Colors.white.withValues(alpha: 0),
+        ],
+      ).createShader(Rect.fromLTWH(inset, y - 4, w - 2 * inset, 8))
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+    canvas.drawLine(Offset(inset, y), Offset(w - inset, y), glow);
+    canvas.drawLine(
+        Offset(inset, y),
+        Offset(w - inset, y),
+        Paint()
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round
+          ..color = Colors.white.withValues(alpha: .95));
+  }
+
+  @override
+  bool shouldRepaint(_ScanGlyphPainter old) => old.t != t;
+}
+
+/// Background បារខាងក្រោម — ពន្លឺពីគែមទាំងពីរផ្សាយចូលកណ្ដាល + សរសៃអំបោះស្តើង
+class _NavAuraPainter extends CustomPainter {
+  _NavAuraPainter({required this.dark});
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final rect = Offset.zero & s;
+
+    // ១) ពន្លឺស្នូលនៅកណ្ដាល (ក្រោយប៊ូតុង KHQR) — ភ្លឺបំផុត
+    final core = Offset(s.width / 2, s.height * 0.26);
+    canvas.drawRect(
+        rect,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              (dark ? Colors.white : const Color(0xFFCFEFFF))
+                  .withValues(alpha: dark ? .26 : .85),
+              (dark ? C.accentTeal : const Color(0xFF7FD3FF))
+                  .withValues(alpha: dark ? .12 : .22),
+              Colors.transparent,
+            ],
+            stops: const [0.0, .45, 1.0],
+          ).createShader(Rect.fromCircle(
+              center: core, radius: s.width * 0.52)));
+
+    // ២) ពន្លឺហូរចេញពីគែមឆ្វេង និងស្ដាំ
+    for (final x in [0.0, s.width]) {
+      canvas.drawRect(
+          rect,
+          Paint()
+            ..shader = RadialGradient(
+              colors: [
+                (dark ? C.accent : const Color(0xFF8ED0FF))
+                    .withValues(alpha: dark ? .22 : .30),
+                Colors.transparent,
+              ],
+            ).createShader(Rect.fromCircle(
+                center: Offset(x, s.height * .55),
+                radius: s.width * .46)));
+    }
+
+    // ៣) សរសៃអំបោះតូចៗ ហូរពីគែមទាំងពីរចូលរកកណ្ដាល
+    final fiber = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = .8
+      ..strokeCap = StrokeCap.round
+      ..color = (dark ? Colors.white : const Color(0xFF1D6FA5))
+          .withValues(alpha: dark ? .075 : .10);
+    final path = Path();
+    for (int i = 0; i < 24; i++) {
+      final f = i / 23; // 0..1
+      final y0 = f * s.height;
+      final spread = (f - .5) * 2; // -1..1
+      // ឆ្វេង → កណ្ដាល
+      path.moveTo(0, y0);
+      path.quadraticBezierTo(s.width * .27,
+          s.height * .5 + spread * s.height * .30, s.width * .5,
+          s.height * .40 + spread * 9);
+      // ស្ដាំ → កណ្ដាល (កញ្ចក់)
+      path.moveTo(s.width, y0);
+      path.quadraticBezierTo(s.width * .73,
+          s.height * .5 + spread * s.height * .30, s.width * .5,
+          s.height * .40 + spread * 9);
+    }
+    canvas.drawPath(path, fiber);
+
+    // ៤) ខ្សែពន្លឺស្តើងៗ ពីគែមចូលកណ្ដាល (ស្រួចជាងសរសៃអំបោះ)
+    final beam = Paint()
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round
+      ..shader = LinearGradient(
+        colors: [
+          (dark ? C.accentTeal : const Color(0xFF8ED0FF))
+              .withValues(alpha: dark ? .0 : .0),
+          (dark ? C.accentTeal : const Color(0xFF57B8FF))
+              .withValues(alpha: dark ? .28 : .30),
+          (dark ? Colors.white : const Color(0xFF57B8FF))
+              .withValues(alpha: dark ? .22 : .18),
+          Colors.transparent,
+        ],
+        stops: const [0, .35, .85, 1],
+      ).createShader(Rect.fromLTWH(0, 0, s.width, s.height));
+    final beams = Path()
+      ..moveTo(0, s.height * .78)
+      ..quadraticBezierTo(s.width * .30, s.height * .52,
+          s.width * .5, s.height * .30)
+      ..moveTo(s.width, s.height * .78)
+      ..quadraticBezierTo(
+          s.width * .70, s.height * .52, s.width * .5, s.height * .30);
+    canvas.drawPath(beams, beam);
+  }
+
+  @override
+  bool shouldRepaint(_NavAuraPainter old) => old.dark != dark;
 }
 
 class _Nav {
@@ -6875,34 +7084,6 @@ Future<Object?> push(BuildContext c, Widget w) =>
 // ============================================================================
 //  BORROWERS — អ្នកដែលបានខ្ចី (បញ្ជីកម្ចីរបស់គណនី)
 // ============================================================================
-/// រូបតំណាងក្រឡាចត្រង្គ — បន្ថែមពណ៌ជាក់លាក់ដើម្បីលេចមុខជាង icon ធម្មតា
-class BorrowerGlyph extends StatelessWidget {
-  const BorrowerGlyph({super.key, this.size = 44});
-  final double size;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF8B5CF6), Color(0xFF4F46E5), Color(0xFF2563EB)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(size * 0.32),
-          boxShadow: [
-            BoxShadow(
-                color: const Color(0xFF6366F1).withValues(alpha: 0.4),
-                blurRadius: 14,
-                offset: const Offset(0, 5)),
-          ],
-        ),
-        child: Icon(Icons.handshake_rounded,
-            size: size * 0.52, color: Colors.white),
-      );
-}
-
 class BorrowersScreen extends StatefulWidget {
   const BorrowersScreen({super.key});
   @override
@@ -7325,10 +7506,9 @@ class HomeScreen extends StatelessWidget {
                       AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
                           () => guardedTap(context,
                               () => tabIndex.value = 1)),
-                      AbaCell(Icons.handshake_rounded, 'អ្នកដែលបានខ្ចី',
+                      AbaCell(Icons.handshake, 'អ្នកដែលបានខ្ចី',
                           () => guardedTap(context,
-                              () => push(context, const BorrowersScreen())),
-                          iconWidget: const BorrowerGlyph()),
+                              () => push(context, const BorrowersScreen()))),
                       AbaCell(Icons.savings_outlined, 'សន្សំ',
                           () => guardedTap(context,
                               () => push(context, const UnavailableFeatureScreen(
