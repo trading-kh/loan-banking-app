@@ -53,6 +53,10 @@
   .btn.ghost { background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22);
     box-shadow:none; font-weight:700; margin-top:10px; font-size:13.5px; padding:13px; }
   .os { margin-top:16px; font-size:11.5px; color:rgba(255,255,255,.52); line-height:1.8; }
+  .warn { margin-top:12px; padding:11px 13px; border-radius:13px; text-align:left;
+    background:rgba(255,196,96,.1); border:1px solid rgba(255,196,96,.3);
+    color:#FFE3B4; font-size:11.5px; line-height:1.75; }
+  .warn b { color:#FFD27A; }
   .pill { display:inline-flex; align-items:center; gap:6px; margin-top:14px; padding:6px 12px;
     border-radius:999px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.16);
     font-size:11px; color:rgba(255,255,255,.78); }
@@ -85,6 +89,11 @@
       iOS — មកដល់ឆាប់ៗ
     </a>
 
+    <div class="warn" id="warn" hidden>
+      Chrome អាចព្រមានថា <b>“ឯកសារនេះអាចបង្កគ្រោះថ្នាក់”</b> — ជាការព្រមានធម្មតាសម្រាប់ APK ដែលមិនមកពី Play Store។
+      ចុច <b>Download anyway</b> បន្ទាប់មក <b>Install anyway</b>។ កម្មវិធីត្រូវបានចុះហត្ថលេខាដោយ Aura Bank។
+    </div>
+
     <div class="pill"><span class="dot"></span><span id="liveText">QR សកម្ម</span></div>
     <div class="os" id="os"></div>
     <div class="foot">© Aura Bank · ប្រើប្រាស់ដោយសុវត្ថិភាព</div>
@@ -112,7 +121,8 @@
     os.innerHTML = 'កម្មវិធី iOS កំពុងត្រូវបានអភិវឌ្ឍ ·<br>សូមប្រើ Android ជាបណ្ដោះអាសន្ន';
   } else if (isAndroid) {
     iosBtn.hidden = true;
-    os.innerHTML = 'ចុចខាងលើ → ដំឡើង APK →<br>បើកកម្មវិធី ហើយស្កេន QR នេះម្ដងទៀត';
+    document.getElementById('warn').hidden = false;
+    os.innerHTML = '១) ចុច “Download anyway” · ២) បើកឯកសារ → អនុញ្ញាត “Allow from this source”<br>៣) Install → បើកកម្មវិធី → ស្កេន QR នេះម្ដងទៀត';
   } else {
     iosBtn.hidden = true;
     os.innerHTML = 'កម្មវិធីមានសម្រាប់ Android ·<br>បើកលើទូរស័ព្ទ ដើម្បីទាញយក';
