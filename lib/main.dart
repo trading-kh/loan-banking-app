@@ -10668,10 +10668,37 @@ String? _bankCodeFromAccount(String account) {
   return _qrBankSuffix[account.substring(at + 1).toLowerCase()];
 }
 
+/// លេខកូដ Aura ខ្លី — ក្នុង KHQR (tag 62/05 `AURAxxxx`) ឬ URL អញ្ជើញ (`/join.html?c=`)
+String? auraCodeFromQr(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty) return null;
+  final uri = Uri.tryParse(t);
+  if (uri != null &&
+      (uri.scheme == 'http' || uri.scheme == 'https') &&
+      uri.path.toLowerCase().endsWith('/join.html')) {
+    final c = (uri.queryParameters['c'] ?? '').trim().toUpperCase();
+    if (RegExp(r'^[A-Z0-9]{6,12}$').hasMatch(c)) return c;
+  }
+  if (t.startsWith('000201')) {
+    for (final f in _emvTlv(t)) {
+      if (f.tag != '62') continue;
+      for (final s in _emvTlv(f.value)) {
+        if (s.tag != '05') continue;
+        final v = s.value.trim().toUpperCase();
+        if (v.startsWith('AURA') && v.length > 4 && v.length <= 16) {
+          return v.substring(4);
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /// កំណត់ធនាគារពី QR ភ្លាមៗនៅលើទូរសព្ទ (មិនរង់ចាំ server) ដើម្បីបង្ហាញ logo
 String? bankCodeFromQr(String raw) {
   final t = raw.trim();
   if (t.isEmpty) return null;
+  if (auraCodeFromQr(t) != null) return 'AURA';
   if (RegExp(r'^aurabank://', caseSensitive: false).hasMatch(t)) return 'AURA';
   if (t.startsWith('{')) {
     try {
@@ -10764,6 +10791,7 @@ class _QrPayScreenState extends State<QrPayScreen>
   Future<void> _load() async {
     setState(() { _loading = true; _loadError = null; });
     final raw = widget.rawQr;
+    final auraCode = auraCodeFromQr(raw);
     final u = Uri.tryParse(raw);
     final token = (u != null && u.scheme == 'aurabank' && u.host == 'pay')
         ? u.queryParameters['token']
@@ -10776,8 +10804,10 @@ class _QrPayScreenState extends State<QrPayScreen>
     var external = false;
     double? preset;
     try {
-      if (token != null && token.isNotEmpty) {
-        final r = await ApiService.resolveQr(token);
+      if ((token != null && token.isNotEmpty) || auraCode != null) {
+        final r = auraCode != null
+            ? await ApiService.resolveQrCode(auraCode)
+            : await ApiService.resolveQr(token!);
         if (!mounted) return;
         recipientId = (r['recipient_id'] ?? '').toString();
         name = (r['name'] ?? 'អ្នកទទួល').toString();
@@ -11534,7 +11564,7 @@ class BankLogo extends StatelessWidget {
   const BankLogo({super.key, required this.code, this.size = 48});
 
   static const _assets = <String, String>{
-    'AURA': 'assets/icon/app_icon.png',
+    'AURA': 'assets/icon/aura_mark.png',
     'ABA': 'assets/banks/aba.png',
     'ACLEDA': 'assets/banks/acleda.png',
     'CANADIA': 'assets/banks/canadia.png',
@@ -11914,44 +11944,77 @@ class _OtpSheetState extends State<_OtpSheet>
       );
 }
 
-/// ពន្លឺ + ធ្នូស្តើងលើកាត KHQR — អារម្មណ៍ប្រាក់ចូល/ប្រាក់ចេញ
+/// ពន្លឺរសាត់ + sheen លើកាត KHQR — អារម្មណ៍ប្រាក់ចូល/ប្រាក់ចេញ
 class _KhqrAuraPainter extends CustomPainter {
-  const _KhqrAuraPainter();
+  const _KhqrAuraPainter({required this.phase});
+  final double phase;
 
   @override
   void paint(Canvas canvas, Size s) {
     final w = s.width, h = s.height;
+    final t = phase * 2 * math.pi;
     canvas.save();
     canvas.clipRect(Offset.zero & s);
 
-    final tealC = Offset(w * 0.86, h * 0.06);
+    final tealC = Offset(w * (0.80 + 0.09 * math.sin(t)),
+        h * (0.04 + 0.05 * math.cos(t)));
     canvas.drawCircle(
-        tealC, w * 0.44,
+        tealC, w * 0.46,
         Paint()
-          ..shader = const RadialGradient(
-              colors: [Color(0x556BE3FF), Color(0x00000000)])
-              .createShader(Rect.fromCircle(center: tealC, radius: w * 0.44)));
+          ..shader = RadialGradient(
+                  colors: [
+                    const Color(0xFF6BE3FF).withValues(alpha: 0.30),
+                    const Color(0x00000000)
+                  ])
+              .createShader(Rect.fromCircle(center: tealC, radius: w * 0.46)));
 
-    final redC = Offset(w * 0.02, h * 0.98);
+    final redC = Offset(w * (0.04 + 0.07 * math.cos(t)),
+        h * (0.95 + 0.03 * math.sin(t)));
     canvas.drawCircle(
-        redC, w * 0.40,
+        redC, w * 0.42,
         Paint()
-          ..shader = const RadialGradient(
-              colors: [Color(0x33E05252), Color(0x00000000)])
-              .createShader(Rect.fromCircle(center: redC, radius: w * 0.40)));
+          ..shader = RadialGradient(colors: [
+            const Color(0xFFE05252).withValues(alpha: 0.20),
+            const Color(0x00000000)
+          ]).createShader(Rect.fromCircle(center: redC, radius: w * 0.42)));
 
     final arc = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.1
-      ..color = Colors.white.withValues(alpha: 0.05);
+      ..color = Colors.white.withValues(alpha: 0.055);
     for (var i = 0; i < 4; i++) {
-      canvas.drawCircle(Offset(w * 0.5, h * 1.08), w * (0.32 + i * 0.20), arc);
+      canvas.drawCircle(
+          Offset(w * 0.5 + math.sin(t) * 14, h * 1.08),
+          w * (0.32 + i * 0.20), arc);
     }
+
+    // ពន្លឺបន្ទះរអិលកាត់កាត (sheen) — ស្រាលៗ
+    final bandW = w * 0.30;
+    final dx = math.sin(t) * w * 0.95;
+    canvas.save();
+    canvas.translate(w * 0.5 + dx, h * 0.5);
+    canvas.rotate(-0.42);
+    final band = Rect.fromCenter(
+        center: Offset.zero, width: bandW, height: h * 1.8);
+    canvas.drawRect(
+        band,
+        Paint()
+          ..shader = LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                const Color(0x00FFFFFF),
+                Colors.white.withValues(alpha: 0.055),
+                const Color(0x00FFFFFF)
+              ]).createShader(band));
+    canvas.restore();
+
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_KhqrAuraPainter oldDelegate) => false;
+  bool shouldRepaint(_KhqrAuraPainter oldDelegate) =>
+      oldDelegate.phase != phase;
 }
 
 class QrScreen extends StatefulWidget {
@@ -11961,7 +12024,8 @@ class QrScreen extends StatefulWidget {
   State<QrScreen> createState() => _QrScreenState();
 }
 
-class _QrScreenState extends State<QrScreen> {
+class _QrScreenState extends State<QrScreen>
+    with SingleTickerProviderStateMixin {
   late bool _scan = widget.startScan;
   final _amt = TextEditingController();
   MobileScannerController? _ctrl;
@@ -11979,16 +12043,29 @@ class _QrScreenState extends State<QrScreen> {
   /// ធនាគារដែលទើបស្កេនឃើញ (បង្ហាញ logo មួយសន្ទុះមុនបើកទំព័រទូទាត់)
   String? _detectedBank;
 
-  // QR របស់យើង = token ខ្លីអាយុពី Server (5 នាទី) ទើបក្លែង/ចម្លង uid មិនបាន
+  // QR របស់យើង = កូដខ្លីពី Server (5 នាទី) — KHQR ពិត ឬ QR អញ្ជើញទាញយក
   String? _qrToken;
+  String _qrMode = 'invite';
+  String? _qrKhqr;
+  String? _qrInvite;
+  int _qrExpireAtMs = 0;
   bool _qrLoading = false;
   String? _qrError;
   Timer? _qrDebounce;
   Timer? _qrRenew;
+  Timer? _qrTick;
+
+  /// ចលនាស្រាលៗ (ពន្លឺរសាត់ + sheen) — ១ ticker តែប៉ុណ្ណោះ
+  late final AnimationController _aura = AnimationController(
+      vsync: this, duration: const Duration(seconds: 6))
+    ..repeat();
 
   @override
   void initState() {
     super.initState();
+    _qrTick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && !_scan && _qrExpireAtMs > 0) setState(() {});
+    });
     if (_scan) {
       _ctrl = MobileScannerController(
         detectionSpeed: DetectionSpeed.noDuplicates,
@@ -12002,6 +12079,8 @@ class _QrScreenState extends State<QrScreen> {
   void dispose() {
     _qrDebounce?.cancel();
     _qrRenew?.cancel();
+    _qrTick?.cancel();
+    _aura.dispose();
     _ctrl?.dispose();
     _amt.dispose();
     super.dispose();
@@ -12013,7 +12092,15 @@ class _QrScreenState extends State<QrScreen> {
     try {
       final r = await ApiService.createQr(amount: parseAmt(_amt.text));
       if (!mounted) return;
-      setState(() { _qrToken = r['qr_token']?.toString(); _qrLoading = false; });
+      final ttl = (r['expires_in'] as num?)?.toInt() ?? 300;
+      setState(() {
+        _qrToken = r['qr_token']?.toString();
+        _qrMode = (r['mode'] ?? 'invite').toString();
+        _qrKhqr = (r['khqr'] ?? '').toString();
+        _qrInvite = (r['invite_url'] ?? '').toString();
+        _qrExpireAtMs = DateTime.now().millisecondsSinceEpoch + ttl * 1000;
+        _qrLoading = false;
+      });
       _scheduleRenew();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -12093,11 +12180,21 @@ class _QrScreenState extends State<QrScreen> {
   String get _displayName =>
       bank.userName.isEmpty ? bank.userEmail : bank.userName;
 
-  // QR payload: aurabank://pay?token=<token ដែល Server បង្កើត អាយុ ៥ នាទី>
-  String get _payload => _qrToken == null
-      ? ''
-      : Uri(scheme: 'aurabank', host: 'pay',
-          queryParameters: {'token': _qrToken!}).toString();
+  // QR payload: KHQR ពិត (ធនាគារដទៃស្កេនបង់បាន) ឬ URL អញ្ជើញ (ស្កេន → ទាញយកតាម OS)
+  String get _payload {
+    if ((_qrKhqr ?? '').isNotEmpty) return _qrKhqr!;
+    if ((_qrInvite ?? '').isNotEmpty) return _qrInvite!;
+    return _qrToken == null
+        ? ''
+        : Uri(scheme: 'aurabank', host: 'pay',
+            queryParameters: {'token': _qrToken!}).toString();
+  }
+
+  int get _qrSecondsLeft {
+    if (_qrExpireAtMs == 0) return 0;
+    final left = _qrExpireAtMs - DateTime.now().millisecondsSinceEpoch;
+    return left <= 0 ? 0 : (left / 1000).ceil();
+  }
 
   Future<void> _onDetect(BarcodeCapture cap) async {
     if (_busy || cap.barcodes.isEmpty) return;
@@ -12200,9 +12297,12 @@ class _QrScreenState extends State<QrScreen> {
   // ══════════════════════════════════════════════════════════════════════════
   //  ②  SCANNER — កាមេរ៉ាពេញអេក្រង់ + overlay
   // ══════════════════════════════════════════════════════════════════════════
-  /// កាត KHQR ផ្ទាល់ខ្លួន — navy gradient · logo កណ្ដាល QR · ប្រាក់ចូល/ចេញ
+  /// កាត KHQR ផ្ទាល់ខ្លួន — navy gradient រស់រវើក · logo កណ្ដាល QR · ប្រាក់ចូល/ចេញ
   Widget _khqrCard(BuildContext context) {
     final amt = parseAmt(_amt.text);
+    final isKhqr = _qrMode == 'khqr';
+    final secs = _qrSecondsLeft;
+    final progress = (secs / 300).clamp(0.0, 1.0);
     return Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -12223,12 +12323,19 @@ class _QrScreenState extends State<QrScreen> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
         child: Stack(children: [
-          const Positioned.fill(
+          Positioned.fill(
             child: IgnorePointer(
-                child: CustomPaint(painter: _KhqrAuraPainter())),
+              child: RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _aura,
+                  builder: (_, __) => CustomPaint(
+                      painter: _KhqrAuraPainter(phase: _aura.value)),
+                ),
+              ),
+            ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Row(children: [
                 Container(
@@ -12267,24 +12374,38 @@ class _QrScreenState extends State<QrScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                      color: C.abaRed,
-                      borderRadius: BorderRadius.circular(8)),
+                    gradient: const LinearGradient(
+                        colors: [Color(0xFFE85F5F), C.abaRed]),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [BoxShadow(
+                        color: C.abaRed.withValues(alpha: 0.4),
+                        blurRadius: 12, offset: const Offset(0, 4))],
+                  ),
                   child: const Text('KHQR',
                       style: TextStyle(color: Colors.white,
                           fontWeight: FontWeight.w900, fontSize: 11,
                           letterSpacing: 1.6)),
                 ),
               ]),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
+              _modeBadge(isKhqr),
+              const SizedBox(height: 12),
               _qrPanel(context),
-              const SizedBox(height: 14),
-              Text(
-                amt == null
-                    ? 'ស្កេនដើម្បីបង់ប្រាក់មកខ្ញុំ'
-                    : 'ទឹកប្រាក់ ${money(amt)}',
-                style: const TextStyle(color: Colors.white,
-                    fontSize: 13, fontWeight: FontWeight.w700),
-              ),
+              const SizedBox(height: 13),
+              amt == null
+                  ? Text('ស្កេនដើម្បីបង់ប្រាក់មកខ្ញុំ',
+                      style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontSize: 13, fontWeight: FontWeight.w700))
+                  : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Text('ទឹកប្រាក់ ',
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.62),
+                              fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      Text(money(amt),
+                          style: const TextStyle(color: Colors.white,
+                              fontSize: 19, fontWeight: FontWeight.w900)),
+                    ]),
               const SizedBox(height: 12),
               Row(children: [
                 Expanded(
@@ -12297,15 +12418,88 @@ class _QrScreenState extends State<QrScreen> {
                       'ខ្ញុំស្កេនទៅគេ', C.accentGold),
                 ),
               ]),
-              const SizedBox(height: 10),
-              Text('សុពលភាព ៥ នាទី · ស្កេនបានគ្រប់ធនាគារក្នុង KHQR',
+              const SizedBox(height: 14),
+              Row(children: [
+                Container(
+                  width: 7, height: 7,
+                  decoration: BoxDecoration(
+                      color: secs > 0 ? C.accentGreen : C.abaRed,
+                      shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(
+                          color: (secs > 0 ? C.accentGreen : C.abaRed)
+                              .withValues(alpha: 0.5),
+                          blurRadius: 6)]),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                    secs > 0
+                        ? 'សុពលភាព ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}'
+                        : 'ផុតកំណត់ — កំពុងបង្កើតថ្មី',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.66),
+                        fontSize: 10.5, fontWeight: FontWeight.w600)),
+                const Spacer(),
+                Text(isKhqr ? 'KHQR ពិត' : 'អញ្ជើញ',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.62),
+                        fontSize: 10, fontWeight: FontWeight.w700,
+                        letterSpacing: 0.4)),
+              ]),
+              const SizedBox(height: 7),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: Container(
+                  height: 4,
+                  color: Colors.white.withValues(alpha: 0.13),
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: progress,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                            colors: [Color(0xFF2FBF8F), Color(0xFF6BE3FF)]),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 11),
+              Text(
+                  isKhqr
+                      ? 'ធនាគារណាមួយស្កេនបង់បាន · ប្រាក់ចូលគណនី KHQR របស់អ្នក'
+                      : 'កាមេរ៉ាស្កេន → ទាញយក Aura · ក្នុង Aura → បង់ប្រាក់ភ្លាម',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.55),
-                      fontSize: 10.5, fontWeight: FontWeight.w500)),
+                      color: Colors.white.withValues(alpha: 0.52),
+                      fontSize: 10, height: 1.5,
+                      fontWeight: FontWeight.w500)),
             ]),
           ),
         ]),
       ),
+    );
+  }
+
+  Widget _modeBadge(bool isKhqr) {
+    final tint = isKhqr ? C.accentGreen : C.accentGold;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: tint.withValues(alpha: 0.34)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(isKhqr ? Icons.verified_rounded : Icons.download_rounded,
+            size: 13, color: tint),
+        const SizedBox(width: 6),
+        Text(
+            isKhqr
+                ? 'ទទួលបានពីគ្រប់ធនាគារ'
+                : 'ស្កេនដោយកាមេរ៉ា → ទាញយកកម្មវិធី',
+            style: TextStyle(color: tint, fontSize: 10.5,
+                fontWeight: FontWeight.w700)),
+      ]),
     );
   }
 

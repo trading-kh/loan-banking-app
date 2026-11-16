@@ -273,6 +273,11 @@ class ApiService {
       Map<String, dynamic>.from(
           await _post('/qr/resolve', {'qr_token': qrToken}) as Map);
 
+  /// ស្កេន QR ថ្មី (កូដខ្លី ៨ តួ) — ដំណើរការទាំង KHQR ពិត និង QR អញ្ជើញ
+  static Future<Map<String, dynamic>> resolveQrCode(String code) async =>
+      Map<String, dynamic>.from(
+          await _post('/qr/resolve', {'code': code}) as Map);
+
   /// QR ខាងក្រៅ (មិនមែន Aura Bank) — Server បកស្រាយគណនី/ធនាគារបឋម
   static Future<Map<String, dynamic>> inspectExternalQr(String rawQr) async =>
       Map<String, dynamic>.from(

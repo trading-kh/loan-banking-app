@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aura — ទទួលប្រាក់</title>
+<meta name="theme-color" content="#03243C">
+<style>
+  :root { --navy:#03243C; --teal:#0C7695; --red:#E05252; --green:#2FBF8F; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; min-height:100%; font-family:'Noto Sans Khmer','Segoe UI',system-ui,sans-serif; }
+  body {
+    background:
+      radial-gradient(900px 500px at 82% -8%, rgba(107,227,255,.28), transparent 60%),
+      radial-gradient(700px 420px at 0% 105%, rgba(224,82,82,.22), transparent 62%),
+      linear-gradient(150deg,#03243C 0%,#07456B 52%,#0C7695 100%);
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    padding:26px 18px 34px; min-height:100vh;
+  }
+  .card {
+    width:100%; max-width:430px; border-radius:28px; padding:26px 22px 22px;
+    background:linear-gradient(160deg,rgba(255,255,255,.13),rgba(255,255,255,.04));
+    border:1px solid rgba(255,255,255,.18);
+    box-shadow:0 26px 60px rgba(0,0,0,.38), 0 0 46px rgba(107,227,255,.16);
+    backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+    text-align:center; position:relative; overflow:hidden;
+    animation:rise .55s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .card::after {
+    content:''; position:absolute; inset:-40% -30% auto; height:60%;
+    background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.16) 50%,transparent 70%);
+    transform:translateX(-60%) rotate(-8deg); animation:sheen 6s ease-in-out infinite;
+    pointer-events:none;
+  }
+  @keyframes rise { from { opacity:0; transform:translateY(18px) scale(.98);} to { opacity:1; transform:none; } }
+  @keyframes sheen { 0%,55% { transform:translateX(-65%) rotate(-8deg);} 85%,100% { transform:translateX(105%) rotate(-8deg);} }
+  .logo { width:78px; height:78px; border-radius:50%; margin:0 auto 14px;
+    box-shadow:0 12px 26px rgba(0,0,0,.32), 0 0 0 6px rgba(255,255,255,.1); }
+  .brand { font-weight:900; letter-spacing:5px; font-size:15px; color:#fff; }
+  .brand span { color:var(--red); }
+  h1 { font-size:19px; line-height:1.55; margin:14px 0 6px; font-weight:700; }
+  .name { font-size:23px; font-weight:800; margin:2px 0 4px; word-break:break-word; }
+  .amount { display:inline-block; margin-top:8px; padding:7px 16px; border-radius:999px;
+    background:rgba(47,191,143,.18); border:1px solid rgba(47,191,143,.45);
+    color:#B9FFE4; font-weight:800; font-size:17px; }
+  .hint { font-size:12.5px; color:rgba(255,255,255,.68); margin:14px 0 18px; line-height:1.7; }
+  .btn { display:flex; align-items:center; justify-content:center; gap:10px;
+    width:100%; padding:16px 18px; border-radius:16px; border:0; cursor:pointer;
+    font-size:15.5px; font-weight:800; color:#fff; text-decoration:none;
+    background:linear-gradient(135deg,#16A47E,#2FBF8F);
+    box-shadow:0 14px 30px rgba(47,191,143,.34); transition:transform .15s ease, box-shadow .2s ease; }
+  .btn:active { transform:translateY(1px) scale(.995); }
+  .btn.ghost { background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22);
+    box-shadow:none; font-weight:700; margin-top:10px; font-size:13.5px; padding:13px; }
+  .os { margin-top:16px; font-size:11.5px; color:rgba(255,255,255,.52); line-height:1.8; }
+  .pill { display:inline-flex; align-items:center; gap:6px; margin-top:14px; padding:6px 12px;
+    border-radius:999px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.16);
+    font-size:11px; color:rgba(255,255,255,.78); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--green);
+    box-shadow:0 0 0 4px rgba(47,191,143,.22); animation:blink 1.8s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity:.55 } 50% { opacity:1 } }
+  .skeleton { height:26px; border-radius:8px; background:rgba(255,255,255,.12); margin:8px auto; }
+  .err { color:#FFD1D1; font-size:12.5px; margin-top:10px; }
+  .foot { margin-top:16px; font-size:10.5px; color:rgba(255,255,255,.42); }
+</style>
+</head>
+<body>
+  <main class="card">
+    <img class="logo" src="/aura_mark.png" alt="Aura">
+    <div class="brand">AURA<span>|</span></div>
+
+    <div id="body">
+      <div class="skeleton" style="width:60%"></div>
+      <div class="skeleton" style="width:40%"></div>
+    </div>
+
+    <div class="hint" id="hint">ស្កេន QR នេះដើម្បីទទួលប្រាក់តាម Aura</div>
+
+    <a class="btn" id="dl" href="/download/aura.apk" download>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 21h16"/></svg>
+      ទាញយកកម្មវិធី Android
+    </a>
+    <a class="btn ghost" id="iosBtn" href="/download/aura.apk" hidden>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.7.8-3.4.8-.7 0-1.8-.8-3-.8-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.7 2.3 2.9 2.3 1.1 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.8-2.2c.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.6-1-2.6-3.4zM14 5.8c.6-.8 1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.9-1 2.9 1 .1 2-.5 2.8-1.3z"/></svg>
+      iOS — មកដល់ឆាប់ៗ
+    </a>
+
+    <div class="pill"><span class="dot"></span><span id="liveText">QR សកម្ម</span></div>
+    <div class="os" id="os"></div>
+    <div class="foot">© Aura Bank · ប្រើប្រាស់ដោយសុវត្ថិភាព</div>
+  </main>
+
+<script>
+(function () {
+  var API = 'https://bank-backend-f6ay.onrender.com';
+  var code = new URLSearchParams(location.search).get('c') || '';
+  var ua = navigator.userAgent || '';
+  var isAndroid = /android/i.test(ua);
+  var isIOS = /iphone|ipad|ipod/i.test(ua);
+  var dl = document.getElementById('dl');
+  var iosBtn = document.getElementById('iosBtn');
+  var body = document.getElementById('body');
+  var hint = document.getElementById('hint');
+  var os = document.getElementById('os');
+  var liveText = document.getElementById('liveText');
+
+  if (isIOS) {
+    dl.hidden = true;
+    iosBtn.hidden = false;
+    iosBtn.removeAttribute('href');
+    iosBtn.style.opacity = '.75';
+    os.innerHTML = 'កម្មវិធី iOS កំពុងត្រូវបានអភិវឌ្ឍ ·<br>សូមប្រើ Android ជាបណ្ដោះអាសន្ន';
+  } else if (isAndroid) {
+    iosBtn.hidden = true;
+    os.innerHTML = 'ចុចខាងលើ → ដំឡើង APK →<br>បើកកម្មវិធី ហើយស្កេន QR នេះម្ដងទៀត';
+  } else {
+    iosBtn.hidden = true;
+    os.innerHTML = 'កម្មវិធីមានសម្រាប់ Android ·<br>បើកលើទូរស័ព្ទ ដើម្បីទាញយក';
+    dl.querySelector('span') || null;
+  }
+
+  function money(v) {
+    if (v == null || v === '') return '';
+    var n = Number(v);
+    if (!isFinite(n)) return '';
+    return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  if (!code) {
+    body.innerHTML = '<h1>QR មិនត្រឹមត្រូវ</h1><div class="err">សូមស្កេន QR ថ្មីពីកម្មវិធី Aura</div>';
+    hint.style.display = 'none';
+    return;
+  }
+
+  fetch(API + '/qr/public/' + encodeURIComponent(code))
+    .then(function (r) { if (!r.ok) throw new Error('expired'); return r.json(); })
+    .then(function (j) {
+      var d = j && j.data ? j.data : j;
+      var first = String(d.name || '').trim().split(/\s+/)[0] || 'អ្នកប្រើ Aura';
+      body.innerHTML = '<h1>បង់ប្រាក់ទៅ</h1>' +
+        '<div class="name">' + esc(first) + '</div>' +
+        (d.amount ? '<div class="amount">' + money(d.amount) + '</div>' : '');
+      hint.textContent = 'អ្នកនេះមិនទាន់ភ្ជាប់ KHQR នៅឡើយ — ទាញយក Aura ដើម្បីបង់ប្រាក់បានភ្លាមៗ';
+
+      var left = Math.max(0, Math.round((new Date(d.expires_at).getTime() - Date.now()) / 1000));
+      if (isFinite(left)) {
+        liveText.textContent = 'QR សកម្ម · ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
+        var t = setInterval(function () {
+          left -= 1;
+          if (left <= 0) { clearInterval(t); liveText.textContent = 'QR ផុតកំណត់'; return; }
+          liveText.textContent = 'QR សកម្ម · ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
+        }, 1000);
+      }
+    })
+    .catch(function () {
+      body.innerHTML = '<h1>QR នេះផុតកំណត់ហើយ</h1>' +
+        '<div class="err">សូមអោយម្ចាស់គណនីបង្កើត QR ថ្មី</div>';
+      hint.style.display = 'none';
+      document.querySelector('.pill').style.display = 'none';
+    });
+})();
+</script>
+</body>
+</html>
