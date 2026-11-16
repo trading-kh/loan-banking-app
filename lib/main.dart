@@ -12018,6 +12018,76 @@ class _DashedLinePainter extends CustomPainter {
   bool shouldRepaint(_DashedLinePainter oldDelegate) => false;
 }
 
+/// ផ្លាកកណ្ដាល QR — រង្វង់ក្រហម + ស៊ុមស + រូបខែលសដែលមានសញ្ញាធរណីមាត្រខាងក្នុង
+class _KhqrCenterBadge extends StatelessWidget {
+  const _KhqrCenterBadge({this.size = 60});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(5),
+        decoration: const BoxDecoration(
+            color: Colors.white, shape: BoxShape.circle),
+        child: Container(
+          width: size, height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+                colors: [Color(0xFFEE3B3F), Color(0xFFC8141A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight),
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.20),
+                  blurRadius: 10, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(size * 0.16),
+            child: const CustomPaint(painter: _CrestPainter()),
+          ),
+        ),
+      );
+}
+
+class _CrestPainter extends CustomPainter {
+  const _CrestPainter();
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final w = s.width, h = s.height;
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(2.0, w * 0.10)
+      ..strokeJoin = StrokeJoin.round
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white;
+
+    final shield = Path()
+      ..moveTo(w * 0.50, h * 0.05)
+      ..lineTo(w * 0.93, h * 0.23)
+      ..lineTo(w * 0.93, h * 0.52)
+      ..quadraticBezierTo(w * 0.93, h * 0.85, w * 0.50, h * 0.96)
+      ..quadraticBezierTo(w * 0.07, h * 0.85, w * 0.07, h * 0.52)
+      ..lineTo(w * 0.07, h * 0.23)
+      ..close();
+    canvas.drawPath(shield, stroke);
+
+    final cx = w * 0.5, cy = h * 0.50, d = w * 0.17;
+    final diamond = Path()
+      ..moveTo(cx, cy - d)
+      ..lineTo(cx + d, cy)
+      ..lineTo(cx, cy + d)
+      ..lineTo(cx - d, cy)
+      ..close();
+    canvas.drawPath(diamond, stroke);
+  }
+
+  @override
+  bool shouldRepaint(_CrestPainter oldDelegate) => false;
+}
+
 class QrScreen extends StatefulWidget {
   final bool startScan;
   const QrScreen({super.key, this.startScan = false});
@@ -12498,7 +12568,7 @@ class _QrScreenState extends State<QrScreen>
   }
 
   Widget _qrPanel(BuildContext context) {
-    const side = 234.0;
+    const side = 252.0;
     if (_qrToken == null) {
       return SizedBox(
         height: side, width: side,
@@ -12520,20 +12590,23 @@ class _QrScreenState extends State<QrScreen>
         ),
       );
     }
-    return QrImageView(
-      data: _payload,
-      version: QrVersions.auto,
-      size: side,
-      errorCorrectionLevel: QrErrorCorrectLevel.H,
-      backgroundColor: Colors.white,
-      eyeStyle: const QrEyeStyle(
-          eyeShape: QrEyeShape.square, color: Color(0xFF111111)),
-      dataModuleStyle: const QrDataModuleStyle(
-          dataModuleShape: QrDataModuleShape.square,
-          color: Color(0xFF111111)),
-      embeddedImage: const AssetImage('assets/icon/khqr_center.png'),
-      embeddedImageStyle: const QrEmbeddedImageStyle(
-          size: Size(48, 48), color: Colors.white),
+    return SizedBox(
+      width: side, height: side,
+      child: Stack(alignment: Alignment.center, children: [
+        QrImageView(
+          data: _payload,
+          version: QrVersions.auto,
+          size: side,
+          errorCorrectionLevel: QrErrorCorrectLevel.H,
+          backgroundColor: Colors.white,
+          eyeStyle: const QrEyeStyle(
+              eyeShape: QrEyeShape.square, color: Colors.black),
+          dataModuleStyle: const QrDataModuleStyle(
+              dataModuleShape: QrDataModuleShape.square,
+              color: Colors.black),
+        ),
+        const _KhqrCenterBadge(size: 60),
+      ]),
     );
   }
 
