@@ -5831,7 +5831,7 @@ class _AuraNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = context.isDark;
     final inset = MediaQuery.of(context).padding.bottom;
-    const hump = 28.0, barH = 76.0;
+    const hump = 10.0, barH = 74.0;
     return SizedBox(
       height: hump + barH + inset,
       child: Stack(
@@ -5854,14 +5854,14 @@ class _AuraNav extends StatelessWidget {
               children: [
                 _tab(context, 0),
                 _tab(context, 1),
-                const SizedBox(width: 86),
+                const SizedBox(width: 78),
                 _tab(context, 2),
                 _tab(context, 3),
               ],
             ),
           ),
           Positioned(
-            top: 0,
+            top: 2,
             left: 0,
             right: 0,
             child: Center(child: _scanButton(context)),
@@ -5905,7 +5905,7 @@ class _AuraNav extends StatelessWidget {
     );
   }
 
-  // ប៊ូតុង KHQR ស្កេន — ធំ ចំកណ្ដាល អង្គុយលើទួលរបស់បារ
+  // ប៊ូតុង KHQR ស្កេន — ខ្ពស់ជាង tab ដទៃតែបន្តិច
   Widget _scanButton(BuildContext context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -5913,9 +5913,9 @@ class _AuraNav extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
             onTap: onScan,
             child: Container(
-              width: 58,
-              height: 58,
-              padding: const EdgeInsets.all(13),
+              width: 52,
+              height: 52,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
@@ -5923,13 +5923,12 @@ class _AuraNav extends StatelessWidget {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                border: Border.all(color: Colors.white, width: 2.6),
+                border: Border.all(color: Colors.white, width: 2.4),
                 boxShadow: [
                   BoxShadow(
-                      color: C.abaRed.withValues(alpha: 0.45),
-                      blurRadius: 20,
-                      spreadRadius: 1,
-                      offset: const Offset(0, 6)),
+                      color: C.abaRed.withValues(alpha: 0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4)),
                 ],
               ),
               child: const _ScanGlyph(),
@@ -5946,37 +5945,16 @@ class _AuraNav extends StatelessWidget {
       );
 }
 
-/// រូបស្កេនគូរដោយ vector — ដំណើរការលើគ្រប់វេទិកា ហើយមើលឃើញច្បាស់
-class _ScanGlyph extends StatefulWidget {
+/// រូបស្កេនគូរដោយ vector (static — គ្មាន animation ដើម្បីសន្សំថាមពល)
+class _ScanGlyph extends StatelessWidget {
   const _ScanGlyph();
   @override
-  State<_ScanGlyph> createState() => _ScanGlyphState();
-}
-
-class _ScanGlyphState extends State<_ScanGlyph>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1900))
-    ..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) => CustomPaint(
-          painter: _ScanGlyphPainter(_c.value),
-        ),
-      );
+  Widget build(BuildContext context) =>
+      const CustomPaint(painter: _ScanGlyphPainter());
 }
 
 class _ScanGlyphPainter extends CustomPainter {
-  _ScanGlyphPainter(this.t);
-  final double t;
+  const _ScanGlyphPainter();
 
   @override
   void paint(Canvas canvas, Size s) {
@@ -6024,13 +6002,13 @@ class _ScanGlyphPainter extends CustomPainter {
           dot);
     }
 
-    // បន្ទាត់ស្កេនរត់ឡើងចុះ + ពន្លឺ soft glow
-    final y = inset + corner * 0.4 + t * (h - 2 * inset - corner * 0.8);
+    // បន្ទាត់ស្កេន (static) + ពន្លឺ soft glow
+    final y = inset + corner * 0.55;
     final glow = Paint()
       ..shader = LinearGradient(
         colors: [
           Colors.white.withValues(alpha: 0),
-          Colors.white.withValues(alpha: .95),
+          Colors.white.withValues(alpha: .85),
           Colors.white.withValues(alpha: 0),
         ],
       ).createShader(Rect.fromLTWH(inset, y - 4, w - 2 * inset, 8))
@@ -6040,17 +6018,17 @@ class _ScanGlyphPainter extends CustomPainter {
         Offset(inset, y),
         Offset(w - inset, y),
         Paint()
-          ..strokeWidth = 1.6
+          ..strokeWidth = 1.5
           ..strokeCap = StrokeCap.round
-          ..color = Colors.white.withValues(alpha: .95));
+          ..color = Colors.white.withValues(alpha: .9));
   }
 
   @override
-  bool shouldRepaint(_ScanGlyphPainter old) => old.t != t;
+  bool shouldRepaint(_ScanGlyphPainter old) => false;
 }
 
-/// Background បារខាងក្រោម — ទួលកណ្ដាលសម្រាប់ KHQR, ពន្លឺស្រទាប់ៗ
-/// និងសរសៃស្តើងៗលាយទៅនឹង background (មិនច្បាស់ខ្លាំង)
+/// Background បារ — mesh ស្តើងៗ (grid + dot matrix + រលកស្រាល + grain)
+/// និងពន្លឺ neon តែមួយកន្លែងនៅក្រោយ KHQR
 class _NavAuraPainter extends CustomPainter {
   _NavAuraPainter({
     required this.dark,
@@ -6065,12 +6043,13 @@ class _NavAuraPainter extends CustomPainter {
   void paint(Canvas canvas, Size s) {
     final w = s.width, h = s.height;
     final cx = w / 2;
-    final bw = math.min(66.0, w * 0.22);
+    final bw = math.min(56.0, w * 0.18);
+    final rect = Offset.zero & s;
 
-    // ០) បំពេញផ្ទៃខាងលើទួលដោយពណ៌ background ដើម្បីឱ្យបារមើលទៅជាទួល
-    canvas.drawRect(Offset.zero & s, Paint()..color = bg);
+    // ០) ផ្ទៃខាងលើទួល = ពណ៌ background ធម្មតា
+    canvas.drawRect(rect, Paint()..color = bg);
 
-    // ១) រាងបារ + ទួលកណ្ដាល
+    // ១) រាងបារ (ទួលតូចកណ្ដាល)
     final shape = Path()
       ..moveTo(0, hump)
       ..lineTo(cx - bw, hump)
@@ -6087,95 +6066,82 @@ class _NavAuraPainter extends CustomPainter {
 
     canvas.save();
     canvas.clipPath(shape);
-    final rect = Offset.zero & s;
 
-    // ២) ពន្លឺស្នូលក្រោយប៊ូតុង KHQR — ភ្លឺបំផុតតែមិនឆេវ
-    final core = Offset(cx, hump * .55);
+    final tint = dark ? Colors.white : const Color(0xFF1D6FA5);
+
+    // ២) ពន្លឺ neon តែមួយកន្លែង — ក្រោយប៊ូតុង KHQR
     canvas.drawRect(
         rect,
         Paint()
           ..shader = RadialGradient(
             colors: [
-              (dark ? Colors.white : const Color(0xFFD8F1FF))
-                  .withValues(alpha: dark ? .14 : .55),
-              (dark ? C.accentTeal : const Color(0xFF9BD8FF))
-                  .withValues(alpha: dark ? .07 : .16),
+              (dark ? const Color(0xFF6BE3FF) : const Color(0xFF9BD8FF))
+                  .withValues(alpha: dark ? .16 : .38),
+              (dark ? const Color(0xFF2A8BC9) : const Color(0xFFCFEFFF))
+                  .withValues(alpha: dark ? .08 : .14),
               Colors.transparent,
             ],
             stops: const [0.0, .42, 1.0],
           ).createShader(
-              Rect.fromCircle(center: core, radius: w * 0.42)));
+              Rect.fromCircle(center: Offset(cx, hump * .6 + 4),
+                  radius: w * 0.30)));
 
-    // ៣) ពន្លឺស្រាលៗហូរចេញពីគែមឆ្វេង និងស្ដាំ
-    for (final x in [0.0, w]) {
-      canvas.drawRect(
-          rect,
-          Paint()
-            ..shader = RadialGradient(
-              colors: [
-                (dark ? C.accent : const Color(0xFF9BD8FF))
-                    .withValues(alpha: dark ? .10 : .14),
-                Colors.transparent,
-              ],
-            ).createShader(Rect.fromCircle(
-                center: Offset(x, h * .58), radius: w * .44)));
+    // ៣) grid ស្តើងៗ (មិនច្បាស់ — គ្រាន់តែឃើញស្រអាប់)
+    final grid = Paint()
+      ..strokeWidth = .5
+      ..color = tint.withValues(alpha: dark ? .022 : .030);
+    const step = 16.0;
+    for (double y = hump + step; y < h; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(w, y), grid);
+    }
+    for (double x = step; x < w; x += step) {
+      canvas.drawLine(Offset(x, hump), Offset(x, h), grid);
     }
 
-    // ៤) សរសៃអំបោះស្តើងបំផុត — លាយជាមួយ background ស្ទើរមិនដឹងខ្លួន
-    final fiber = Paint()
+    // ៤) dot matrix ឆ្លាស់ជួរ (isometric feel)
+    final dot = Paint()..color = tint.withValues(alpha: dark ? .055 : .060);
+    int row = 0;
+    for (double y = hump + step / 2; y < h; y += step, row++) {
+      final off = row.isEven ? 0.0 : -step / 2;
+      for (double x = off; x < w; x += step) {
+        canvas.drawCircle(Offset(x + step / 2, y), .55, dot);
+      }
+    }
+
+    // ៥) រលកស្រាល ២ ខ្សែ
+    final wave = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = .6
-      ..strokeCap = StrokeCap.round
-      ..color = (dark ? Colors.white : const Color(0xFF1D6FA5))
-          .withValues(alpha: dark ? .030 : .045);
-    final fibers = Path();
-    for (int i = 0; i < 18; i++) {
-      final f = i / 17;
-      final y0 = hump + f * (h - hump);
-      final spread = (f - .5) * 2;
-      fibers.moveTo(0, y0);
-      fibers.quadraticBezierTo(w * .28, h * .55 + spread * h * .22,
-          cx, hump + (h - hump) * .42 + spread * 7);
-      fibers.moveTo(w, y0);
-      fibers.quadraticBezierTo(w * .72, h * .55 + spread * h * .22,
-          cx, hump + (h - hump) * .42 + spread * 7);
+      ..strokeWidth = .7
+      ..color = tint.withValues(alpha: dark ? .045 : .050);
+    for (int k = 0; k < 2; k++) {
+      final baseY = hump + (h - hump) * (0.44 + k * .24);
+      final p = Path();
+      for (double x = 0; x <= w; x += 6) {
+        final y = baseY + math.sin((x / w) * math.pi * 2 + k * 1.6) * 4.5;
+        if (x == 0) {
+          p.moveTo(x, y);
+        } else {
+          p.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(p, wave);
     }
-    canvas.drawPath(fibers, fiber);
 
-    // ៥) ខ្សែពន្លឺស្តើងៗ ពីគែមចូលរកទួល — ស្រមោលស្រាល
-    final beam = Paint()
-      ..strokeWidth = .9
-      ..strokeCap = StrokeCap.round
-      ..shader = LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: [
-          (dark ? C.accentTeal : const Color(0xFF9BD8FF))
-              .withValues(alpha: .0),
-          (dark ? C.accentTeal : const Color(0xFF7CC7F5))
-              .withValues(alpha: dark ? .10 : .12),
-          (dark ? Colors.white : const Color(0xFF7CC7F5))
-              .withValues(alpha: dark ? .07 : .06),
-          (dark ? Colors.white : const Color(0xFF7CC7F5))
-              .withValues(alpha: dark ? .07 : .06),
-          (dark ? C.accentTeal : const Color(0xFF7CC7F5))
-              .withValues(alpha: dark ? .10 : .12),
-          (dark ? C.accentTeal : const Color(0xFF9BD8FF))
-              .withValues(alpha: .0),
-        ],
-        stops: const [0, .2, .46, .54, .8, 1],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-    canvas.drawPath(
-        Path()
-          ..moveTo(0, h * .74)
-          ..quadraticBezierTo(w * .32, h * .50, cx, hump * .45)
-          ..moveTo(w, h * .74)
-          ..quadraticBezierTo(w * .68, h * .50, cx, hump * .45),
-        beam);
+    // ៦) grain ល្អិតៗ — បំបាត់ color banding
+    final rnd = math.Random(11);
+    final grain = Paint()
+      ..color = (dark ? Colors.white : const Color(0xFF0F2A3D))
+          .withValues(alpha: dark ? .028 : .030);
+    for (int i = 0; i < 220; i++) {
+      canvas.drawCircle(
+          Offset(rnd.nextDouble() * w, hump + rnd.nextDouble() * (h - hump)),
+          .3 + rnd.nextDouble() * .35,
+          grain);
+    }
 
     canvas.restore();
 
-    // ៦) ខ្សែស្តើងតាមគែមរាងបារ
+    // ៧) ខ្សែស្តើងតាមរាងបារ
     canvas.drawPath(
         shape,
         Paint()
