@@ -5828,31 +5828,48 @@ class _AuraNav extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) => Container(
-        decoration: BoxDecoration(
-          color: context.isDark ? const Color(0xFF022B45) : context.card,
-          border: Border(top: BorderSide(color: context.border)),
-        ),
-        // ពន្លឺហូរពីគែមឆ្វេង-ស្ដាំចូលកណ្ដាល (ភ្លឺបំផុតត្រង់ KHQR) + សរសៃអំបោះ
-        child: CustomPaint(
-          painter: _NavAuraPainter(dark: context.isDark),
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height: 76,
-              child: Row(
-                children: [
-                  _tab(context, 0),
-                  _tab(context, 1),
-                  SizedBox(width: 86, child: _scanButton(context)),
-                  _tab(context, 2),
-                  _tab(context, 3),
-                ],
+  Widget build(BuildContext context) {
+    final dark = context.isDark;
+    final inset = MediaQuery.of(context).padding.bottom;
+    const hump = 28.0, barH = 76.0;
+    return SizedBox(
+      height: hump + barH + inset,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _NavAuraPainter(
+                dark: dark,
+                hump: hump,
+                bg: context.bg,
               ),
             ),
           ),
-        ),
-      );
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: inset,
+            height: barH,
+            child: Row(
+              children: [
+                _tab(context, 0),
+                _tab(context, 1),
+                const SizedBox(width: 86),
+                _tab(context, 2),
+                _tab(context, 3),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Center(child: _scanButton(context)),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _tab(BuildContext context, int i) {
     final it = _items[i];
@@ -5888,50 +5905,44 @@ class _AuraNav extends StatelessWidget {
     );
   }
 
-  // ប៊ូតុង KHQR ស្កេន — ធំ ចំកណ្ដាល លេចមុខជាង tab ធម្មតា
-  Widget _scanButton(BuildContext context) => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onScan,
-              child: Container(
-                width: 58,
-                height: 58,
-                padding: const EdgeInsets.all(13),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF7A7A), C.abaRed, Color(0xFFB12F2F)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(color: Colors.white, width: 2.6),
-                  boxShadow: [
-                    BoxShadow(
-                        color: C.abaRed.withValues(alpha: 0.55),
-                        blurRadius: 22,
-                        spreadRadius: 2,
-                        offset: const Offset(0, 6)),
-                    BoxShadow(
-                        color: Colors.white.withValues(alpha: 0.18),
-                        blurRadius: 10,
-                        spreadRadius: 1),
-                  ],
+  // ប៊ូតុង KHQR ស្កេន — ធំ ចំកណ្ដាល អង្គុយលើទួលរបស់បារ
+  Widget _scanButton(BuildContext context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onScan,
+            child: Container(
+              width: 58,
+              height: 58,
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFF7A7A), C.abaRed, Color(0xFFB12F2F)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                child: const _ScanGlyph(),
+                border: Border.all(color: Colors.white, width: 2.6),
+                boxShadow: [
+                  BoxShadow(
+                      color: C.abaRed.withValues(alpha: 0.45),
+                      blurRadius: 20,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 6)),
+                ],
               ),
+              child: const _ScanGlyph(),
             ),
-            const SizedBox(height: 3),
-            Text('KHQR',
-                style: TextStyle(
-                    color: context.isDark ? Colors.white : C.bgDark,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: .4)),
-          ],
-        ),
+          ),
+          const SizedBox(height: 3),
+          Text('KHQR',
+              style: TextStyle(
+                  color: context.isDark ? Colors.white : C.bgDark,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .4)),
+        ],
       );
 }
 
@@ -6038,101 +6049,144 @@ class _ScanGlyphPainter extends CustomPainter {
   bool shouldRepaint(_ScanGlyphPainter old) => old.t != t;
 }
 
-/// Background បារខាងក្រោម — ពន្លឺពីគែមទាំងពីរផ្សាយចូលកណ្ដាល + សរសៃអំបោះស្តើង
+/// Background បារខាងក្រោម — ទួលកណ្ដាលសម្រាប់ KHQR, ពន្លឺស្រទាប់ៗ
+/// និងសរសៃស្តើងៗលាយទៅនឹង background (មិនច្បាស់ខ្លាំង)
 class _NavAuraPainter extends CustomPainter {
-  _NavAuraPainter({required this.dark});
+  _NavAuraPainter({
+    required this.dark,
+    required this.hump,
+    required this.bg,
+  });
   final bool dark;
+  final double hump;
+  final Color bg;
 
   @override
   void paint(Canvas canvas, Size s) {
+    final w = s.width, h = s.height;
+    final cx = w / 2;
+    final bw = math.min(66.0, w * 0.22);
+
+    // ០) បំពេញផ្ទៃខាងលើទួលដោយពណ៌ background ដើម្បីឱ្យបារមើលទៅជាទួល
+    canvas.drawRect(Offset.zero & s, Paint()..color = bg);
+
+    // ១) រាងបារ + ទួលកណ្ដាល
+    final shape = Path()
+      ..moveTo(0, hump)
+      ..lineTo(cx - bw, hump)
+      ..cubicTo(cx - bw * .46, hump, cx - bw * .44, 0, cx, 0)
+      ..cubicTo(cx + bw * .44, 0, cx + bw * .46, hump, cx + bw, hump)
+      ..lineTo(w, hump)
+      ..lineTo(w, h)
+      ..lineTo(0, h)
+      ..close();
+    canvas.drawPath(
+        shape,
+        Paint()
+          ..color = dark ? const Color(0xFF022B45) : const Color(0xFFFFFFFF));
+
+    canvas.save();
+    canvas.clipPath(shape);
     final rect = Offset.zero & s;
 
-    // ១) ពន្លឺស្នូលនៅកណ្ដាល (ក្រោយប៊ូតុង KHQR) — ភ្លឺបំផុត
-    final core = Offset(s.width / 2, s.height * 0.26);
+    // ២) ពន្លឺស្នូលក្រោយប៊ូតុង KHQR — ភ្លឺបំផុតតែមិនឆេវ
+    final core = Offset(cx, hump * .55);
     canvas.drawRect(
         rect,
         Paint()
           ..shader = RadialGradient(
             colors: [
-              (dark ? Colors.white : const Color(0xFFCFEFFF))
-                  .withValues(alpha: dark ? .26 : .85),
-              (dark ? C.accentTeal : const Color(0xFF7FD3FF))
-                  .withValues(alpha: dark ? .12 : .22),
+              (dark ? Colors.white : const Color(0xFFD8F1FF))
+                  .withValues(alpha: dark ? .14 : .55),
+              (dark ? C.accentTeal : const Color(0xFF9BD8FF))
+                  .withValues(alpha: dark ? .07 : .16),
               Colors.transparent,
             ],
-            stops: const [0.0, .45, 1.0],
-          ).createShader(Rect.fromCircle(
-              center: core, radius: s.width * 0.52)));
+            stops: const [0.0, .42, 1.0],
+          ).createShader(
+              Rect.fromCircle(center: core, radius: w * 0.42)));
 
-    // ២) ពន្លឺហូរចេញពីគែមឆ្វេង និងស្ដាំ
-    for (final x in [0.0, s.width]) {
+    // ៣) ពន្លឺស្រាលៗហូរចេញពីគែមឆ្វេង និងស្ដាំ
+    for (final x in [0.0, w]) {
       canvas.drawRect(
           rect,
           Paint()
             ..shader = RadialGradient(
               colors: [
-                (dark ? C.accent : const Color(0xFF8ED0FF))
-                    .withValues(alpha: dark ? .22 : .30),
+                (dark ? C.accent : const Color(0xFF9BD8FF))
+                    .withValues(alpha: dark ? .10 : .14),
                 Colors.transparent,
               ],
             ).createShader(Rect.fromCircle(
-                center: Offset(x, s.height * .55),
-                radius: s.width * .46)));
+                center: Offset(x, h * .58), radius: w * .44)));
     }
 
-    // ៣) សរសៃអំបោះតូចៗ ហូរពីគែមទាំងពីរចូលរកកណ្ដាល
+    // ៤) សរសៃអំបោះស្តើងបំផុត — លាយជាមួយ background ស្ទើរមិនដឹងខ្លួន
     final fiber = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = .8
+      ..strokeWidth = .6
       ..strokeCap = StrokeCap.round
       ..color = (dark ? Colors.white : const Color(0xFF1D6FA5))
-          .withValues(alpha: dark ? .075 : .10);
-    final path = Path();
-    for (int i = 0; i < 24; i++) {
-      final f = i / 23; // 0..1
-      final y0 = f * s.height;
-      final spread = (f - .5) * 2; // -1..1
-      // ឆ្វេង → កណ្ដាល
-      path.moveTo(0, y0);
-      path.quadraticBezierTo(s.width * .27,
-          s.height * .5 + spread * s.height * .30, s.width * .5,
-          s.height * .40 + spread * 9);
-      // ស្ដាំ → កណ្ដាល (កញ្ចក់)
-      path.moveTo(s.width, y0);
-      path.quadraticBezierTo(s.width * .73,
-          s.height * .5 + spread * s.height * .30, s.width * .5,
-          s.height * .40 + spread * 9);
+          .withValues(alpha: dark ? .030 : .045);
+    final fibers = Path();
+    for (int i = 0; i < 18; i++) {
+      final f = i / 17;
+      final y0 = hump + f * (h - hump);
+      final spread = (f - .5) * 2;
+      fibers.moveTo(0, y0);
+      fibers.quadraticBezierTo(w * .28, h * .55 + spread * h * .22,
+          cx, hump + (h - hump) * .42 + spread * 7);
+      fibers.moveTo(w, y0);
+      fibers.quadraticBezierTo(w * .72, h * .55 + spread * h * .22,
+          cx, hump + (h - hump) * .42 + spread * 7);
     }
-    canvas.drawPath(path, fiber);
+    canvas.drawPath(fibers, fiber);
 
-    // ៤) ខ្សែពន្លឺស្តើងៗ ពីគែមចូលកណ្ដាល (ស្រួចជាងសរសៃអំបោះ)
+    // ៥) ខ្សែពន្លឺស្តើងៗ ពីគែមចូលរកទួល — ស្រមោលស្រាល
     final beam = Paint()
-      ..strokeWidth = 1.1
+      ..strokeWidth = .9
       ..strokeCap = StrokeCap.round
       ..shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
         colors: [
-          (dark ? C.accentTeal : const Color(0xFF8ED0FF))
-              .withValues(alpha: dark ? .0 : .0),
-          (dark ? C.accentTeal : const Color(0xFF57B8FF))
-              .withValues(alpha: dark ? .28 : .30),
-          (dark ? Colors.white : const Color(0xFF57B8FF))
-              .withValues(alpha: dark ? .22 : .18),
-          Colors.transparent,
+          (dark ? C.accentTeal : const Color(0xFF9BD8FF))
+              .withValues(alpha: .0),
+          (dark ? C.accentTeal : const Color(0xFF7CC7F5))
+              .withValues(alpha: dark ? .10 : .12),
+          (dark ? Colors.white : const Color(0xFF7CC7F5))
+              .withValues(alpha: dark ? .07 : .06),
+          (dark ? Colors.white : const Color(0xFF7CC7F5))
+              .withValues(alpha: dark ? .07 : .06),
+          (dark ? C.accentTeal : const Color(0xFF7CC7F5))
+              .withValues(alpha: dark ? .10 : .12),
+          (dark ? C.accentTeal : const Color(0xFF9BD8FF))
+              .withValues(alpha: .0),
         ],
-        stops: const [0, .35, .85, 1],
-      ).createShader(Rect.fromLTWH(0, 0, s.width, s.height));
-    final beams = Path()
-      ..moveTo(0, s.height * .78)
-      ..quadraticBezierTo(s.width * .30, s.height * .52,
-          s.width * .5, s.height * .30)
-      ..moveTo(s.width, s.height * .78)
-      ..quadraticBezierTo(
-          s.width * .70, s.height * .52, s.width * .5, s.height * .30);
-    canvas.drawPath(beams, beam);
+        stops: const [0, .2, .46, .54, .8, 1],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawPath(
+        Path()
+          ..moveTo(0, h * .74)
+          ..quadraticBezierTo(w * .32, h * .50, cx, hump * .45)
+          ..moveTo(w, h * .74)
+          ..quadraticBezierTo(w * .68, h * .50, cx, hump * .45),
+        beam);
+
+    canvas.restore();
+
+    // ៦) ខ្សែស្តើងតាមគែមរាងបារ
+    canvas.drawPath(
+        shape,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = .8
+          ..color = dark ? C.line : const Color(0xFFE1E7ED));
   }
 
   @override
-  bool shouldRepaint(_NavAuraPainter old) => old.dark != dark;
+  bool shouldRepaint(_NavAuraPainter old) =>
+      old.dark != dark || old.hump != hump || old.bg != bg;
 }
 
 class _Nav {
