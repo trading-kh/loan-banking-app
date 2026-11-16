@@ -11944,58 +11944,19 @@ class _OtpSheetState extends State<_OtpSheet>
       );
 }
 
-/// ពន្លឺរសាត់ + sheen លើកាត KHQR — អារម្មណ៍ប្រាក់ចូល/ប្រាក់ចេញ
-class _KhqrAuraPainter extends CustomPainter {
-  const _KhqrAuraPainter({required this.phase});
+/// ពន្លឺរអិលលើក្បាលកាតក្រហម — កាតមានជីវិត តែមិនរំខានការស្កេន
+class _KhqrSheenPainter extends CustomPainter {
+  const _KhqrSheenPainter({required this.phase});
   final double phase;
 
   @override
   void paint(Canvas canvas, Size s) {
-    final w = s.width, h = s.height;
     final t = phase * 2 * math.pi;
+    final w = s.width, h = s.height;
+    final dx = (math.sin(t) * 0.5 + 0.5) * (w * 1.7) - w * 0.55;
+    final band = Rect.fromLTWH(dx, -h * 0.5, w * 0.34, h * 2);
     canvas.save();
     canvas.clipRect(Offset.zero & s);
-
-    final tealC = Offset(w * (0.80 + 0.09 * math.sin(t)),
-        h * (0.04 + 0.05 * math.cos(t)));
-    canvas.drawCircle(
-        tealC, w * 0.46,
-        Paint()
-          ..shader = RadialGradient(
-                  colors: [
-                    const Color(0xFF6BE3FF).withValues(alpha: 0.30),
-                    const Color(0x00000000)
-                  ])
-              .createShader(Rect.fromCircle(center: tealC, radius: w * 0.46)));
-
-    final redC = Offset(w * (0.04 + 0.07 * math.cos(t)),
-        h * (0.95 + 0.03 * math.sin(t)));
-    canvas.drawCircle(
-        redC, w * 0.42,
-        Paint()
-          ..shader = RadialGradient(colors: [
-            const Color(0xFFE05252).withValues(alpha: 0.20),
-            const Color(0x00000000)
-          ]).createShader(Rect.fromCircle(center: redC, radius: w * 0.42)));
-
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1
-      ..color = Colors.white.withValues(alpha: 0.055);
-    for (var i = 0; i < 4; i++) {
-      canvas.drawCircle(
-          Offset(w * 0.5 + math.sin(t) * 14, h * 1.08),
-          w * (0.32 + i * 0.20), arc);
-    }
-
-    // ពន្លឺបន្ទះរអិលកាត់កាត (sheen) — ស្រាលៗ
-    final bandW = w * 0.30;
-    final dx = math.sin(t) * w * 0.95;
-    canvas.save();
-    canvas.translate(w * 0.5 + dx, h * 0.5);
-    canvas.rotate(-0.42);
-    final band = Rect.fromCenter(
-        center: Offset.zero, width: bandW, height: h * 1.8);
     canvas.drawRect(
         band,
         Paint()
@@ -12004,17 +11965,57 @@ class _KhqrAuraPainter extends CustomPainter {
               end: Alignment.centerRight,
               colors: [
                 const Color(0x00FFFFFF),
-                Colors.white.withValues(alpha: 0.055),
-                const Color(0x00FFFFFF)
+                Colors.white.withValues(alpha: 0.18),
+                const Color(0x00FFFFFF),
               ]).createShader(band));
-    canvas.restore();
-
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_KhqrAuraPainter oldDelegate) =>
+  bool shouldRepaint(_KhqrSheenPainter oldDelegate) =>
       oldDelegate.phase != phase;
+}
+
+/// ជ្រុងបត់ក្រហមនៅកំពូលស្ដាំ (ដូចកាត KHQR ផ្លូវការ)
+class _KhqrFoldPainter extends CustomPainter {
+  const _KhqrFoldPainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(s.width, 0)
+      ..lineTo(s.width, s.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_KhqrFoldPainter oldDelegate) => oldDelegate.color != color;
+}
+
+class _DashedLinePainter extends CustomPainter {
+  const _DashedLinePainter();
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final paint = Paint()
+      ..color = const Color(0xFFD6D9DE)
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+    const dash = 7.0, gap = 6.0;
+    final y = s.height / 2;
+    var x = 0.0;
+    while (x < s.width) {
+      canvas.drawLine(
+          Offset(x, y), Offset(math.min(x + dash, s.width), y), paint);
+      x += dash + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedLinePainter oldDelegate) => false;
 }
 
 class QrScreen extends StatefulWidget {
@@ -12297,300 +12298,244 @@ class _QrScreenState extends State<QrScreen>
   // ══════════════════════════════════════════════════════════════════════════
   //  ②  SCANNER — កាមេរ៉ាពេញអេក្រង់ + overlay
   // ══════════════════════════════════════════════════════════════════════════
-  /// កាត KHQR ផ្ទាល់ខ្លួន — navy gradient រស់រវើក · logo កណ្ដាល QR · ប្រាក់ចូល/ចេញ
+  /// កាត KHQR ផ្ទាល់ខ្លួន — ស្ទីលកាត KHQR ផ្លូវការ (ក្បាលក្រហម · ជ្រុងបត់ · QR មានសញ្ញា KHQR កណ្ដាល)
   Widget _khqrCard(BuildContext context) {
+    const khqrRed = Color(0xFFE2282C);
     final amt = parseAmt(_amt.text);
     final isKhqr = _qrMode == 'khqr';
     final secs = _qrSecondsLeft;
     final progress = (secs / 300).clamp(0.0, 1.0);
     return Container(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF03243C), Color(0xFF0A4C72), Color(0xFF0C7695)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
         borderRadius: BorderRadius.circular(26),
         boxShadow: [
           BoxShadow(
-              color: const Color(0xFF03243C).withValues(alpha: 0.28),
-              blurRadius: 26, offset: const Offset(0, 14)),
+              color: const Color(0xFF0B2239).withValues(alpha: 0.20),
+              blurRadius: 32, offset: const Offset(0, 18)),
           BoxShadow(
-              color: C.accentTeal.withValues(alpha: 0.18),
-              blurRadius: 40, offset: const Offset(0, 8)),
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 6, offset: const Offset(0, 2)),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
-        child: Stack(children: [
-          Positioned.fill(
-            child: IgnorePointer(
-              child: RepaintBoundary(
-                child: AnimatedBuilder(
-                  animation: _aura,
-                  builder: (_, __) => CustomPaint(
-                      painter: _KhqrAuraPainter(phase: _aura.value)),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Row(children: [
-                Container(
-                  width: 40, height: 40,
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.22),
-                        blurRadius: 10, offset: const Offset(0, 4))],
-                  ),
-                  child: ClipOval(
-                      child: Image.asset('assets/icon/aura_mark.png',
-                          fit: BoxFit.cover)),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                    const Text('AURA BANK',
-                        style: TextStyle(color: Colors.white,
-                            fontSize: 12, fontWeight: FontWeight.w800,
-                            letterSpacing: 1.8)),
-                    const SizedBox(height: 2),
-                    Text(_displayName.toUpperCase(),
-                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.78),
-                            fontSize: 12, fontWeight: FontWeight.w600)),
-                  ]),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                        colors: [Color(0xFFE85F5F), C.abaRed]),
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [BoxShadow(
-                        color: C.abaRed.withValues(alpha: 0.4),
-                        blurRadius: 12, offset: const Offset(0, 4))],
-                  ),
-                  child: const Text('KHQR',
-                      style: TextStyle(color: Colors.white,
-                          fontWeight: FontWeight.w900, fontSize: 11,
-                          letterSpacing: 1.6)),
-                ),
-              ]),
-              const SizedBox(height: 12),
-              _modeBadge(isKhqr),
-              const SizedBox(height: 12),
-              _qrPanel(context),
-              const SizedBox(height: 13),
-              amt == null
-                  ? Text('ស្កេនដើម្បីបង់ប្រាក់មកខ្ញុំ',
-                      style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          fontSize: 13, fontWeight: FontWeight.w700))
-                  : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Text('ទឹកប្រាក់ ',
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.62),
-                              fontSize: 12.5, fontWeight: FontWeight.w600)),
-                      Text(money(amt),
-                          style: const TextStyle(color: Colors.white,
-                              fontSize: 19, fontWeight: FontWeight.w900)),
-                    ]),
-              const SizedBox(height: 12),
-              Row(children: [
-                Expanded(
-                  child: _flowPill(Icons.south_west_rounded, 'ប្រាក់ចូល',
-                      'ស្កេនបង់មកខ្ញុំ', C.accentGreen),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _flowPill(Icons.north_east_rounded, 'ប្រាក់ចេញ',
-                      'ខ្ញុំស្កេនទៅគេ', C.accentGold),
-                ),
-              ]),
-              const SizedBox(height: 14),
-              Row(children: [
-                Container(
-                  width: 7, height: 7,
-                  decoration: BoxDecoration(
-                      color: secs > 0 ? C.accentGreen : C.abaRed,
-                      shape: BoxShape.circle,
-                      boxShadow: [BoxShadow(
-                          color: (secs > 0 ? C.accentGreen : C.abaRed)
-                              .withValues(alpha: 0.5),
-                          blurRadius: 6)]),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                    secs > 0
-                        ? 'សុពលភាព ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}'
-                        : 'ផុតកំណត់ — កំពុងបង្កើតថ្មី',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.66),
-                        fontSize: 10.5, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                Text(isKhqr ? 'KHQR ពិត' : 'អញ្ជើញ',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.62),
-                        fontSize: 10, fontWeight: FontWeight.w700,
-                        letterSpacing: 0.4)),
-              ]),
-              const SizedBox(height: 7),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: Container(
-                  height: 4,
-                  color: Colors.white.withValues(alpha: 0.13),
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: progress,
-                    child: Container(
-                      decoration: const BoxDecoration(
+        child: ColoredBox(
+          color: Colors.white,
+          child: Stack(
+            children: [
+              Column(mainAxisSize: MainAxisSize.min, children: [
+                // ── ក្បាលក្រហម + KHQR wordmark ──
+                SizedBox(
+                  height: 94,
+                  child: Stack(fit: StackFit.expand, children: [
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
-                            colors: [Color(0xFF2FBF8F), Color(0xFF6BE3FF)]),
+                          colors: [
+                            Color(0xFFEE3A3E), khqrRed, Color(0xFFD81F24)
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
                       ),
                     ),
-                  ),
+                    IgnorePointer(
+                      child: RepaintBoundary(
+                        child: AnimatedBuilder(
+                          animation: _aura,
+                          builder: (_, __) => CustomPaint(
+                              painter: _KhqrSheenPainter(phase: _aura.value)),
+                        ),
+                      ),
+                    ),
+                    Center(
+                      child: Image.asset('assets/icon/khqr_wordmark.png',
+                          height: 30, fit: BoxFit.contain),
+                    ),
+                  ]),
+                ),
+                // ── តួកាតស ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_displayName.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Color(0xFF13202C),
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.6)),
+                          const SizedBox(height: 6),
+                          Row(children: [
+                            Flexible(
+                              child: Text(
+                                  amt == null
+                                      ? 'ស្កេនដើម្បីបង់ប្រាក់មកខ្ញុំ'
+                                      : 'ទឹកប្រាក់ ${money(amt)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: Color(0xFF6B7A8A),
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: (isKhqr ? C.accentGreen : C.accentGold)
+                                    .withValues(alpha: 0.13),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(
+                                    isKhqr
+                                        ? Icons.verified_rounded
+                                        : Icons.download_rounded,
+                                    size: 11,
+                                    color:
+                                        isKhqr ? C.accentGreen : C.accentGold),
+                                const SizedBox(width: 3),
+                                Text(isKhqr ? 'KHQR ពិត' : 'អញ្ជើញ',
+                                    style: TextStyle(
+                                        color: isKhqr
+                                            ? C.accentGreen
+                                            : C.accentGold,
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w800)),
+                              ]),
+                            ),
+                          ]),
+                        ]),
+                    const SizedBox(height: 16),
+                    const SizedBox(
+                        width: double.infinity, height: 1.4,
+                        child: CustomPaint(painter: _DashedLinePainter())),
+                    const SizedBox(height: 20),
+                    _qrPanel(context),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      Container(
+                        width: 7, height: 7,
+                        decoration: BoxDecoration(
+                            color: secs > 0 ? C.accentGreen : C.abaRed,
+                            shape: BoxShape.circle,
+                            boxShadow: [BoxShadow(
+                                color: (secs > 0 ? C.accentGreen : C.abaRed)
+                                    .withValues(alpha: 0.45),
+                                blurRadius: 6)]),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                          secs > 0
+                              ? 'សុពលភាព ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}'
+                              : 'ផុតកំណត់ — កំពុងបង្កើតថ្មី',
+                          style: const TextStyle(
+                              color: Color(0xFF7B8898),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700)),
+                      const Spacer(),
+                      Text(isKhqr ? 'EMVCo · Bakong' : 'Aura invite',
+                          style: const TextStyle(
+                              color: Color(0xFF9AA6B4),
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.4)),
+                    ]),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: SizedBox(
+                        height: 4,
+                        child: ColoredBox(
+                          color: const Color(0xFFEDEFF3),
+                          child: FractionallySizedBox(
+                            alignment: Alignment.centerLeft,
+                            widthFactor: progress,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(colors: [
+                                  Color(0xFFE2282C), Color(0xFFFF8A5C)
+                                ]),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                        isKhqr
+                            ? 'ធនាគារណាមួយស្កេនបង់បាន · ប្រាក់ចូលគណនី KHQR របស់អ្នក'
+                            : 'កាមេរ៉ាស្កេន → ទាញយក Aura · ក្នុង Aura → បង់ប្រាក់ភ្លាម',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: Color(0xFF98A4B2),
+                            fontSize: 10, height: 1.5,
+                            fontWeight: FontWeight.w500)),
+                  ]),
+                ),
+              ]),
+              // ── ជ្រុងបត់ក្រហម ──
+              Positioned(
+                top: 94, right: 0,
+                child: SizedBox(
+                  width: 76, height: 76,
+                  child: CustomPaint(painter: const _KhqrFoldPainter(khqrRed)),
                 ),
               ),
-              const SizedBox(height: 11),
-              Text(
-                  isKhqr
-                      ? 'ធនាគារណាមួយស្កេនបង់បាន · ប្រាក់ចូលគណនី KHQR របស់អ្នក'
-                      : 'កាមេរ៉ាស្កេន → ទាញយក Aura · ក្នុង Aura → បង់ប្រាក់ភ្លាម',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.52),
-                      fontSize: 10, height: 1.5,
-                      fontWeight: FontWeight.w500)),
-            ]),
+            ],
           ),
-        ]),
+        ),
       ),
-    );
-  }
-
-  Widget _modeBadge(bool isKhqr) {
-    final tint = isKhqr ? C.accentGreen : C.accentGold;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-      decoration: BoxDecoration(
-        color: tint.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: tint.withValues(alpha: 0.34)),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(isKhqr ? Icons.verified_rounded : Icons.download_rounded,
-            size: 13, color: tint),
-        const SizedBox(width: 6),
-        Text(
-            isKhqr
-                ? 'ទទួលបានពីគ្រប់ធនាគារ'
-                : 'ស្កេនដោយកាមេរ៉ា → ទាញយកកម្មវិធី',
-            style: TextStyle(color: tint, fontSize: 10.5,
-                fontWeight: FontWeight.w700)),
-      ]),
     );
   }
 
   Widget _qrPanel(BuildContext context) {
-    const side = 228.0;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 20, offset: const Offset(0, 10))],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: _qrToken == null
-            ? SizedBox(
-                height: side, width: side,
-                child: Center(
-                  child: _qrLoading
-                      ? const CircularProgressIndicator(color: C.accent)
-                      : Column(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.qr_code_2, size: 60,
-                              color: Colors.black26),
-                          const SizedBox(height: 8),
-                          Text(_qrError ?? 'កំពុងត្រៀម QR…',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.black54)),
-                          if (!_qrLoading && _qrError != null)
-                            TextButton(
-                                onPressed: _generateQr,
-                                child: const Text('ព្យាយាមម្ដងទៀត')),
-                        ]),
-                ),
-              )
-            : QrImageView(
-                data: _payload,
-                version: QrVersions.auto,
-                size: side,
-                errorCorrectionLevel: QrErrorCorrectLevel.H,
-                backgroundColor: Colors.white,
-                eyeStyle: const QrEyeStyle(
-                    eyeShape: QrEyeShape.square,
-                    color: Color(0xFF062B45)),
-                dataModuleStyle: const QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.square,
-                    color: Color(0xFF062B45)),
-                embeddedImage: const AssetImage('assets/icon/aura_mark.png'),
-                embeddedImageStyle: const QrEmbeddedImageStyle(
-                    size: Size(44, 44), color: Colors.white),
-              ),
-      ),
+    const side = 234.0;
+    if (_qrToken == null) {
+      return SizedBox(
+        height: side, width: side,
+        child: Center(
+          child: _qrLoading
+              ? const CircularProgressIndicator(color: C.abaRed)
+              : Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.qr_code_2, size: 60, color: Colors.black26),
+                  const SizedBox(height: 8),
+                  Text(_qrError ?? 'កំពុងត្រៀម QR…',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.black54)),
+                  if (!_qrLoading && _qrError != null)
+                    TextButton(
+                        onPressed: _generateQr,
+                        child: const Text('ព្យាយាមម្ដងទៀត')),
+                ]),
+        ),
+      );
+    }
+    return QrImageView(
+      data: _payload,
+      version: QrVersions.auto,
+      size: side,
+      errorCorrectionLevel: QrErrorCorrectLevel.H,
+      backgroundColor: Colors.white,
+      eyeStyle: const QrEyeStyle(
+          eyeShape: QrEyeShape.square, color: Color(0xFF111111)),
+      dataModuleStyle: const QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Color(0xFF111111)),
+      embeddedImage: const AssetImage('assets/icon/khqr_emblem.png'),
+      embeddedImageStyle: const QrEmbeddedImageStyle(
+          size: Size(48, 48), color: Colors.white),
     );
   }
-
-  Widget _flowPill(IconData icon, String title, String sub, Color tint) =>
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
-        ),
-        child: Row(children: [
-          Container(
-            width: 28, height: 28,
-            decoration: BoxDecoration(
-                color: tint.withValues(alpha: 0.22),
-                shape: BoxShape.circle),
-            child: Icon(icon, size: 15, color: tint),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-              Text(title,
-                  style: const TextStyle(color: Colors.white,
-                      fontSize: 11.5, fontWeight: FontWeight.w700)),
-              Text(sub,
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.55),
-                      fontSize: 9.5, fontWeight: FontWeight.w500)),
-            ]),
-          ),
-        ]),
-      );
 
   Widget _buildFullScreenScanner(BuildContext context) {
     return Scaffold(
