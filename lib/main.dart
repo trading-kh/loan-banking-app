@@ -2065,13 +2065,19 @@ class AbaGrid extends StatelessWidget {
                                   Icon(items[idx].icon,
                                       color: iconCol, size: 40),
                               const SizedBox(height: 12),
-                              Text(items[idx].label,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      color: iconCol, fontSize: 13,
-                                      fontWeight: FontWeight.w700)),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(items[idx].label,
+                                      maxLines: 1,
+                                      style: TextStyle(
+                                          color: iconCol,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700)),
+                                ),
+                              ),
                             ],
                           )
                         : null,
@@ -5788,10 +5794,15 @@ class _MainShellState extends State<MainShell> {
                 const _ControlUOverlay(),
               ],
             ),
-            bottomNavigationBar: _AuraNav(current: i, onTap: (v) async {
-              if (v != 0 && !await ensureSignedIn(context)) return;
-              tabIndex.value = v;
-            }),
+            bottomNavigationBar: _AuraNav(
+              current: i,
+              onTap: (v) async {
+                if (v != 0 && !await ensureSignedIn(context)) return;
+                tabIndex.value = v;
+              },
+              onScan: () => guardedTap(context,
+                  () => push(context, const QrScreen(startScan: true))),
+            ),
           ),
         );
       },
@@ -5802,7 +5813,12 @@ class _MainShellState extends State<MainShell> {
 class _AuraNav extends StatelessWidget {
   final int current;
   final ValueChanged<int> onTap;
-  const _AuraNav({required this.current, required this.onTap});
+  final VoidCallback onScan;
+  const _AuraNav({
+    required this.current,
+    required this.onTap,
+    required this.onScan,
+  });
 
   static const _items = [
     _Nav(Icons.home_outlined, Icons.home_rounded, 'ដើម'),
@@ -5820,43 +5836,92 @@ class _AuraNav extends StatelessWidget {
         child: SafeArea(
           top: false,
           child: SizedBox(
-            height: 64,
+            height: 76,
             child: Row(
-              children: List.generate(_items.length, (i) {
-                final it = _items[i];
-                final sel = i == current;
-                final col = sel
-                    ? (context.isDark ? Colors.white : C.bgDark)
-                    : context.muted;
-                return Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onTap(i),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(sel ? it.active : it.icon, color: col, size: 24),
-                        const SizedBox(height: 3),
-                        Text(it.label,
-                            style: TextStyle(
-                                color: col, fontSize: 10.5,
-                                fontWeight:
-                                    sel ? FontWeight.w700 : FontWeight.w500)),
-                        const SizedBox(height: 2),
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width: sel ? 18 : 0, height: 2.5,
-                          decoration: BoxDecoration(
-                              color: C.abaRed,
-                              borderRadius: BorderRadius.circular(2)),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
+              children: [
+                _tab(context, 0),
+                _tab(context, 1),
+                SizedBox(width: 86, child: _scanButton(context)),
+                _tab(context, 2),
+                _tab(context, 3),
+              ],
             ),
           ),
+        ),
+      );
+
+  Widget _tab(BuildContext context, int i) {
+    final it = _items[i];
+    final sel = i == current;
+    final col = sel
+        ? (context.isDark ? Colors.white : C.bgDark)
+        : context.muted;
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onTap(i),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(sel ? it.active : it.icon, color: col, size: 24),
+            const SizedBox(height: 3),
+            Text(it.label,
+                style: TextStyle(
+                    color: col,
+                    fontSize: 10.5,
+                    fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
+            const SizedBox(height: 2),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: sel ? 18 : 0,
+              height: 2.5,
+              decoration: BoxDecoration(
+                  color: C.abaRed, borderRadius: BorderRadius.circular(2)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ប៊ូតុង KHQR ស្កេន — ធំ ចំកណ្ដាល លេចមុខជាង tab ធម្មតា
+  Widget _scanButton(BuildContext context) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onScan,
+              child: Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF6B6B), C.abaRed, Color(0xFFB93A3A)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  border: Border.all(color: Colors.white, width: 3),
+                  boxShadow: [
+                    BoxShadow(
+                        color: C.abaRed.withValues(alpha: 0.45),
+                        blurRadius: 16,
+                        offset: const Offset(0, 5)),
+                  ],
+                ),
+                child: const Icon(Icons.qr_code_scanner_rounded,
+                    color: Colors.white, size: 30),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text('KHQR',
+                style: TextStyle(
+                    color: context.isDark ? Colors.white : C.bgDark,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .4)),
+          ],
         ),
       );
 }
@@ -6808,6 +6873,413 @@ Future<Object?> push(BuildContext c, Widget w) =>
     Navigator.of(c).push(MaterialPageRoute(builder: (_) => w));
 
 // ============================================================================
+//  BORROWERS — អ្នកដែលបានខ្ចី (បញ្ជីកម្ចីរបស់គណនី)
+// ============================================================================
+/// រូបតំណាងក្រឡាចត្រង្គ — បន្ថែមពណ៌ជាក់លាក់ដើម្បីលេចមុខជាង icon ធម្មតា
+class BorrowerGlyph extends StatelessWidget {
+  const BorrowerGlyph({super.key, this.size = 44});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF8B5CF6), Color(0xFF4F46E5), Color(0xFF2563EB)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(size * 0.32),
+          boxShadow: [
+            BoxShadow(
+                color: const Color(0xFF6366F1).withValues(alpha: 0.4),
+                blurRadius: 14,
+                offset: const Offset(0, 5)),
+          ],
+        ),
+        child: Icon(Icons.handshake_rounded,
+            size: size * 0.52, color: Colors.white),
+      );
+}
+
+class BorrowersScreen extends StatefulWidget {
+  const BorrowersScreen({super.key});
+  @override
+  State<BorrowersScreen> createState() => _BorrowersScreenState();
+}
+
+class _BorrowersScreenState extends State<BorrowersScreen> {
+  bool _loading = true;
+  String? _err;
+  List<LoanRecord> _loans = [];
+  int? _opening;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _err = null;
+    });
+    try {
+      final rows = await ApiService.getLoans();
+      final list = rows
+          .map((e) => LoanRecord.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _loans = list;
+        _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _err = e.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _err = 'មិនអាចទាញយកទិន្នន័យបានទេ';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _openLoan(LoanRecord l) async {
+    if (!l.canPay) {
+      toast(context, 'កម្ចីនេះមិនទាន់សកម្មនៅឡើយទេ', error: true);
+      return;
+    }
+    setState(() => _opening = l.id);
+    try {
+      final r = await ApiService.getLoanSchedule();
+      final rows = ((r['rows'] as List<dynamic>?) ?? [])
+          .map((e) =>
+              LoanScheduleRow.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      final raw = r['loan'];
+      final loan = raw is Map
+          ? LoanRecord.fromJson(Map<String, dynamic>.from(raw))
+          : l;
+      if (!mounted) return;
+      setState(() => _opening = null);
+      push(context, LoanScheduleScreen(rows: rows, loan: loan));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _opening = null);
+      toast(context, e.message, error: true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _opening = null);
+      toast(context, 'មិនអាចបើកតារាងសងប្រាក់បានទេ', error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: const Text('អ្នកដែលបានខ្ចី'),
+          actions: [
+            IconButton(
+                onPressed: _loading ? null : _load,
+                icon: const Icon(Icons.refresh_rounded)),
+          ],
+        ),
+        body: RefreshIndicator(
+          color: C.accent,
+          onRefresh: _load,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+            children: [
+              _hero(context),
+              const SizedBox(height: 18),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 40),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_err != null)
+                _errorBox(context)
+              else if (_loans.isEmpty)
+                _empty(context)
+              else ...[
+                const SectionTitle('បញ្ជីអ្នកខ្ចី'),
+                for (final l in _loans)
+                  StaggeredItem(
+                      index: _loans.indexOf(l), child: _loanTile(context, l)),
+              ],
+            ],
+          ),
+        ),
+      );
+
+  Widget _hero(BuildContext context) {
+    final active = _loans.where((l) => l.status != 'rejected').toList();
+    final outstanding =
+        active.fold<double>(0, (s, l) => s + math.max(0, l.outstanding));
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: AuraGrad.brand,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+              color: C.brandStart.withValues(alpha: 0.35),
+              blurRadius: 22,
+              offset: const Offset(0, 10)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.14),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.28)),
+            ),
+            child: const Icon(Icons.handshake_rounded,
+                color: Colors.white, size: 30),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('អ្នកដែលបានខ្ចី',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Text('${active.length} កម្ចី',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('នៅសល់ត្រូវសង ${money(outstanding)}',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _errorBox(BuildContext context) => NeuBox(
+        child: Column(children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: C.accentRed.withValues(alpha: 0.12)),
+            child: const Icon(Icons.wifi_off_rounded,
+                color: C.accentRed, size: 30),
+          ),
+          const SizedBox(height: 14),
+          Text(_err!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.ink, fontSize: 13.5)),
+          const SizedBox(height: 16),
+          NeuButton(label: 'ព្យាយាមម្ដងទៀត', onPressed: _load),
+        ]),
+      );
+
+  Widget _empty(BuildContext context) => NeuBox(
+        child: Column(children: [
+          Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [Color(0xFF8B5CF6), Color(0xFF2563EB)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                    color: const Color(0xFF6366F1).withValues(alpha: 0.35),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8)),
+              ],
+            ),
+            child: const Icon(Icons.handshake_rounded,
+                color: Colors.white, size: 36),
+          ),
+          const SizedBox(height: 16),
+          Text('មិនទាន់មានអ្នកខ្ចីនៅឡើយទេ',
+              style: TextStyle(
+                  color: context.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Text(
+              'ពេលអ្នកស្នើសុំកម្ចី ហើយវាត្រូវបានអនុម័ត\nបញ្ជីអ្នកខ្ចីនឹងបង្ហាញនៅទីនេះ។',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: context.muted, fontSize: 12.5, height: 1.7)),
+          const SizedBox(height: 18),
+          NeuButton(
+              label: 'ស្នើសុំកម្ចី',
+              onPressed: () => push(context, const LoanModuleScreen())),
+        ]),
+      );
+
+  Widget _loanTile(BuildContext context, LoanRecord l) {
+    final active = l.status == 'disbursed' ||
+        l.status == 'active' ||
+        l.status == 'approved';
+    final color = l.status == 'rejected'
+        ? C.accentRed
+        : l.status == 'closed'
+            ? context.muted
+            : active
+                ? C.accentGreen
+                : C.accentGold;
+    final label = loanStatusLabels[l.status] ?? l.status;
+    final progress = l.months <= 0
+        ? 0.0
+        : (l.paid / l.months).clamp(0.0, 1.0).toDouble();
+    final name = bank.userName.trim().isEmpty ? 'អ្នកប្រើ' : bank.userName;
+    final initial = name.characters.first.toUpperCase();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: context.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: context.border),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 14,
+              offset: const Offset(0, 6)),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _openLoan(l),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(children: [
+              Row(children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF8B5CF6), Color(0xFF2563EB)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                          color:
+                              const Color(0xFF6366F1).withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: Text(initial,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: context.ink,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 3),
+                      Text('កម្ចីទី ${l.id} · ${money(l.principal)}',
+                          style: TextStyle(
+                              color: context.muted, fontSize: 11.5)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Text(label,
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 6,
+                  backgroundColor: context.border,
+                  valueColor: AlwaysStoppedAnimation(
+                      l.status == 'rejected' ? C.accentRed : C.accentGreen),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(children: [
+                Text('បានសង ${l.paid}/${l.months} ខែ',
+                    style:
+                        TextStyle(color: context.muted, fontSize: 11.5)),
+                const Spacer(),
+                if (l.outstanding > 0)
+                  Text('នៅសល់ ${money(l.outstanding)}',
+                      style: const TextStyle(
+                          color: C.accentGold,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700)),
+                const SizedBox(width: 8),
+                if (_opening == l.id)
+                  const SizedBox(
+                      width: 13,
+                      height: 13,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                else if (l.canPay)
+                  Icon(Icons.chevron_right_rounded,
+                      size: 18, color: context.muted),
+              ]),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
 //  HOME
 // ============================================================================
 class HomeScreen extends StatelessWidget {
@@ -6853,9 +7325,10 @@ class HomeScreen extends StatelessWidget {
                       AbaCell(Icons.swap_horizontal_circle_outlined, 'ផ្ទេរប្រាក់',
                           () => guardedTap(context,
                               () => tabIndex.value = 1)),
-                      AbaCell(Icons.qr_code_scanner, 'KHQR ស្កេន',
+                      AbaCell(Icons.handshake_rounded, 'អ្នកដែលបានខ្ចី',
                           () => guardedTap(context,
-                              () => push(context, const QrScreen(startScan: true)))),
+                              () => push(context, const BorrowersScreen())),
+                          iconWidget: const BorrowerGlyph()),
                       AbaCell(Icons.savings_outlined, 'សន្សំ',
                           () => guardedTap(context,
                               () => push(context, const UnavailableFeatureScreen(
