@@ -12531,9 +12531,9 @@ class _QrScreenState extends State<QrScreen>
       dataModuleStyle: const QrDataModuleStyle(
           dataModuleShape: QrDataModuleShape.square,
           color: Color(0xFF111111)),
-      embeddedImage: const AssetImage('assets/icon/khqr_emblem.png'),
+      embeddedImage: const AssetImage('assets/icon/khqr_k_badge.png'),
       embeddedImageStyle: const QrEmbeddedImageStyle(
-          size: Size(48, 48), color: Colors.white),
+          size: Size(52, 52), color: Colors.white),
     );
   }
 
