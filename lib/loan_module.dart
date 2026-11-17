@@ -554,7 +554,7 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
                       'បំពេញ KYC រួចចុចស្នើ',
                       'ក្រុមវាយតម្លៃពិនិត្យ',
                       'អនុមត្ត និងបង្កើតតារាងសងប្រាក់',
-                      'បញ្ចូលប្រាក់ទៅកាត',
+                      'បញ្ចូលប្រាក់ទៅគណនី',
                       'បង់តាមតារាងរៀងរាល់ខែ',
                     ][i]),
                 ]),
@@ -638,8 +638,8 @@ class _LoanModuleScreenState extends State<LoanModuleScreen> {
                                       fontWeight: FontWeight.w700)),
                               Text(
                                   l.autoDebit
-                                      ? 'ដកចំនួនពេលវីនុបទដល់កាលពីកាត'
-                                      : 'បើកដើម្បីដកចំនួនពេលវីនុបទដល់កាលពីកាត',
+                                      ? 'ដកចំនួនពេលវីនុបទដល់កាលពីគណនី'
+                                      : 'បើកដើម្បីដកចំនួនពេលវីនុបទដល់កាលពីគណនី',
                                   style:
                                       TextStyle(color: context.muted, fontSize: 11.5)),
                             ]),

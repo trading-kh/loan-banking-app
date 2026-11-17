@@ -5,6 +5,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../main.dart';
 
@@ -22,14 +23,20 @@ class _AccountScreenState extends State<AccountScreen> {
           RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
       : money(v);
 
-  String _accountLine() {
+  String get _accountNumber {
+    if (bank.cards.isNotEmpty) {
+      final n = bank.cards.first.number.replaceAll(RegExp(r'\D'), '');
+      if (n.isNotEmpty) return n;
+    }
     final raw = bank.userPhone.replaceAll(RegExp(r'\D'), '');
-    final digits = raw.isNotEmpty
+    return raw.isNotEmpty
         ? raw
         : (1000000000 + (bank.userId ?? 0)).toString();
-    final last4 =
-        digits.length >= 4 ? digits.substring(digits.length - 4) : digits;
-    return 'គណនី •••• $last4';
+  }
+
+  void _copyAccount() {
+    Clipboard.setData(ClipboardData(text: _accountNumber));
+    toast(context, 'បានចម្លងលេខគណនី');
   }
 
   /// ស៊េរីចំណាយប្រចាំថ្ងៃ (ចុងក្រោយបំផុត [days] ថ្ងៃ)
@@ -236,11 +243,19 @@ class _AccountScreenState extends State<AccountScreen> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    Text(_accountLine(),
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.72),
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600)),
+                    GestureDetector(
+                        onTap: _copyAccount,
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Text('គណនី $_accountNumber',
+                              style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.72),
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 4),
+                          Icon(Icons.copy_rounded,
+                              color: Colors.white.withValues(alpha: 0.72),
+                              size: 12),
+                        ])),
                     const Spacer(),
                     Icon(Icons.history_rounded,
                         color: Colors.white.withValues(alpha: 0.8), size: 15),

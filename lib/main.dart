@@ -1463,17 +1463,6 @@ class AppState extends ChangeNotifier {
     return r;
   }
 
-  Future<void> freezeCard(BankCard c, bool v) async {
-    await ApiService.updateCard(c.id, frozen: v);
-    c.frozen = v;
-    notifyListeners();
-  }
-  Future<void> setCardOnline(BankCard c, bool v) async {
-    await ApiService.updateCard(c.id, online: v);
-    c.online = v;
-    notifyListeners();
-  }
-
   Future<void> addGoal(String name, double target) async {
     await ApiService.createGoal(name: name, target: target);
     await loadAll();
@@ -2090,209 +2079,6 @@ class AbaGrid extends StatelessWidget {
       ),
     );
   }
-}
-
-// ============================================================================
-//  BANK CARD WIDGET
-// ============================================================================
-class BankCardWidget extends StatelessWidget {
-  final BankCard card;
-  final VoidCallback? onTap;
-  final bool revealed;
-  const BankCardWidget({super.key, required this.card, this.onTap,
-      this.revealed = false});
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [card.c1, card.c2],
-                begin: Alignment.topLeft, end: Alignment.bottomRight),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.30),
-                offset: const Offset(0, 12), blurRadius: 26, spreadRadius: -8,
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Stack(children: [
-              Positioned.fill(child: CustomPaint(painter: _HoloPattern())),
-              Positioned(right: -40, top: -40, child: _circle(140, 0.08)),
-              Positioned(right: 30, bottom: -60, child: _circle(120, 0.06)),
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                      Expanded(child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('AURA BANK', style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.75),
-                              fontSize: 9, fontWeight: FontWeight.w800,
-                              letterSpacing: 3)),
-                          Text(card.name, maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white,
-                                  fontWeight: FontWeight.w700, fontSize: 14)),
-                        ],
-                      )),
-                      const Icon(Icons.contactless, color: Colors.white, size: 22),
-                    ]),
-                    Row(children: [
-                      Container(
-                        width: 38, height: 28,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                              colors: [Color(0xFFFFE08A), Color(0xFFE0A93B)]),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Center(child: CustomPaint(
-                            size: const Size(24, 18), painter: _ChipPainter())),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(child: Text(revealed ? card.full : card.masked,
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white,
-                              fontSize: 15, letterSpacing: 1.4,
-                              fontWeight: FontWeight.w600,
-                              fontFamily: 'monospace'))),
-                    ]),
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                      Column(crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min, children: [
-                        Text('សមតុល្យ', style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.7), fontSize: 9)),
-                        Text(bank.hideBalance ? '••••' : money(card.balance),
-                            style: const TextStyle(color: Colors.white,
-                                fontWeight: FontWeight.w700, fontSize: 15)),
-                      ]),
-                      Column(crossAxisAlignment: CrossAxisAlignment.end,
-                          mainAxisSize: MainAxisSize.min, children: [
-                        Text('VALID THRU', style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.7), fontSize: 9)),
-                        Text(card.expiry, style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w700,
-                            fontSize: 12)),
-                      ]),
-                    ]),
-                  ],
-                ),
-              ),
-              if (card.frozen)
-                Positioned.fill(child: Container(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  child: const Column(mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                    Icon(Icons.lock, color: Colors.white, size: 32),
-                    Text('កាតត្រូវបានបិទ',
-                        style: TextStyle(color: Colors.white,
-                            fontWeight: FontWeight.w700)),
-                  ]),
-                )),
-            ]),
-          ),
-        ),
-      );
-
-  Widget _circle(double s, double o) => Container(
-      width: s, height: s,
-      decoration: BoxDecoration(shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: o)));
-}
-
-class _HoloPattern extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 0.8;
-    for (int i = 0; i < 6; i++) {
-      final y = i * size.height / 5;
-      final gradient = LinearGradient(colors: [
-        Colors.white.withValues(alpha: 0),
-        Colors.white.withValues(alpha: 0.06),
-        Colors.cyan.withValues(alpha: 0.04),
-        Colors.white.withValues(alpha: 0),
-      ]);
-      paint.shader =
-          gradient.createShader(Rect.fromLTWH(0, y - 20, size.width, 40));
-      canvas.drawLine(Offset(0, y), Offset(size.width, y - 30), paint);
-    }
-  }
-  @override
-  bool shouldRepaint(covariant _HoloPattern old) => false;
-}
-
-class _ChipPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFF8B6914).withValues(alpha: 0.6)
-      ..style = PaintingStyle.stroke..strokeWidth = 0.8;
-    for (int i = 1; i < 4; i++) {
-      canvas.drawLine(Offset(size.width * i / 4, 0),
-          Offset(size.width * i / 4, size.height), paint);
-    }
-  }
-  @override
-  bool shouldRepaint(covariant _ChipPainter old) => false;
-}
-
-// ============================================================================
-//  CARD PICKER
-// ============================================================================
-class CardPicker extends StatelessWidget {
-  final int selectedId;
-  final ValueChanged<int> onChanged;
-  const CardPicker({super.key, required this.selectedId, required this.onChanged});
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        height: 74,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: bank.cards.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 10),
-          itemBuilder: (_, i) {
-            final c = bank.cards[i];
-            final sel = c.id == selectedId;
-            return GestureDetector(
-              onTap: () => onChanged(c.id),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: 165,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  gradient: sel ? LinearGradient(colors: [c.c1, c.c2]) : null,
-                  color: sel ? null : context.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: sel ? null : Border.all(color: context.border),
-                  boxShadow: sel
-                      ? [BoxShadow(color: Colors.black.withValues(alpha: 0.25),
-                          blurRadius: 12, offset: const Offset(0, 4))]
-                      : null,
-                ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min, children: [
-                  Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700,
-                          color: sel ? Colors.white : context.ink)),
-                  Text(money(c.balance), style: TextStyle(fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: sel ? Colors.white.withValues(alpha: 0.9) : context.muted)),
-                ]),
-              ),
-            );
-          },
-        ),
-      );
 }
 
 // ============================================================================
@@ -7727,131 +7513,6 @@ class HomeScreen extends StatelessWidget {
 }
 
 // ============================================================================
-//  CARDS (បញ្ជីកាតពិតប្រាកដ)
-// ============================================================================
-class CardsScreen extends StatelessWidget {
-  const CardsScreen({super.key});
-  @override
-  Widget build(BuildContext context) => sb(() => Scaffold(
-        appBar: AppBar(title: const Text('កាតធនាគារ')),
-        body: bank.loading && bank.cards.isEmpty
-            ? const CardsSkeleton()
-            : RefreshIndicator(
-                color: C.accent,
-                onRefresh: bank.loadAll,
-                child: ListView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  itemCount: bank.cards.length,
-                  itemBuilder: (_, i) {
-                    final c = bank.cards[i];
-                    return Padding(padding: const EdgeInsets.only(bottom: 22),
-                        child: Column(children: [
-                      SizedBox(height: 190, child: BankCardWidget(card: c,
-                          onTap: () => push(context,
-                              CardDetailScreen(cardId: c.id)))),
-                      const SizedBox(height: 10),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                              color: (c.frozen ? C.accentRed : C.accentGreen)
-                                  .withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(12)),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(c.frozen ? Icons.lock : Icons.check_circle,
-                                color: c.frozen ? C.accentRed : C.accentGreen,
-                                size: 12),
-                            Text(c.frozen ? 'បិទ' : 'ដំណើរការ',
-                                style: TextStyle(fontSize: 10.5,
-                                    color: c.frozen
-                                        ? C.accentRed : C.accentGreen)),
-                          ]),
-                        ),
-                        GestureDetector(
-                          onTap: () => push(context,
-                              CardDetailScreen(cardId: c.id)),
-                          child: const Row(children: [
-                            Icon(Icons.tune, size: 16, color: C.accent),
-                            Text('ការកំណត់', style: TextStyle(fontSize: 12.5,
-                                fontWeight: FontWeight.w700, color: C.accent)),
-                          ]),
-                        ),
-                      ]),
-                    ]));
-                  },
-                ),
-              )));
-}
-
-class CardDetailScreen extends StatefulWidget {
-  final int cardId;
-  const CardDetailScreen({super.key, required this.cardId});
-  @override
-  State<CardDetailScreen> createState() => _CardDetailScreenState();
-}
-
-class _CardDetailScreenState extends State<CardDetailScreen> {
-  bool revealed = false;
-  @override
-  Widget build(BuildContext context) => sb(() {
-        if (bank.cards.isEmpty) {
-          return Scaffold(appBar: AppBar(),
-              body: const Center(child: Text('គ្មានកាត')));
-        }
-        final c = bank.cards.firstWhere((x) => x.id == widget.cardId,
-            orElse: () => bank.cards.first);
-        return Scaffold(
-          appBar: AppBar(title: Text(c.name)),
-          body: ListView(padding: const EdgeInsets.all(16), children: [
-            SizedBox(height: 200, child: BankCardWidget(card: c, revealed: revealed)),
-            const SizedBox(height: 20),
-            NeuButton(label: revealed ? 'លាក់លេខកាត' : 'បង្ហាញលេខកាត',
-                icon: revealed ? Icons.visibility_off : Icons.visibility,
-                onPressed: () async {
-                  if (revealed) { setState(() => revealed = false); return; }
-                  if (bank._isGoogleUser) {
-                    setState(() => revealed = true);
-                    return;
-                  }
-                  final pin = await askPin(context);
-                  if (pin != null && mounted) setState(() => revealed = true);
-                }),
-            const SectionTitle('សុវត្ថិភាព'),
-            NeuBox(child: Column(children: [
-              SwitchListTile(value: c.frozen, activeThumbColor: C.accent,
-                  onChanged: (v) async {
-                    try {
-                      await bank.freezeCard(c, v);
-                      if (context.mounted) {
-                        toast(context, v ? 'បានបិទកាត' : 'បានបើកកាត');
-                      }
-                    } on ApiException catch (e) {
-                      if (context.mounted) toast(context, e.message, error: true);
-                    }
-                  },
-                  secondary: Icon(Icons.lock_outline,
-                      color: c.frozen ? C.accentRed : C.accent),
-                  title: const Text('បិទកាតជាបណ្តោះអាសន្ន')),
-              SwitchListTile(value: c.online, activeThumbColor: C.accent,
-                  onChanged: (v) async {
-                    try { await bank.setCardOnline(c, v); }
-                    on ApiException catch (e) {
-                      if (context.mounted) toast(context, e.message, error: true);
-                    }
-                  },
-                  secondary: const Icon(Icons.shopping_cart_outlined,
-                      color: C.accent),
-                  title: const Text('ទិញទំនិញអនឡាញ')),
-            ])),
-          ]),
-        );
-      });
-}
-
-// ============================================================================
 //  TRANSFER MENU (UI ថ្មី - ជម្រើសផ្ទេរប្រាក់)
 // ============================================================================
 class TransferMenuScreen extends StatelessWidget {
@@ -8289,7 +7950,7 @@ class _TransferScreenState extends State<TransferScreen> {
     final a = parseAmt(amount.text);
     final cid = cardId ?? (bank.cards.isEmpty ? 0 : bank.cards.first.id);
     if (cid == 0) {
-      toast(context, 'គ្មានកាតសម្រាប់ផ្ទេរ', error: true); return;
+      toast(context, 'គ្មានគណនីសម្រាប់ផ្ទេរ', error: true); return;
     }
     if (a == null) {
       toast(context, 'សូមបញ្ចូលចំនួនទឹកប្រាក់', error: true); return;
@@ -8381,7 +8042,7 @@ class _TransferScreenState extends State<TransferScreen> {
     if (bank.cards.isEmpty) {
       return Scaffold(
         backgroundColor: C.bgDark,
-        body: const Center(child: Text('គ្មានកាត', style: TextStyle(color: Colors.white))),
+        body: const Center(child: Text('គ្មានគណនី', style: TextStyle(color: Colors.white))),
       );
     }
 
@@ -13634,8 +13295,13 @@ class _RecurringScreenState extends State<RecurringScreen> {
                       onSelected: (_) => setS(() => frequency = f)),
               ]),
               const SizedBox(height: 12),
-              CardPicker(selectedId: cardId,
-                  onChanged: (id) => setS(() => cardId = id)),
+              Row(children: [
+                const Icon(Icons.account_balance_wallet_outlined,
+                    size: 18, color: C.accent),
+                const SizedBox(width: 8),
+                Text('គណនីរបស់អ្នក · Aura Bank',
+                    style: TextStyle(fontSize: 12.5, color: ctx.muted)),
+              ]),
               const SizedBox(height: 20),
               NeuButton(label: 'រក្សាទុក', icon: Icons.check, onPressed: () {
                 final a = parseAmt(amtCtrl.text);

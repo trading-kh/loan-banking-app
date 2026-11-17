@@ -211,7 +211,7 @@ class _LoanStageTimelineState extends State<LoanStageTimeline> {
         Icons.payments_outlined,
         repay,
         [
-          _Step('បញ្ចេញប្រាក់ចូលគណនី/កាត', disbursed),
+          _Step('បញ្ចេញប្រាក់ចូលគណនី', disbursed),
           _Step('តារាងសងប្រចាំខែ', disbursed),
           _Step('ជូនដំណឹងរំលឹកមុនកំណត់', disbursed),
           _Step('ទូទាត់សង & កត់ត្រា (${l.paid}/${l.months})', paidDone),

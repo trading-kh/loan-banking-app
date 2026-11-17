@@ -35,28 +35,6 @@ class SplitBill {
   }
 }
 
-class VirtualCard {
-  final int id;
-  final String name, number, cvv, expiry;
-  final double limitAmount, spent;
-  final bool active, frozen;
-  VirtualCard({required this.id, required this.name, required this.number,
-      required this.cvv, required this.expiry, required this.limitAmount,
-      required this.spent, required this.active, required this.frozen});
-  factory VirtualCard.fromJson(Map<String, dynamic> j) => VirtualCard(
-        id: j['id'] as int,
-        name: j['name'] as String,
-        number: j['number'] as String,
-        cvv: j['cvv'] as String,
-        expiry: j['expiry'] as String,
-        limitAmount: (j['limit_amount'] as num).toDouble(),
-        spent: (j['spent'] as num).toDouble(),
-        active: j['active'] == 1,
-        frozen: j['frozen'] == 1,
-      );
-  String get masked => '•••• •••• •••• ${number.substring(number.length - 4)}';
-}
-
 class Referral {
   final String code;
   final int referredCount;
@@ -104,7 +82,6 @@ class CashbackItem {
 // ============================================================
 class ExtraState extends ChangeNotifier {
   List<SplitBill> splits = [];
-  List<VirtualCard> virtualCards = [];
   List<CashbackItem> cashbackHistory = [];
   List<Insight> insights = [];
   double cashbackTotal = 0;
@@ -129,35 +106,6 @@ class ExtraState extends ChangeNotifier {
       List<String> participants) async {
     await ApiService.createSplit(title, total, participants);
     await loadSplits();
-  }
-
-  // ---- Virtual Cards ----
-  Future<void> loadVirtualCards() async {
-    loading = true;
-    notifyListeners();
-    try {
-      final raw = await ApiService.getVirtualCards();
-      virtualCards = raw.map((e) => VirtualCard.fromJson(e)).toList();
-    } catch (_) {} finally {
-      loading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> createVirtualCard(String name, {double limit = 500}) async {
-    await ApiService.createVirtualCard(name, limit: limit);
-    await loadVirtualCards();
-  }
-
-  Future<void> toggleVirtualCard(int id,
-      {bool? active, bool? frozen}) async {
-    await ApiService.updateVirtualCard(id, active: active, frozen: frozen);
-    await loadVirtualCards();
-  }
-
-  Future<void> deleteVirtualCard(int id) async {
-    await ApiService.deleteVirtualCard(id);
-    await loadVirtualCards();
   }
 
   // ---- Referral ----
@@ -420,215 +368,6 @@ class _SplitBillScreenState extends State<SplitBillScreen> {
                                               fontWeight: FontWeight.w600,
                                               color: C.accentGreen)),
                                     ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-        );
-      });
-}
-
-// ============================================================
-//  VIRTUAL CARDS SCREEN
-// ============================================================
-class VirtualCardsScreen extends StatefulWidget {
-  const VirtualCardsScreen({super.key});
-  @override
-  State<VirtualCardsScreen> createState() => _VirtualCardsScreenState();
-}
-
-class _VirtualCardsScreenState extends State<VirtualCardsScreen> {
-  @override
-  void initState() {
-    super.initState();
-    extraState.loadVirtualCards();
-  }
-
-  Future<void> _add() async {
-    final nameCtrl = TextEditingController();
-    final limitCtrl = TextEditingController(text: '500');
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: context.bg,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-            20, 0, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('បង្កើតកាតនិម្មិត',
-                style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: ctx.ink)),
-            const SizedBox(height: 16),
-            NeuField(
-                controller: nameCtrl,
-                label: 'ឈ្មោះកាត',
-                icon: Icons.credit_card),
-            const SizedBox(height: 12),
-            NeuField(
-                controller: limitCtrl,
-                label: 'កម្រិត (\$)',
-                icon: Icons.attach_money,
-                keyboardType: TextInputType.number),
-            const SizedBox(height: 20),
-            NeuButton(
-                label: 'បង្កើត',
-                icon: Icons.check,
-                onPressed: () {
-                  final l = double.tryParse(limitCtrl.text) ?? 500;
-                  if (nameCtrl.text.trim().isEmpty) {
-                    toast(ctx, 'សូមបំពេញឈ្មោះ', error: true);
-                    return;
-                  }
-                  Navigator.pop(ctx);
-                  extraState.createVirtualCard(nameCtrl.text.trim(),
-                      limit: l);
-                }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) =>
-      ListenableBuilder(listenable: extraState, builder: (_, __) {
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('កាតនិម្មិត'),
-            actions: [
-              IconButton(icon: const Icon(Icons.add), onPressed: _add),
-            ],
-          ),
-          body: extraState.virtualCards.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.credit_card,
-                          size: 64, color: context.muted),
-                      const SizedBox(height: 16),
-                      Text('មិនទាន់មាន',
-                          style: TextStyle(
-                              fontSize: 16, color: context.muted)),
-                      const SizedBox(height: 8),
-                      NeuButton(
-                          label: 'បង្កើត',
-                          icon: Icons.add,
-                          fullWidth: false,
-                          onPressed: _add),
-                    ],
-                  ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    for (final v in extraState.virtualCards)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: NeuBox(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(children: [
-                                Container(
-                                  width: 56,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: v.frozen
-                                          ? [
-                                              Colors.grey.shade400,
-                                              Colors.grey.shade600
-                                            ]
-                                          : [C.accentPurple, C.accent],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Icon(Icons.credit_card,
-                                      color: Colors.white, size: 20),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(v.name,
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 14,
-                                              color: context.ink)),
-                                      Text(v.masked,
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              color: context.muted,
-                                              fontFamily: 'monospace')),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: Icon(Icons.delete_outline,
-                                      size: 18, color: C.accentRed),
-                                  onPressed: () =>
-                                      extraState.deleteVirtualCard(v.id),
-                                ),
-                              ]),
-                              const SizedBox(height: 10),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text('CVV: ${v.cvv}',
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              color: context.muted)),
-                                      Text('Expiry: ${v.expiry}',
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              color: context.muted)),
-                                    ],
-                                  ),
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.end,
-                                    children: [
-                                      Text('កម្រិត',
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              color: context.muted)),
-                                      Text(money(v.limitAmount),
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 13,
-                                              color: context.ink)),
-                                    ],
-                                  ),
-                                  Switch(
-                                    value: v.frozen,
-                                    activeThumbColor: C.accentRed,
-                                    inactiveThumbColor: C.accentGreen,
-                                    onChanged: (val) => extraState
-                                        .toggleVirtualCard(v.id, frozen: val),
-                                  ),
                                 ],
                               ),
                             ],
@@ -1076,13 +815,6 @@ class ExtraProfileMenu extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const SplitBillScreen())),
-        ),
-        ListTile(
-          leading: const Icon(Icons.credit_card, color: C.accent),
-          title: const Text('កាតនិម្មិត'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const VirtualCardsScreen())),
         ),
         ListTile(
           leading: const Icon(Icons.card_giftcard, color: C.accent),

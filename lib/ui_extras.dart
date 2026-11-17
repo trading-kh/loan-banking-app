@@ -180,23 +180,3 @@ class ListSkeleton extends StatelessWidget {
   }
 }
 
-// ============================================================
-//  CARD SKELETON — skeleton សម្រាប់កាត
-// ============================================================
-class CardsSkeleton extends StatelessWidget {
-  const CardsSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: 3,
-      physics: const NeverScrollableScrollPhysics(),
-      itemBuilder: (_, i) => Padding(
-        padding: const EdgeInsets.only(bottom: 20),
-        child: ShimmerBox(
-            width: double.infinity, height: 190, radius: 22),
-      ),
-    );
-  }
-}

@@ -27,7 +27,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _Slide(
       icon: Icons.account_balance_wallet,
       title: 'គ្រប់គ្រងប្រាក់កាន់តែងាយ',
-      description: 'គណនី កាត ប្រតិបត្តិការ និងការវិភាគ — ទាំងអស់នៅកន្លែងតែមួយ',
+      description: 'គណនី ប្រតិបត្តិការ និងការវិភាគ — ទាំងអស់នៅកន្លែងតែមួយ',
       color: C.accent,
     ),
     _Slide(

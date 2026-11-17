@@ -351,14 +351,6 @@ class ApiService {
   static Future<List<dynamic>> getCards() async =>
       await _get('/cards') as List<dynamic>;
 
-  static Future<void> updateCard(int id,
-          {bool? frozen, bool? online, double? dailyLimit}) =>
-      _patch('/cards/$id', {
-        if (frozen != null) 'frozen': frozen,
-        if (online != null) 'online': online,
-        if (dailyLimit != null) 'daily_limit': dailyLimit,
-      });
-
   // ============ TRANSACTIONS ============
   static Future<List<dynamic>> getTransactions() async =>
       await _get('/transactions') as List<dynamic>;
@@ -640,23 +632,6 @@ class ApiService {
         'total_amount': total,
         'participants': participants,
       });
-
-  // ============ VIRTUAL CARDS ============
-  static Future<List<dynamic>> getVirtualCards() async =>
-      await _get('/virtual-cards') as List<dynamic>;
-
-  static Future<void> createVirtualCard(String name, {double limit = 500}) =>
-      _post('/virtual-cards', {'name': name, 'limit_amount': limit});
-
-  static Future<void> updateVirtualCard(int id,
-          {bool? active, bool? frozen}) =>
-      _patch('/virtual-cards/$id', {
-        if (active != null) 'active': active,
-        if (frozen != null) 'frozen': frozen,
-      });
-
-  static Future<void> deleteVirtualCard(int id) =>
-      _delete('/virtual-cards/$id');
 
   // ============ REFERRAL ============
   static Future<Map<String, dynamic>> getReferral() async =>
