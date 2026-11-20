@@ -2,7 +2,8 @@
 //  LOAN RECEIPT SCREEN — បង្កាន់ដៃឥណទាន
 //  ACLEDA Bank style
 // ============================================================================
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import '../i18n.dart';
 
 import '../main.dart';
 import '../loan_form_data.dart';

@@ -6,9 +6,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
+import 'i18n.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb, compute, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -1623,22 +1624,27 @@ class BankApp extends StatelessWidget {
     return _LifecycleSync(
       child: ListenableBuilder(
         listenable: Listenable.merge([bank, premium]),
-        builder: (_, __) => MaterialApp(
-          debugShowCheckedModeBanner: false,
-          title: 'Aura Bank',
-          themeMode: bank.themeMode,
-          theme: _lightTheme,
-          darkTheme: _darkTheme,
-          scrollBehavior: const AppScrollBehavior(),
-          locale: const Locale('km', 'KH'),
-          supportedLocales: const [Locale('km', 'KH'), Locale('en', 'US')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          // បើកមកដល់ main page តែម្ដង — ទិន្នន័យបំពេញនៅខាងក្រោយ (skeleton)
-          home: const MainShell(),
+        builder: (_, __) => LangScope(
+          code: premium.language,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'Aura Bank',
+            themeMode: bank.themeMode,
+            theme: _lightTheme,
+            darkTheme: _darkTheme,
+            scrollBehavior: const AppScrollBehavior(),
+            locale: premium.language == 'en'
+                ? const Locale('en', 'US')
+                : const Locale('km', 'KH'),
+            supportedLocales: const [Locale('km', 'KH'), Locale('en', 'US')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            // បើកមកដល់ main page តែម្ដង — ទិន្នន័យបំពេញនៅខាងក្រោយ (skeleton)
+            home: const MainShell(),
+          ),
         ),
       ),
     );
@@ -8090,6 +8096,7 @@ class _TransferScreenState extends State<TransferScreen> {
     final code = (info['bank_code'] ?? railCode).toString();
     final bankName = (info['bank_name'] ?? widget.heading).toString();
     final masked = (info['masked_account'] ?? account.text).toString();
+    final thumb = decodeAvatarThumb(info['avatar_thumb']);
     return Container(
       margin: const EdgeInsets.only(top: 12),
       padding: const EdgeInsets.all(14),
@@ -8105,7 +8112,10 @@ class _TransferScreenState extends State<TransferScreen> {
         border: Border.all(color: C.accentGreen.withValues(alpha: 0.34)),
       ),
       child: Row(children: [
-        BankLogo(code: code, size: 42),
+        if (thumb != null)
+          RecipientThumb(bytes: thumb, name: name, size: 42)
+        else
+          BankLogo(code: code, size: 42),
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start,
@@ -8461,6 +8471,17 @@ String? _avatarThumb(Uint8List bytes) {
   final resized = img.copyResize(cropped,
       width: 96, height: 96, interpolation: img.Interpolation.average);
   return base64Encode(img.encodeJpg(resized, quality: 60));
+}
+
+/// ឌិកូដ avatar_thumb (base64) ដែល Server ផ្ញើមកជាមួយអ្នកទទួល
+Uint8List? decodeAvatarThumb(dynamic raw) {
+  if (raw is! String || raw.isEmpty) return null;
+  try {
+    final bytes = base64Decode(raw);
+    return bytes.isEmpty ? null : bytes;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// រូប Profile — បង្ហាញរូបដែលរក្សាទុក ឬ icon បើមិនទាន់មាន
@@ -10184,7 +10205,7 @@ class _NotificationDetailScreenState extends State<_NotificationDetailScreen> {
                                   color: context.muted)),
                         ]),
                         const SizedBox(height: 10),
-                        SelectableText(n.body,
+                        SelectableText(Lang.tr(n.body),
                             style: TextStyle(
                                 fontSize: 13.5,
                                 height: 1.7,
@@ -10418,6 +10439,7 @@ class _QrPayScreenState extends State<QrPayScreen>
   late final String? _guessCode;
   String _recipientId = '';
   bool _external = false;
+  Uint8List? _avatar;
 
   late final AnimationController _pulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1600))
@@ -10460,6 +10482,7 @@ class _QrPayScreenState extends State<QrPayScreen>
     var recipientId = '';
     var external = false;
     double? preset;
+    Uint8List? avatar;
     try {
       if ((token != null && token.isNotEmpty) || auraCode != null) {
         final r = auraCode != null
@@ -10470,6 +10493,7 @@ class _QrPayScreenState extends State<QrPayScreen>
         name = (r['name'] ?? 'អ្នកទទួល').toString();
         account = (r['masked_account'] ?? '').toString();
         preset = (r['amount'] as num?)?.toDouble();
+        avatar = decodeAvatarThumb(r['avatar_thumb']);
         bankCode = 'AURA';
         bankName = 'Aura Bank';
       } else {
@@ -10517,6 +10541,7 @@ class _QrPayScreenState extends State<QrPayScreen>
       _name = name;
       _acc.text = account;
       _amt = preset == null ? '' : preset.toStringAsFixed(2);
+      _avatar = avatar;
       _loading = false;
     });
   }
@@ -10820,7 +10845,9 @@ class _QrPayScreenState extends State<QrPayScreen>
               blurRadius: 20, offset: const Offset(0, 7))],
         ),
         child: ClipOval(
-          child: _bankCode == null
+          child: _avatar != null
+              ? Image.memory(_avatar!, width: 56, height: 56, fit: BoxFit.cover)
+              : _bankCode == null
               ? Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(colors: [C.accent, C.bgDark],

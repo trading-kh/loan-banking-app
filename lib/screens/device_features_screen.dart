@@ -2,7 +2,8 @@
 //  DEVICE FEATURES SCREEN — សាកល្បងមុខងារ ទីតាំង ទូរស័ព្ទ SMS
 // ============================================================================
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import '../i18n.dart';
 import '../main.dart';
 import '../device_services.dart';
 

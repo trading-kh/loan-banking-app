@@ -1,7 +1,8 @@
 // ============================================================================
 //  LOAN STAGE TIMELINE — ដំណាក់កាលឥណទាន (រួមប្រើដោយ តាមដាន + លម្អិត)
 // ============================================================================
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import '../i18n.dart';
 
 import '../loan_module.dart';
 import '../main.dart';

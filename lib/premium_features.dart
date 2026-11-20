@@ -1,8 +1,9 @@
 // ============================================================================
 //  Premium Features — Theme, Language, CSV Export, Support Chat
 // ============================================================================
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
+import 'i18n.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart' show DateFormat;
 import 'main.dart';
@@ -113,11 +114,21 @@ class LocaleService {
 
   static Future<void> load() async {
     final sp = await SharedPreferences.getInstance();
-    current = sp.getString('premium_language_v1') ?? 'km';
+    final saved = sp.getString('premium_language_v1');
+    if (saved == 'km' || saved == 'en') {
+      // អ្នកប្រើបានជ្រើសដោយដៃ → ប្រើភាសានោះជានិច្ច
+      current = saved!;
+    } else {
+      // មិនទាន់ជ្រើស → តាមភាសា device (ខ្មែរ → km, ផ្សេង → en)
+      final device = WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+      current = device.startsWith('km') ? 'km' : 'en';
+    }
+    Lang.code = current;
   }
 
   static Future<void> setLanguage(String code) async {
     current = code;
+    Lang.code = code;
     final sp = await SharedPreferences.getInstance();
     await sp.setString('premium_language_v1', code);
   }

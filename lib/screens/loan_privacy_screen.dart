@@ -1,7 +1,8 @@
 // ============================================================================
 //  LOAN PRIVACY & SERVICE INFO SCREEN — គោលការណ៍ឯកជនភាព និងសេវាកម្ម
 // ============================================================================
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import '../i18n.dart';
 
 import '../main.dart';
 

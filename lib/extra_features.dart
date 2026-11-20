@@ -2,7 +2,8 @@
 //  Extra Features — Split Bill, Virtual Cards, Referral, Insights, Cashback
 //  ឯកសារនេះបន្ថែម features ៥ ដោយមិនកែ main.dart
 // ============================================================================
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'i18n.dart';
 import 'package:flutter/services.dart';
 import 'main.dart';
 import 'api_service.dart';

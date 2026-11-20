@@ -2,7 +2,8 @@
 //  UNAVAILABLE FEATURE — មុខងារមិនទាន់ដំណើរការ (ទទួលប្រាក់ · ទូទាត់ប្រាក់ · សន្សំ)
 //  អេក្រង់សារស្អាតៗ + icon animation
 // ============================================================================
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import '../i18n.dart';
 
 import '../main.dart';
 

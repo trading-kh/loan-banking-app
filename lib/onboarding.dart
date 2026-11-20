@@ -1,7 +1,8 @@
 // ============================================================================
 //  Onboarding — 3 ទំព័រសម្រាប់អ្នកប្រើថ្មី
 // ============================================================================
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'i18n.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'main.dart';
 
