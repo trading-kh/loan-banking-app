@@ -9,7 +9,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, compute;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, compute, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -33,7 +34,6 @@ import 'firebase_options.dart';
 import 'api_service.dart';
 import 'services/biometric_service.dart';
 import 'services/pdf_service.dart';
-import 'extra_features.dart';
 import 'premium_features.dart';
 import 'onboarding.dart';
 import 'loan_module.dart';
@@ -1842,10 +1842,11 @@ class NeuField extends StatelessWidget {
   final Widget? suffix;
   final TextCapitalization textCapitalization;
   final ValueChanged<String>? onChanged;
+  final int maxLines;
 
   const NeuField({super.key, this.controller, this.label, this.icon,
       this.prefixIcon, this.obscure = false, this.maxLength, this.keyboardType,
-      this.validator, this.suffix,
+      this.validator, this.suffix, this.maxLines = 1,
       this.textCapitalization = TextCapitalization.none, this.onChanged});
 
   @override
@@ -1862,7 +1863,8 @@ class NeuField extends StatelessWidget {
           controller: controller, obscureText: obscure,
           maxLength: maxLength, keyboardType: keyboardType,
           validator: validator, textCapitalization: textCapitalization,
-          onChanged: onChanged,
+          onChanged: onChanged, maxLines: maxLines,
+          minLines: maxLines > 1 ? 3 : 1,
           style: TextStyle(color: context.ink, fontSize: 14.5,
               fontWeight: FontWeight.w500),
           decoration: InputDecoration(
@@ -8631,195 +8633,308 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _ => '—',
       };
 
-  @override
-  Widget build(BuildContext context) => sb(() => Scaffold(
-        appBar: AppBar(title: const Text('ព័ត៌មាន')),
-        body: RefreshIndicator(
-          color: C.accent,
-          onRefresh: bank.refreshAll,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              Center(child: bank.guest
-                  ? Column(children: [
-                      Container(
-                        width: 84, height: 84,
-                        decoration: BoxDecoration(
-                          gradient: AuraGrad.brand,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                                color: C.accent.withValues(alpha: 0.25),
-                                blurRadius: 26, offset: const Offset(0, 10)),
-                          ],
-                        ),
-                        child: const Icon(Icons.person_outline_rounded,
-                            color: Colors.white, size: 38),
-                      ),
-                      const SizedBox(height: 14),
-                      Text('អ្នកកំពុងរកមើលជាភ្ញៀវ',
-                          style: TextStyle(fontSize: 18,
-                              fontWeight: FontWeight.w800, color: context.ink)),
-                      const SizedBox(height: 4),
-                      Text('ចូលដើម្បីប្រើមុខងារទាំងអស់',
-                          style: TextStyle(color: context.muted,
-                              fontSize: 12.5)),
-                      const SizedBox(height: 16),
-                      GooglePillButton(
-                          label: 'ចូល ឬបង្កើតគណនី',
-                          onPressed: () {
-                            Navigator.of(context).pop(); // បិទ drawer
-                            push(context, const LoginScreen());
-                          }),
-                    ])
-                  : Column(children: [
-                UserAvatar(
-                    radius: 46, showEditBadge: true, busy: _uploading,
-                    onTap: _uploading ? null : _showAvatarSheet),
-                const SizedBox(height: 6),
-                TextButton(
-                    onPressed: _uploading ? null : _showAvatarSheet,
-                    child: const Text('ប្តូររូបភាព',
-                        style: TextStyle(color: C.accent, fontSize: 12.5))),
-                Text(bank.userName.isEmpty ? 'អ្នកប្រើ' : bank.userName,
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
-                        color: context.ink)),
-                Text(bank.userEmail, style: TextStyle(color: context.muted,
-                    fontSize: 12.5)),
-              ])),
-              if (!bank.guest) ...[
-                const SizedBox(height: 24),
-                NeuBox(inset: true, child: Column(children: [
-                  const InfoRow('ប្រភេទ', 'VIP'),
-                  InfoRow('ទូរស័ព្ទ',
-                      bank.userPhone.isEmpty ? '—' : bank.userPhone),
-                  InfoRow('អ៊ីមែល', bank.userEmail),
-                  InfoRow('អាយុ',
-                      bank.userAge == null ? '—' : '${bank.userAge} ឆ្នាំ'),
-                  InfoRow('ភេទ', _genderLabel(bank.userGender)),
-                  InfoRow('អាសយដ្ឋាន',
-                      bank.userAddress.isEmpty ? '—' : bank.userAddress),
-                ])),
-                const SizedBox(height: 12),
-                NeuBox(padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: ListTile(
-                  leading: const Icon(Icons.badge_outlined, color: C.accent),
-                  title: const Text('បំពេញ / កែព័ត៌មានគណនី'),
-                  subtitle: Text(
-                      bank.onboarded
-                          ? 'ឈ្មោះ · អាយុ · ភេទ · ទីតាំង · PIN'
-                          : 'នៅមិនទាន់បំពេញពេញលេញ',
+  Future<void> _editInfo() async {
+    final saved =
+        await push(context, const AccountSetupScreen(editMode: true));
+    if (!mounted) return;
+    if (saved == true) toast(context, 'បានធ្វើបច្ចុប្បន្នភាពព័ត៌មាន');
+  }
+
+  Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+            backgroundColor: ctx.card,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18)),
+            title: Text('ចាកចេញ?', style: TextStyle(color: ctx.ink)),
+            content: Text('អ្នកនឹងត្រូវចូលឡើងវិញនៅពេលក្រោយ',
+                style: TextStyle(color: ctx.muted)),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: Text('បោះបង់',
+                      style: TextStyle(color: ctx.muted))),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('ចាកចេញ',
                       style: TextStyle(
-                          color: bank.onboarded ? context.muted : C.accentRed,
-                          fontSize: 11.5)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    final saved = await push(
-                        context, const AccountSetupScreen(editMode: true));
-                    if (!context.mounted) return;
-                    if (saved == true) toast(context, 'បានធ្វើបច្ចុប្បន្នភាពព័ត៌មាន');
-                  },
-                )),
-              ],
-              const SectionTitle('ការកំណត់'),
-              NeuBox(padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Column(children: [
-                    SwitchListTile(value: context.isDark,
-                        activeThumbColor: C.accent,
-                        onChanged: (_) => bank.toggleTheme(),
-                        secondary: const Icon(Icons.dark_mode_outlined,
-                            color: C.accent),
-                        title: const Text('Dark Mode')),
-                    SwitchListTile(value: bank.biometric,
-                        activeThumbColor: C.accent,
-                        onChanged: bank.setBio,
-                        secondary: const Icon(Icons.fingerprint,
-                            color: C.accent),
-                        title: const Text('ស្នាមម្រាមដៃ')),
-                    SwitchListTile(value: bank.hideBalance,
-                        activeThumbColor: C.accent,
-                        onChanged: bank.setHide,
-                        secondary: const Icon(Icons.visibility_off_outlined,
-                            color: C.accent),
-                        title: const Text('លាក់សមតុល្យ')),
-                    ListTile(leading: const Icon(Icons.savings_outlined,
-                        color: C.accent), title: const Text('ថវិកា'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => push(context, const BudgetsScreen())),
-                    ListTile(leading: const Icon(Icons.notifications_outlined,
-                        color: C.accent), title: const Text('ការរំលឹក'),
-                        trailing: bank.reminders.where((r) => !r.paid).isNotEmpty
-                            ? Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                    color: C.accentRed,
-                                    borderRadius: BorderRadius.circular(10)),
-                                child: Text(
-                                    '${bank.reminders.where((r) => !r.paid).length}',
-                                    style: const TextStyle(color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)))
-                            : const Icon(Icons.chevron_right),
-                        onTap: () => push(context, const RemindersScreen())),
-                    ListTile(leading: const Icon(Icons.repeat, color: C.accent),
-                        title: const Text('ស្វ័យប្រវត្តិ'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => push(context, const RecurringScreen())),
-                    ListTile(leading: const Icon(Icons.emoji_events_outlined,
-                        color: C.accent), title: const Text('សមិទ្ធផល'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () =>
-                            push(context, const AchievementsScreen())),
-                    const ExtraProfileMenu(),
-                    PremiumProfileMenu(),
-                    ListTile(leading: const Icon(Icons.currency_exchange,
-                        color: C.accent), title: const Text('រូបិយប័ណ្ណ'),
-                        trailing: Text(
-                            bank.currencyMode == 'USD' ? 'USD' : 'KHR',
-                            style: const TextStyle(color: C.accent,
-                                fontWeight: FontWeight.w700)),
-                        onTap: () {
-                          bank.setCurrency(bank.currencyMode == 'USD'
-                              ? 'KHR' : 'USD');
-                          toast(context, 'ប្តូរទៅ ${bank.currencyMode}');
-                        }),
-                  ])),
-              const SizedBox(height: 24),
-              if (!bank.guest)
-                NeuButton(label: 'ចាកចេញ', icon: Icons.logout,
-                    accent: C.accentRed, onPressed: () async {
-                final ok = await showDialog<bool>(context: context,
-                    builder: (ctx) => AlertDialog(backgroundColor: ctx.card,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18)),
-                      title: Text('ចាកចេញ?', style: TextStyle(color: ctx.ink)),
-                      content: Text('អ្នកនឹងត្រូវចូលដោយ Google ម្តងទៀត',
-                          style: TextStyle(color: ctx.muted)),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false),
-                            child: Text('បោះបង់',
-                                style: TextStyle(color: ctx.muted))),
-                        TextButton(onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('ចាកចេញ',
-                                style: TextStyle(color: C.accentRed,
-                                    fontWeight: FontWeight.w700))),
-                      ]));
-                if (ok == true && context.mounted) {
-                  await bank.logout();
-                  tabIndex.value = 0;
-                  if (context.mounted) {
-                    Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(
-                            builder: (_) => const MainShell()),
-                        (r) => false);
-                  }
-                }
-              }),
-            ]),
+                          color: C.accentRed,
+                          fontWeight: FontWeight.w700))),
+            ]));
+    if (ok != true || !mounted) return;
+    await bank.logout();
+    tabIndex.value = 0;
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const MainShell()), (r) => false);
+  }
+
+  Widget _profileHero(BuildContext context) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: AuraGrad.brand,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+                color: C.brandStart.withValues(alpha: 0.35),
+                blurRadius: 24,
+                offset: const Offset(0, 10)),
+          ],
         ),
-      ));
+        child: Row(children: [
+          UserAvatar(
+              radius: 32,
+              busy: _uploading,
+              onTap: _uploading ? null : _showAvatarSheet),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Flexible(
+                    child: Text(
+                        bank.userName.isEmpty ? 'អ្នកប្រើ' : bank.userName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _editInfo,
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.16),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.3)),
+                      ),
+                      child: const Icon(Icons.edit_rounded,
+                          size: 14, color: Colors.white),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 4),
+                Text(bank.userEmail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: 11.5)),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 3),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                          colors: [Color(0xFFF5B83D), Color(0xFFE0A020)]),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text('VIP',
+                        style: TextStyle(
+                            color: Color(0xFF3A2A00),
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.6)),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text('ចុចលើរូបភាពដើម្បីប្តូរ',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.55),
+                            fontSize: 10.5)),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ]),
+      );
+
+  Widget _guestHero(BuildContext context) => Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: AuraGrad.brand,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(children: [
+          const Icon(Icons.person_outline_rounded,
+              color: Colors.white, size: 40),
+          const SizedBox(height: 12),
+          const Text('អ្នកកំពុងរកមើលជាភ្ញៀវ',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          Text('ចូលដើម្បីប្រើមុខងារទាំងអស់',
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.72),
+                  fontSize: 12)),
+          const SizedBox(height: 16),
+          GooglePillButton(
+              label: 'ចូល ឬបង្កើតគណនី',
+              onPressed: () {
+                Navigator.of(context).pop();
+                push(context, const LoginScreen());
+              }),
+        ]),
+      );
+
+  Widget _infoCard(BuildContext context) => NeuBox(
+        inset: true,
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+        child: Column(children: [
+          InfoRow('ទូរស័ព្ទ',
+              bank.userPhone.isEmpty ? '—' : bank.userPhone),
+          InfoRow('អ៊ីមែល', bank.userEmail),
+          InfoRow('អាយុ',
+              bank.userAge == null ? '—' : '${bank.userAge} ឆ្នាំ'),
+          InfoRow('ភេទ', _genderLabel(bank.userGender)),
+          InfoRow('អាសយដ្ឋាន',
+              bank.userAddress.isEmpty ? '—' : bank.userAddress),
+        ]),
+      );
+
+  Widget _menuOption(
+    BuildContext context, {
+    required IconData icon,
+    required Color tint,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) =>
+      Container(
+        decoration: BoxDecoration(
+          color: context.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: context.border, width: 0.8),
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [
+                      tint.withValues(alpha: 0.22),
+                      tint.withValues(alpha: 0.10),
+                    ]),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(icon, color: tint, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700,
+                              color: context.ink)),
+                      const SizedBox(height: 3),
+                      Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 11.5, color: context.muted)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded,
+                    color: context.muted, size: 20),
+              ]),
+            ),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: context.bg,
+        body: SafeArea(
+          child: Column(children: [
+            Expanded(
+              child: RefreshIndicator(
+                color: C.accent,
+                onRefresh: bank.refreshAll,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+                  children: [
+                    Row(children: [
+                      Text('ប្រវត្តិរូប',
+                          style: TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                              color: context.ink)),
+                      const Spacer(),
+                      _DrawerIconButton(
+                          icon: Icons.close_rounded,
+                          onTap: () => Navigator.of(context).pop()),
+                    ]),
+                    const SizedBox(height: 16),
+                    if (bank.guest) _guestHero(context) else ...[
+                      _profileHero(context),
+                      const SizedBox(height: 14),
+                      _infoCard(context),
+                    ],
+                    const SizedBox(height: 22),
+                    Text('ការកំណត់',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.6,
+                            color: context.muted)),
+                    const SizedBox(height: 10),
+                    _menuOption(
+                      context,
+                      icon: Icons.support_agent_rounded,
+                      tint: C.accentGreen,
+                      title: 'ជំនួយ និងគាំទ្រ',
+                      subtitle: 'Help and Support',
+                      onTap: () => push(context, const HelpSupportScreen()),
+                    ),
+                    const SizedBox(height: 10),
+                    _menuOption(
+                      context,
+                      icon: Icons.shield_outlined,
+                      tint: C.accent,
+                      title: 'ការកំណត់ និងឯកជនភាព',
+                      subtitle: 'Setting and Privacy',
+                      onTap: () =>
+                          push(context, const SettingPrivacyScreen()),
+                    ),
+                    const SizedBox(height: 26),
+                  ],
+                ),
+              ),
+            ),
+            if (!bank.guest)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: _LogoutIcon(onTap: _logout),
+              ),
+          ]),
+        ),
+      );
 }
 
 // ============================================================================
@@ -13628,4 +13743,996 @@ class NotificationService {
       await Future.delayed(const Duration(seconds: 3));
     }
   }
+}
+
+// ============================================================================
+//  MENU SCREENS — Help & Support / Setting & Privacy
+// ============================================================================
+
+class _DrawerIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _DrawerIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: context.card,
+            shape: BoxShape.circle,
+            border: Border.all(color: context.border, width: 0.8),
+          ),
+          child: Icon(icon, size: 19, color: context.ink),
+        ),
+      );
+}
+
+class _LogoutIcon extends StatefulWidget {
+  final VoidCallback onTap;
+  const _LogoutIcon({required this.onTap});
+
+  @override
+  State<_LogoutIcon> createState() => _LogoutIconState();
+}
+
+class _LogoutIconState extends State<_LogoutIcon> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: 'ចាកចេញ',
+        child: Tooltip(
+          message: 'ចាកចេញ',
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) {
+              setState(() => _pressed = false);
+              widget.onTap();
+            },
+            onTapCancel: () => setState(() => _pressed = false),
+            child: AnimatedScale(
+              scale: _pressed ? 0.9 : 1,
+              duration: const Duration(milliseconds: 120),
+              child: Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(colors: [
+                    C.accentRed.withValues(alpha: 0.16),
+                    C.accentRed.withValues(alpha: 0.05),
+                  ]),
+                  border: Border.all(
+                      color: C.accentRed.withValues(alpha: 0.45),
+                      width: 1.2),
+                  boxShadow: [
+                    BoxShadow(
+                        color: C.accentRed.withValues(alpha: 0.18),
+                        blurRadius: 16,
+                        spreadRadius: -4,
+                        offset: const Offset(0, 6)),
+                  ],
+                ),
+                child: const Icon(Icons.logout_rounded,
+                    color: C.accentRed, size: 24),
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+class _MenuHero extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+  const _MenuHero(
+      {required this.icon, required this.title, required this.body});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: AuraGrad.brand,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+            ),
+            child: Icon(icon, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 5),
+                  Text(body,
+                      style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 11.5,
+                          height: 1.5)),
+                ]),
+          ),
+        ]),
+      );
+}
+
+class _ToolTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+  const _ToolTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Container(
+          decoration: BoxDecoration(
+            color: context.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.border, width: 0.8),
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(13),
+                child: Row(children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [
+                        color.withValues(alpha: 0.20),
+                        color.withValues(alpha: 0.08),
+                      ]),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: color, size: 21),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title,
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: context.ink)),
+                          if (subtitle != null) ...[
+                            const SizedBox(height: 2),
+                            Text(subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 11, color: context.muted)),
+                          ],
+                        ]),
+                  ),
+                  Icon(Icons.chevron_right_rounded,
+                      color: context.muted, size: 20),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+class _SwitchToolTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _SwitchToolTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(13, 8, 8, 8),
+          decoration: BoxDecoration(
+            color: context.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.border, width: 0.8),
+          ),
+          child: Row(children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [
+                  color.withValues(alpha: 0.20),
+                  color.withValues(alpha: 0.08),
+                ]),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 21),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: context.ink)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style:
+                            TextStyle(fontSize: 11, color: context.muted)),
+                  ]),
+            ),
+            Switch(value: value, activeThumbColor: C.accent, onChanged: onChanged),
+          ]),
+        ),
+      );
+}
+
+// ---------------------------------------------------------------------------
+//  HELP AND SUPPORT
+// ---------------------------------------------------------------------------
+class HelpSupportScreen extends StatelessWidget {
+  const HelpSupportScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('ជំនួយ និងគាំទ្រ')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            const _MenuHero(
+              icon: Icons.support_agent_rounded,
+              title: 'យើងនៅទីនេះដើម្បីជួយ',
+              body:
+                  'ជ្រើសរើសប្រធានបទខាងក្រោម ដើម្បីទទួលបានជំនួយ ការពារខ្លួនពីការបន្លំ ឬរាយការណ៍បញ្ហា។',
+            ),
+            const SizedBox(height: 16),
+            _ToolTile(
+              icon: Icons.gpp_good_rounded,
+              color: C.accentGreen,
+              title: 'មជ្ឈមណ្ឌលការពារការបន្លំ',
+              subtitle: 'ស្គាល់សញ្ញាបន្លំ និងរបៀបការពារគណនី',
+              onTap: () => push(context, const ScamProtectionScreen()),
+            ),
+            _ToolTile(
+              icon: Icons.report_problem_rounded,
+              color: C.accentGold,
+              title: 'រាយការណ៍បញ្ហា',
+              subtitle: 'ជូនដំណឹងពីបញ្ហាប្រតិបត្តិការ ឬកម្មវិធី',
+              onTap: () => push(context, const ReportProblemScreen()),
+            ),
+            _ToolTile(
+              icon: Icons.description_outlined,
+              color: C.accent,
+              title: 'លក្ខខណ្ឌ និងគោលការណ៍',
+              subtitle: 'លក្ខខណ្ឌប្រើប្រាស់ និងគោលការណ៍ឯកជនភាព',
+              onTap: () => push(context, const TermsPoliciesScreen()),
+            ),
+            _ToolTile(
+              icon: Icons.chat_bubble_outline_rounded,
+              color: C.accentPurple,
+              title: 'ជជែកជាមួយភ្នាក់ងារ',
+              subtitle: 'សន្ទនាផ្ទាល់ជាមួយក្រុមការងាររបស់យើង',
+              onTap: () => push(context, const SupportChatScreen()),
+            ),
+          ],
+        ),
+      );
+}
+
+// ---------------------------------------------------------------------------
+//  SCAM PROTECTION CENTER
+// ---------------------------------------------------------------------------
+class _ScamTip {
+  final IconData icon;
+  final String title;
+  final String body;
+  const _ScamTip(this.icon, this.title, this.body);
+}
+
+class ScamProtectionScreen extends StatelessWidget {
+  const ScamProtectionScreen({super.key});
+
+  static const _tips = [
+    _ScamTip(Icons.sms_failed_outlined, 'កុំចែករំលែក OTP ឬ PIN',
+        'ធនាគារមិនដែលសួរ OTP ឬ PIN តាមទូរស័ព្ទ សារ ឬតំណភ្ជាប់ឡើយ។'),
+    _ScamTip(Icons.person_search_outlined, 'ពិនិត្យអ្នកទទួលមុនផ្ទេរ',
+        'ប្រាកដថាឈ្មោះ និងគណនីអ្នកទទួលត្រឹមត្រូវ មុនបញ្ជាក់ OTP។'),
+    _ScamTip(Icons.link_off_rounded, 'ប្រយ័ត្នតំណភ្ជាប់',
+        'កុំចុចតំណដែលសុំបំពេញព័ត៌មានគណនី ឬ PIN នៅក្រៅកម្មវិធី។'),
+    _ScamTip(Icons.alarm_on_rounded, 'ការប្រញាប់ជាសញ្ញាបន្លំ',
+        'សារដែលគំរាមបិទគណនី ឬសន្យាផ្តល់ប្រាក់ គឺជាការបន្លំញឹកញាប់។'),
+    _ScamTip(Icons.verified_user_outlined, 'រាយការណ៍ភ្លាមៗ',
+        'បើសង្ស័យថាត្រូវបន្លំ សូមរាយការណ៍មកយើងភ្លាម មិនត្រូវរង់ចាំឡើយ។'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('មជ្ឈមណ្ឌលការពារការបន្លំ')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            const _MenuHero(
+              icon: Icons.gpp_good_rounded,
+              title: 'ការពារខ្លួនអ្នកពីការបន្លំ',
+              body:
+                  'Aura Bank មិនដែលស្នើសុំ OTP ឬ PIN តាមទូរស័ព្ទទេ។ សូមអានចំណុចខាងក្រោម ដើម្បីការពារប្រាក់ និងព័ត៌មានរបស់អ្នក។',
+            ),
+            const SizedBox(height: 16),
+            for (final t in _tips)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: NeuBox(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: C.accentGreen.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: Icon(t.icon, color: C.accentGreen, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(t.title,
+                                style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: context.ink)),
+                            const SizedBox(height: 4),
+                            Text(t.body,
+                                style: TextStyle(
+                                    fontSize: 11.5,
+                                    height: 1.5,
+                                    color: context.muted)),
+                          ]),
+                    ),
+                  ]),
+                ),
+              ),
+            const SizedBox(height: 8),
+            NeuButton(
+              label: 'រាយការណ៍ការបន្លំ',
+              icon: Icons.shield_outlined,
+              accent: C.accentRed,
+              onPressed: () => push(context,
+                  const ReportProblemScreen(presetCategory: 'scam')),
+            ),
+          ],
+        ),
+      );
+}
+
+// ---------------------------------------------------------------------------
+//  REPORT A PROBLEM
+// ---------------------------------------------------------------------------
+class ReportProblemScreen extends StatefulWidget {
+  final String? presetCategory;
+  const ReportProblemScreen({super.key, this.presetCategory});
+
+  @override
+  State<ReportProblemScreen> createState() => _ReportProblemScreenState();
+}
+
+class _ReportProblemScreenState extends State<ReportProblemScreen> {
+  static const _cats = <String, String>{
+    'transfer': 'ផ្ទេរប្រាក់',
+    'otp': 'OTP / សុវត្ថិភាព',
+    'scam': 'ការបន្លំ',
+    'app': 'កម្មវិធី',
+    'other': 'ផ្សេងៗ',
+  };
+
+  late String _cat =
+      _cats.containsKey(widget.presetCategory) ? widget.presetCategory! : 'transfer';
+  final _msg = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _msg.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final msg = _msg.text.trim();
+    if (msg.length < 10) {
+      toast(context, 'សូមពណ៌នាបញ្ហាយ៉ាងតិច ១០ តួអក្សរ', error: true);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final r = await ApiService.submitSupportReport(
+          category: _cat, message: msg);
+      if (!mounted) return;
+      await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+                backgroundColor: ctx.card,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18)),
+                title: Row(children: [
+                  const Icon(Icons.check_circle_rounded,
+                      color: C.accentGreen),
+                  const SizedBox(width: 8),
+                  Text('បានផ្ញើការរាយការណ៍',
+                      style: TextStyle(fontSize: 16, color: ctx.ink)),
+                ]),
+                content: Text(
+                    'យើងបានទទួលការរាយការណ៍របស់អ្នក (លេខយោង #${r['id']})។ '
+                    'ក្រុមការងារនឹងពិនិត្យ និងទាក់ទងអ្នកឆាប់ៗនេះ។',
+                    style: TextStyle(color: ctx.muted, fontSize: 13, height: 1.5)),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('យល់ព្រម',
+                          style: TextStyle(
+                              color: C.accent,
+                              fontWeight: FontWeight.w700))),
+                ],
+              ));
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    } catch (_) {
+      if (mounted) toast(context, 'មិនអាចផ្ញើបាន — សូមព្យាយាមម្ដងទៀត', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('រាយការណ៍បញ្ហា')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            const _MenuHero(
+              icon: Icons.report_problem_rounded,
+              title: 'រាយការណ៍បញ្ហាទៅយើង',
+              body:
+                  'ពណ៌នាបញ្ហាឱ្យបានច្បាស់ ដើម្បីឱ្យក្រុមការងារអាចពិនិត្យ និងដោះស្រាយបានរហ័ស។',
+            ),
+            const SizedBox(height: 18),
+            Text('ប្រភេទបញ្ហា',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: context.muted)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final e in _cats.entries)
+                  ChoiceChip(
+                    label: Text(e.value,
+                        style: const TextStyle(fontSize: 12)),
+                    selected: _cat == e.key,
+                    onSelected: (_) => setState(() => _cat = e.key),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            NeuField(
+              controller: _msg,
+              label: 'ពណ៌នាបញ្ហា',
+              icon: Icons.edit_note_rounded,
+              maxLines: 5,
+            ),
+            const SizedBox(height: 8),
+            Text('យ៉ាងតិច ១០ តួអក្សរ · អតិបរមា ២០០០ តួអក្សរ',
+                style: TextStyle(fontSize: 11, color: context.muted)),
+            const SizedBox(height: 18),
+            NeuButton(
+              label: _busy ? 'កំពុងផ្ញើ…' : 'ផ្ញើការរាយការណ៍',
+              icon: Icons.send_rounded,
+              onPressed: _busy ? null : _submit,
+            ),
+          ],
+        ),
+      );
+}
+
+// ---------------------------------------------------------------------------
+//  TERMS AND POLICIES
+// ---------------------------------------------------------------------------
+class _PolicyCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String summary;
+  final List<String> points;
+  const _PolicyCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.summary,
+    required this.points,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Container(
+          decoration: BoxDecoration(
+            color: context.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.border, width: 0.8),
+          ),
+          child: Theme(
+            data: Theme.of(context)
+                .copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 13),
+              childrenPadding:
+                  const EdgeInsets.fromLTRB(13, 0, 13, 14),
+              leading: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [
+                    color.withValues(alpha: 0.20),
+                    color.withValues(alpha: 0.08),
+                  ]),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 21),
+              ),
+              title: Text(title,
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: context.ink)),
+              subtitle: Text(summary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: context.muted)),
+              iconColor: context.muted,
+              collapsedIconColor: context.muted,
+              children: [
+                for (final p in points)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.only(top: 6),
+                            width: 5,
+                            height: 5,
+                            decoration: BoxDecoration(
+                                color: color, shape: BoxShape.circle),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(p,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.6,
+                                    color: context.muted)),
+                          ),
+                        ]),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+class TermsPoliciesScreen extends StatelessWidget {
+  const TermsPoliciesScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('លក្ខខណ្ឌ និងគោលការណ៍')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            const _MenuHero(
+              icon: Icons.description_outlined,
+              title: 'ឯកសារផ្លូវការរបស់ Aura Bank',
+              body:
+                  'សូមអានលក្ខខណ្ឌប្រើប្រាស់ និងគោលការណ៍ឯកជនភាព ដើម្បីដឹងពីសិទ្ធិ និងកាតព្វកិច្ចរបស់អ្នក។',
+            ),
+            const SizedBox(height: 16),
+            const _PolicyCard(
+              icon: Icons.description_outlined,
+              color: C.accent,
+              title: 'លក្ខខណ្ឌប្រើប្រាស់',
+              summary: 'វិធាននៃការប្រើប្រាស់សេវាធនាគារ',
+              points: [
+                'អ្នកត្រូវផ្តល់ព័ត៌មានត្រឹមត្រូវ និងរក្សាគណនី ព្រមទាំង PIN ដោយសុវត្ថិភាព។',
+                'រាល់ប្រតិបត្តិការផ្ទេរប្រាក់ត្រូវបានផ្ទៀងផ្ទាត់នៅ server មុនពេលអនុវត្ត។',
+                'សេវាកម្មអាចត្រូវផ្អាកជាបណ្តោះអាសន្ន ប្រសិនបើរកឃើញសកម្មភាពសង្ស័យ ដើម្បីការពារគណនី។',
+              ],
+            ),
+            const _PolicyCard(
+              icon: Icons.lock_outline_rounded,
+              color: C.accentPurple,
+              title: 'គោលការណ៍ឯកជនភាព',
+              summary: 'របៀបដែលយើងរក្សាទុក និងការពារទិន្នន័យរបស់អ្នក',
+              points: [
+                'យើងរក្សាទុកឈ្មោះ អ៊ីមែល ទូរស័ព្ទ និងប្រវត្តិប្រតិបត្តិការ ដែលចាំបាច់សម្រាប់សេវាធនាគារ។',
+                'យើងមិនលក់ ឬចែករំលែកទិន្នន័យរបស់អ្នកទៅភាគីទីបី ដើម្បីផលប្រយោជន៍ពាណិជ្ជកម្មឡើយ។',
+                'អ្នកអាចលាក់សមតុល្យ នាំចេញប្រវត្តិប្រតិបត្តិការ និងមើលព័ត៌មានដែលបានរក្សាទុកបានគ្រប់ពេល។',
+              ],
+            ),
+          ],
+        ),
+      );
+}
+
+// ---------------------------------------------------------------------------
+//  SETTING AND PRIVACY
+// ---------------------------------------------------------------------------
+class SettingPrivacyScreen extends StatelessWidget {
+  const SettingPrivacyScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => sb(() => Scaffold(
+        appBar: AppBar(title: const Text('ការកំណត់ និងឯកជនភាព')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            const _MenuHero(
+              icon: Icons.shield_outlined,
+              title: 'គ្រប់គ្រងគណនីរបស់អ្នក',
+              body:
+                  'សុវត្ថិភាព ភាសា និងទិន្នន័យផ្ទាល់ខ្លួន — គ្រប់គ្រងបានទាំងអស់នៅទីនេះ។',
+            ),
+            const SizedBox(height: 16),
+            _ToolTile(
+              icon: Icons.settings_outlined,
+              color: C.accent,
+              title: 'ការកំណត់',
+              subtitle: 'ស្នាមម្រាមដៃ · លាក់សមតុល្យ · រូបិយប័ណ្ណ',
+              onTap: () => push(context, const SettingsScreen()),
+            ),
+            _ToolTile(
+              icon: Icons.privacy_tip_outlined,
+              color: C.accentPurple,
+              title: 'មជ្ឈមណ្ឌលឯកជនភាព',
+              subtitle: 'ទិន្នន័យរក្សាទុក និងការគ្រប់គ្រង',
+              onTap: () => push(context, const PrivacyCenterScreen()),
+            ),
+            _ToolTile(
+              icon: Icons.smartphone_rounded,
+              color: C.accentTeal,
+              title: 'សំណើឧបករណ៍',
+              subtitle: 'ស្នើសុំផ្លាស់ប្តូរ ឬជំនួយអំពីឧបករណ៍',
+              onTap: () => push(context, const DeviceRequestScreen()),
+            ),
+            _SwitchToolTile(
+              icon: Icons.dark_mode_outlined,
+              color: C.accentGold,
+              title: 'ចង្វាក់ងងឹត',
+              subtitle: 'Dark Mode',
+              value: context.isDark,
+              onChanged: (_) => bank.toggleTheme(),
+            ),
+            _ToolTile(
+              icon: Icons.translate_rounded,
+              color: C.accent,
+              title: 'ភាសា',
+              subtitle:
+                  LocaleService.languageNames[LocaleService.current] ??
+                      'ភាសាខ្មែរ',
+              onTap: () => push(context, const LanguageScreen()),
+            ),
+          ],
+        ),
+      ));
+}
+
+// ---------------------------------------------------------------------------
+//  SETTINGS
+// ---------------------------------------------------------------------------
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => sb(() => Scaffold(
+        appBar: AppBar(title: const Text('ការកំណត់')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            NeuBox(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(children: [
+                SwitchListTile(
+                  value: bank.biometric,
+                  activeThumbColor: C.accent,
+                  onChanged: bank.setBio,
+                  secondary:
+                      const Icon(Icons.fingerprint, color: C.accent),
+                  title: const Text('ស្នាមម្រាមដៃ'),
+                  subtitle: const Text('ចូលកម្មវិធីដោយស្នាមម្រាមដៃ',
+                      style: TextStyle(fontSize: 11.5)),
+                ),
+                SwitchListTile(
+                  value: bank.hideBalance,
+                  activeThumbColor: C.accent,
+                  onChanged: bank.setHide,
+                  secondary: const Icon(Icons.visibility_off_outlined,
+                      color: C.accent),
+                  title: const Text('លាក់សមតុល្យ'),
+                  subtitle: const Text('លាក់ចំនួនទឹកប្រាក់នៅផ្ទាំងដើម',
+                      style: TextStyle(fontSize: 11.5)),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.currency_exchange,
+                      color: C.accent),
+                  title: const Text('រូបិយប័ណ្ណ'),
+                  subtitle: Text(
+                      bank.currencyMode == 'USD'
+                          ? 'ដុល្លារអាមេរិក (USD)'
+                          : 'រៀល (KHR)',
+                      style: const TextStyle(fontSize: 11.5)),
+                  trailing: Text(bank.currencyMode,
+                      style: const TextStyle(
+                          color: C.accent, fontWeight: FontWeight.w700)),
+                  onTap: () {
+                    bank.setCurrency(
+                        bank.currencyMode == 'USD' ? 'KHR' : 'USD');
+                    toast(context, 'ប្តូរទៅ ${bank.currencyMode}');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.palette_outlined,
+                      color: C.accent),
+                  title: const Text('ពណ៌ផ្ទាំង'),
+                  subtitle: const Text('ជ្រើសរើសពណ៌ប្រេនដែលអ្នកចូលចិត្ត',
+                      style: TextStyle(fontSize: 11.5)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => push(
+                      context, const ThemeCustomizationScreen()),
+                ),
+              ]),
+            ),
+          ],
+        ),
+      ));
+}
+
+// ---------------------------------------------------------------------------
+//  PRIVACY CENTER
+// ---------------------------------------------------------------------------
+class PrivacyCenterScreen extends StatelessWidget {
+  const PrivacyCenterScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => sb(() => Scaffold(
+        appBar: AppBar(title: const Text('មជ្ឈមណ្ឌលឯកជនភាព')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            const _MenuHero(
+              icon: Icons.privacy_tip_outlined,
+              title: 'ទិន្នន័យរបស់អ្នក ជារបស់អ្នក',
+              body:
+                  'យើងប្រើទិន្នន័យតែដើម្បីផ្តល់សេវាធនាគារ និងរក្សាសុវត្ថិភាពគណនីប៉ុណ្ណោះ។',
+            ),
+            const SizedBox(height: 16),
+            Text('ទិន្នន័យដែលរក្សាទុក',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: context.muted)),
+            const SizedBox(height: 10),
+            NeuBox(
+              inset: true,
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+              child: Column(children: [
+                InfoRow('ឈ្មោះ',
+                    bank.userName.isEmpty ? '—' : bank.userName),
+                InfoRow('អ៊ីមែល', bank.userEmail),
+                InfoRow('ទូរស័ព្ទ',
+                    bank.userPhone.isEmpty ? '—' : bank.userPhone),
+                const InfoRow('ប្រតិបត្តិការ', 'សម្រាប់ប្រវត្តិ និងការផ្ទៀងផ្ទាត់'),
+              ]),
+            ),
+            const SizedBox(height: 18),
+            Text('ការគ្រប់គ្រងរបស់អ្នក',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: context.muted)),
+            const SizedBox(height: 10),
+            _SwitchToolTile(
+              icon: Icons.visibility_off_outlined,
+              color: C.accentTeal,
+              title: 'លាក់សមតុល្យ',
+              subtitle: 'បង្ហាញសមតុល្យតែពេលអ្នកចង់',
+              value: bank.hideBalance,
+              onChanged: bank.setHide,
+            ),
+            _ToolTile(
+              icon: Icons.download_outlined,
+              color: C.accentGreen,
+              title: 'នាំចេញទិន្នន័យ',
+              subtitle: 'ទាញយកប្រវត្តិប្រតិបត្តិការជា CSV',
+              onTap: () => push(context, const ExportDataScreen()),
+            ),
+            _ToolTile(
+              icon: Icons.description_outlined,
+              color: C.accent,
+              title: 'គោលការណ៍ឯកជនភាព',
+              subtitle: 'អានរបៀបដែលយើងការពារទិន្នន័យ',
+              onTap: () => _openLegal(context, _LegalDoc.privacy),
+            ),
+          ],
+        ),
+      ));
+}
+
+// ---------------------------------------------------------------------------
+//  DEVICE REQUEST
+// ---------------------------------------------------------------------------
+class DeviceRequestScreen extends StatefulWidget {
+  const DeviceRequestScreen({super.key});
+
+  @override
+  State<DeviceRequestScreen> createState() => _DeviceRequestScreenState();
+}
+
+class _DeviceRequestScreenState extends State<DeviceRequestScreen> {
+  final _msg = TextEditingController();
+  bool _busy = false;
+
+  String get _platformLabel => kIsWeb
+      ? 'Web'
+      : switch (defaultTargetPlatform) {
+          TargetPlatform.android => 'Android',
+          TargetPlatform.iOS => 'iOS',
+          TargetPlatform.windows => 'Windows',
+          TargetPlatform.macOS => 'macOS',
+          TargetPlatform.linux => 'Linux',
+          _ => 'មិនស្គាល់',
+        };
+
+  @override
+  void dispose() {
+    _msg.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final msg = _msg.text.trim();
+    if (msg.length < 10) {
+      toast(context, 'សូមពណ៌នាសំណើយ៉ាងតិច ១០ តួអក្សរ', error: true);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final r = await ApiService.submitSupportReport(
+          category: 'device', message: '[$_platformLabel] $msg');
+      if (!mounted) return;
+      await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+                backgroundColor: ctx.card,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18)),
+                title: Row(children: [
+                  const Icon(Icons.check_circle_rounded,
+                      color: C.accentGreen),
+                  const SizedBox(width: 8),
+                  Text('បានផ្ញើសំណើ',
+                      style: TextStyle(fontSize: 16, color: ctx.ink)),
+                ]),
+                content: Text(
+                    'យើងបានទទួលសំណើរបស់អ្នក (លេខយោង #${r['id']})។ '
+                    'ក្រុមការងារនឹងទាក់ទងអ្នកឆាប់ៗនេះ។',
+                    style: TextStyle(color: ctx.muted, fontSize: 13, height: 1.5)),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('យល់ព្រម',
+                          style: TextStyle(
+                              color: C.accent,
+                              fontWeight: FontWeight.w700))),
+                ],
+              ));
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    } catch (_) {
+      if (mounted) toast(context, 'មិនអាចផ្ញើបាន — សូមព្យាយាមម្ដងទៀត', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('សំណើឧបករណ៍')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            const _MenuHero(
+              icon: Icons.smartphone_rounded,
+              title: 'សំណើទាក់ទងឧបករណ៍',
+              body:
+                  'ប្រសិនបើអ្នកប្តូរទូរស័ព្ទ ឬជួបបញ្ហាជាមួយឧបករណ៍នេះ សូមបញ្ជាក់សំណើរបស់អ្នក។',
+            ),
+            const SizedBox(height: 16),
+            NeuBox(
+              inset: true,
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+              child: Column(children: [
+                InfoRow('ឧបករណ៍បច្ចុប្បន្ន', _platformLabel),
+                InfoRow('គណនី',
+                    bank.userEmail.isEmpty ? '—' : bank.userEmail),
+              ]),
+            ),
+            const SizedBox(height: 18),
+            NeuField(
+              controller: _msg,
+              label: 'បញ្ជាក់សំណើ',
+              icon: Icons.edit_note_rounded,
+              maxLines: 4,
+            ),
+            const SizedBox(height: 8),
+            Text('ឧទាហរណ៍៖ ស្នើសុំផ្លាស់ឧបករណ៍ថ្មី ឬស្នើសុំជំនួយពេលឧបករណ៍ចាស់បាត់។',
+                style: TextStyle(
+                    fontSize: 11, color: context.muted, height: 1.5)),
+            const SizedBox(height: 18),
+            NeuButton(
+              label: _busy ? 'កំពុងផ្ញើ…' : 'ផ្ញើសំណើ',
+              icon: Icons.send_rounded,
+              onPressed: _busy ? null : _submit,
+            ),
+          ],
+        ),
+      );
 }

@@ -45,15 +45,13 @@ class LocaleService {
   static String current = 'km';
 
   static const Map<String, String> languageNames = {
-    'km': 'ខ្មែរ',
+    'km': 'ភាសាខ្មែរ',
     'en': 'English',
-    'zh': '中文',
   };
 
   static const Map<String, String> languageFlags = {
     'km': '🇰🇭',
     'en': '🇬🇧',
-    'zh': '🇨🇳',
   };
 
   static const Map<String, Map<String, String>> translations = {
@@ -108,33 +106,6 @@ class LocaleService {
       'chat_reply_help': 'I\'ll connect you to a support agent. Please wait...',
       'chat_reply_thanks': 'You\'re welcome! Anything else?',
       'chat_contact': 'Direct Contact',
-      'chat_email': 'support@loanbanking.com',
-      'chat_phone': '023 000 000',
-    },
-    'zh': {
-      'theme_title': '主题颜色',
-      'theme_desc': '选择您最喜欢的颜色',
-      'language_title': '语言',
-      'language_desc': '选择您的语言',
-      'csv_title': '导出数据',
-      'csv_desc': '将交易导出为 CSV',
-      'chat_title': '客服聊天',
-      'chat_desc': '与我们聊天',
-      'save': '保存',
-      'cancel': '取消',
-      'export': '导出',
-      'copy': '复制',
-      'copied': '已复制!',
-      'send': '发送',
-      'type_message': '输入消息...',
-      'chat_greeting': '您好! 我是您的银行助手。我能帮什么忙?',
-      'chat_reply_1': '谢谢您的留言! 我会帮助您。',
-      'chat_reply_card': '如需账户信息，请打开“账户”页面。',
-      'chat_reply_loan': '关于贷款，请进入"贷款"并填写信息。',
-      'chat_reply_fee': '应用内转账不收取费用。',
-      'chat_reply_help': '我会为您连接客服。请稍候...',
-      'chat_reply_thanks': '不客气! 还有其他需要吗?',
-      'chat_contact': '直接联系',
       'chat_email': 'support@loanbanking.com',
       'chat_phone': '023 000 000',
     },
@@ -398,39 +369,54 @@ class LanguageScreen extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: premium,
         builder: (_, __) => Scaffold(
-          appBar: AppBar(title: Text(premium.t('language_title'))),
+          appBar: AppBar(title: const Text('ភាសា')),
           body: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             children: [
-              Text(premium.t('language_desc'),
-                  style: TextStyle(fontSize: 14, color: context.muted)),
-              const SizedBox(height: 24),
+              Text('ជ្រើសរើសភាសារបស់អ្នក',
+                  style: TextStyle(fontSize: 13, color: context.muted)),
+              const SizedBox(height: 18),
               for (final code in LocaleService.languageNames.keys)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: NeuBox(
-                    padding: const EdgeInsets.all(16),
-                    onTap: () => premium.setLanguage(code),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    onTap: () async {
+                      await premium.setLanguage(code);
+                    },
                     child: Row(children: [
-                      Text(LocaleService.languageFlags[code]!,
-                          style: const TextStyle(fontSize: 32)),
-                      const SizedBox(width: 16),
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: context.bg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: context.border),
+                        ),
+                        child: Center(
+                          child: Text(
+                              LocaleService.languageFlags[code] ?? '',
+                              style: const TextStyle(fontSize: 22)),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(LocaleService.languageNames[code]!,
                                 style: TextStyle(
-                                    fontSize: 16,
+                                    fontSize: 15.5,
                                     fontWeight: FontWeight.w700,
                                     color: context.ink)),
-                            Text(code == 'km'
+                            const SizedBox(height: 2),
+                            Text(
+                                code == 'km'
                                     ? 'Khmer'
-                                    : code == 'en'
-                                        ? 'English'
-                                        : 'Chinese',
+                                    : 'ភាសាអង់គ្លេស',
                                 style: TextStyle(
-                                    fontSize: 12, color: context.muted)),
+                                    fontSize: 11.5, color: context.muted)),
                           ],
                         ),
                       ),
@@ -438,9 +424,10 @@ class LanguageScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
-                              color: premium.accent, shape: BoxShape.circle),
-                          child: const Icon(Icons.check,
-                              color: Colors.white, size: 18),
+                              gradient: AuraGrad.button,
+                              shape: BoxShape.circle),
+                          child: const Icon(Icons.check_rounded,
+                              color: Colors.white, size: 16),
                         ),
                     ]),
                   ),
@@ -780,49 +767,3 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
 // ============================================================
 //  PREMIUM PROFILE MENU
-// ============================================================
-class PremiumProfileMenu extends StatelessWidget {
-  const PremiumProfileMenu({super.key});
-
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-        listenable: premium,
-        builder: (_, __) => Column(children: [
-          ListTile(
-            leading: Icon(Icons.palette_outlined, color: premium.accent),
-            title: const Text('Theme Color'),
-            trailing: Container(
-              width: 24, height: 24,
-              decoration: BoxDecoration(
-                  color: premium.accent, shape: BoxShape.circle),
-            ),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const ThemeCustomizationScreen())),
-          ),
-          ListTile(
-            leading: Icon(Icons.language, color: premium.accent),
-            title: const Text('Language'),
-            trailing: Text(
-              LocaleService.languageFlags[premium.language] ?? '',
-              style: const TextStyle(fontSize: 20),
-            ),
-            onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const LanguageScreen())),
-          ),
-          ListTile(
-            leading: Icon(Icons.download_outlined, color: premium.accent),
-            title: const Text('Export Data'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ExportDataScreen())),
-          ),
-          ListTile(
-            leading: Icon(Icons.support_agent, color: premium.accent),
-            title: const Text('Support Chat'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SupportChatScreen())),
-          ),
-        ]),
-      );
-}

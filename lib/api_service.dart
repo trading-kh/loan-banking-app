@@ -458,6 +458,16 @@ class ApiService {
   static Future<void> deleteNotification(int id) =>
       _delete('/notifications/$id');
 
+  // ============ SUPPORT ============
+  /// ផ្ញើការរាយការណ៍បញ្ហា/ការបន្លំ/សំណើឧបករណ៍ ទៅក្រុមការងារ
+  static Future<Map<String, dynamic>> submitSupportReport({
+    required String category,
+    required String message,
+  }) async => Map<String, dynamic>.from(await _post('/support/reports', {
+        'category': category,
+        'message': message,
+      }) as Map);
+
   /// បម្លែង path រូបភាព (ឧ. `/control/image/abc`) ទៅ URL ពេញ
   static String? absoluteImage(String? path) {
     final p = (path ?? '').trim();
