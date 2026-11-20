@@ -8006,18 +8006,8 @@ class _TransferScreenState extends State<TransferScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                            colors: [C.brandStart, C.brandEnd],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.account_balance_wallet_rounded,
-                          color: Colors.white, size: 22),
-                    ),
+                    const GoldBadge.icon(Icons.account_balance_wallet_rounded,
+                        size: 44),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
@@ -8078,7 +8068,10 @@ class _TransferScreenState extends State<TransferScreen> {
           NeuField(
             controller: account,
             label: 'ដាក់លេខគណនីទទួល',
-            icon: Icons.account_balance_wallet_outlined,
+            prefixIcon: const Padding(
+              padding: EdgeInsets.only(left: 12, right: 10),
+              child: GoldBadge.icon(Icons.account_balance_wallet_outlined),
+            ),
             keyboardType: TextInputType.number,
           ),
 
@@ -8096,7 +8089,7 @@ class _TransferScreenState extends State<TransferScreen> {
             label: 'ចំនួនប្រាក់ (\$)',
             prefixIcon: const Padding(
               padding: EdgeInsets.only(left: 12, right: 10),
-              child: CurrencyCoin(),
+              child: GoldBadge.symbol('\$'),
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
@@ -8113,7 +8106,10 @@ class _TransferScreenState extends State<TransferScreen> {
           NeuField(
             controller: note,
             label: 'សម្គាល់ (មិនដាក់ក៏បាន)',
-            icon: Icons.notes_outlined,
+            prefixIcon: const Padding(
+              padding: EdgeInsets.only(left: 12, right: 10),
+              child: GoldBadge.icon(Icons.notes_outlined),
+            ),
             maxLength: 60,
           ),
 
@@ -8149,8 +8145,9 @@ class _TransferScreenState extends State<TransferScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(sending ? Icons.hourglass_empty : Icons.send_rounded,
-                      size: 22),
+                  GoldBadge.icon(
+                      sending ? Icons.hourglass_empty : Icons.send_rounded,
+                      size: 30),
                   const SizedBox(width: 10),
                   Text(
                     sending ? 'កំពុងផ្ទេរ...' : 'ផ្ទេរឥឡូវនេះ',
@@ -11122,15 +11119,23 @@ class BankLogo extends StatelessWidget {
 }
 
 // ============================================================================
-//  CurrencyCoin — សញ្ញាប្រាក់មាសសម្រាប់ប្រអប់បញ្ចូលចំនួនទឹកប្រាក់
+//  GoldBadge — រង្វង់មាសសម្រាប់ icon និងសញ្ញាប្រាក់ក្នុងប្រអប់បញ្ចូល
 // ============================================================================
-class CurrencyCoin extends StatelessWidget {
-  final String symbol;
+class GoldBadge extends StatelessWidget {
+  final String? symbol;
+  final IconData? icon;
   final double size;
-  const CurrencyCoin({super.key, this.symbol = '\$', this.size = 34});
+  const GoldBadge.symbol(String this.symbol, {super.key, this.size = 34})
+      : icon = null;
+  const GoldBadge.icon(IconData this.icon, {super.key, this.size = 34})
+      : symbol = null;
 
   @override
   Widget build(BuildContext context) {
+    final glyphShadow = Shadow(
+        color: const Color(0xFF9A6205).withValues(alpha: 0.60),
+        blurRadius: size * 0.07,
+        offset: Offset(0, size * 0.03));
     return Container(
       width: size,
       height: size,
@@ -11162,22 +11167,21 @@ class CurrencyCoin extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.50),
                 width: size * 0.026),
           ),
-          child: Text(
-            symbol,
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: size * 0.44,
-              height: 1.0,
-              shadows: [
-                Shadow(
-                  color: const Color(0xFF9A6205).withValues(alpha: 0.60),
-                  blurRadius: size * 0.07,
-                  offset: Offset(0, size * 0.03),
+          child: icon != null
+              ? Icon(icon,
+                  color: Colors.white,
+                  size: size * 0.46,
+                  shadows: [glyphShadow])
+              : Text(
+                  symbol!,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: size * 0.44,
+                    height: 1.0,
+                    shadows: [glyphShadow],
+                  ),
                 ),
-              ],
-            ),
-          ),
         ),
       ),
     );
