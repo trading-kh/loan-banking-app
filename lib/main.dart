@@ -8094,21 +8094,9 @@ class _TransferScreenState extends State<TransferScreen> {
           NeuField(
             controller: amount,
             label: 'ចំនួនប្រាក់ (\$)',
-            prefixIcon: Container(
-              margin: const EdgeInsets.only(left: 12, right: 8),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                    colors: [C.brandStart, C.brandEnd],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text('\$',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
+            prefixIcon: const Padding(
+              padding: EdgeInsets.only(left: 12, right: 10),
+              child: CurrencyCoin(),
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
@@ -11129,6 +11117,69 @@ class BankLogo extends StatelessWidget {
                   style: const TextStyle(color: Colors.white,
                       fontWeight: FontWeight.w800, letterSpacing: 0.5))),
             ),
+    );
+  }
+}
+
+// ============================================================================
+//  CurrencyCoin — សញ្ញាប្រាក់មាសសម្រាប់ប្រអប់បញ្ចូលចំនួនទឹកប្រាក់
+// ============================================================================
+class CurrencyCoin extends StatelessWidget {
+  final String symbol;
+  final double size;
+  const CurrencyCoin({super.key, this.symbol = '\$', this.size = 34});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFEDB0), Color(0xFFF8C94E), Color(0xFFD89410)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+            color: Colors.white.withValues(alpha: 0.85), width: size * 0.05),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFD89410).withValues(alpha: 0.40),
+            blurRadius: size * 0.34,
+            offset: Offset(0, size * 0.10),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Container(
+          width: size * 0.74,
+          height: size * 0.74,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+                color: Colors.white.withValues(alpha: 0.50),
+                width: size * 0.026),
+          ),
+          child: Text(
+            symbol,
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: size * 0.44,
+              height: 1.0,
+              shadows: [
+                Shadow(
+                  color: const Color(0xFF9A6205).withValues(alpha: 0.60),
+                  blurRadius: size * 0.07,
+                  offset: Offset(0, size * 0.03),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
