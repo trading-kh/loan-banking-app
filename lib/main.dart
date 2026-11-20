@@ -7531,6 +7531,7 @@ class BankSelectionScreen extends StatefulWidget {
 
 class _BankSelectionScreenState extends State<BankSelectionScreen> {
   static const List<_BankEntry> _banks = [
+    _BankEntry('AURA', 'ធនាគារ Aura', 'Aura Bank'),
     _BankEntry('ABA', 'ធនាគារ អេប៊ីអេ', 'ABA Bank'),
     _BankEntry('ACLEDA', 'ធនាគារ អេស៊ីលីដា', 'ACLEDA Bank'),
     _BankEntry('CANADIA', 'ធនាគារ កាណាឌីយ៉ា', 'Canadia Bank'),
@@ -7761,6 +7762,7 @@ class TransferScreen extends StatefulWidget {
 
 class _TransferScreenState extends State<TransferScreen> {
   final account = TextEditingController();
+  final recipientName = TextEditingController();
   final amount = TextEditingController();
   final note = TextEditingController();
 
@@ -7769,9 +7771,14 @@ class _TransferScreenState extends State<TransferScreen> {
 
   Map<String, dynamic>? recipient;
   String? resolveError;
+  String? resolveCode;
   bool resolving = false;
   bool sending = false;
   Timer? _debounce;
+
+  /// ធនាគារខាងក្រៅមិនមានប្រព័ន្ធស្វែងរកឈ្មោះ → អ្នកផ្ញើត្រូវវាយឈ្មោះដោយខ្លួនឯង
+  bool get needsManualName =>
+      recipient == null && resolveCode == 'ACCOUNT_NOT_FOUND' && railCode != 'AURA';
 
   // key ស្ទួនសម្រាប់សំណើដូចគ្នា (បណ្ដាញដាច់ → retry មិនកាត់លុយពីរដង)
   String? _retrySig, _retryKey;
@@ -7795,20 +7802,26 @@ class _TransferScreenState extends State<TransferScreen> {
   void dispose() {
     _debounce?.cancel();
     _flow.dispose();
-    account.dispose(); amount.dispose(); note.dispose();
+    account.dispose(); recipientName.dispose();
+    amount.dispose(); note.dispose();
     super.dispose();
   }
 
   void _clearForm() {
-    account.clear();
+    account.clear(); recipientName.clear();
     amount.clear(); note.clear();
-    recipient = null; resolveError = null;
+    recipient = null; resolveError = null; resolveCode = null;
   }
 
   void _onAccountChanged(String v) {
     _debounce?.cancel();
     final digits = v.replaceAll(RegExp(r'\D'), '');
-    setState(() { recipient = null; resolveError = null; });
+    setState(() {
+      recipient = null;
+      resolveError = null;
+      resolveCode = null;
+      recipientName.clear();
+    });
     if (digits.length < 6) return;
     _debounce = Timer(const Duration(milliseconds: 550), _resolveAccount);
   }
@@ -7816,7 +7829,7 @@ class _TransferScreenState extends State<TransferScreen> {
   Future<void> _resolveAccount() async {
     final digits = account.text.replaceAll(RegExp(r'\D'), '');
     if (digits.length < 6) return;
-    setState(() { resolving = true; resolveError = null; });
+    setState(() { resolving = true; resolveError = null; resolveCode = null; });
     try {
       final r = await bank.lookupRailAccount(bankCode: railCode, account: digits);
       if (!mounted) return;
@@ -7824,7 +7837,11 @@ class _TransferScreenState extends State<TransferScreen> {
       setState(() => recipient = r);
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() { recipient = null; resolveError = e.message; });
+      setState(() {
+        recipient = null;
+        resolveError = e.message;
+        resolveCode = e.code;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -7855,13 +7872,23 @@ class _TransferScreenState extends State<TransferScreen> {
     if (recipient == null) await _resolveAccount();
     if (!mounted) return;
     final info = recipient;
-    if (info == null) {
+    String rName;
+    var toAura = false;
+    var recipientId = '';
+    if (info != null) {
+      rName = (info['name'] ?? '').toString();
+      toAura = info['aura'] == true;
+      recipientId = (info['recipient_id'] ?? '').toString();
+    } else if (needsManualName) {
+      rName = recipientName.text.trim();
+      if (rName.length < 2) {
+        toast(context, 'សូមបញ្ចូលឈ្មោះអ្នកទទួល', error: true);
+        return;
+      }
+    } else {
       toast(context, resolveError ?? 'រកមិនឃើញគណនីអ្នកទទួល', error: true);
       return;
     }
-    final rName = (info['name'] ?? '').toString();
-    final toAura = info['aura'] == true;
-    final recipientId = (info['recipient_id'] ?? '').toString();
 
     final pin = await bank.pinForTransfer(context);
     if (pin == null || !mounted) return;
@@ -7952,27 +7979,72 @@ class _TransferScreenState extends State<TransferScreen> {
     if (info == null) {
       final err = resolveError;
       if (err == null) return const SizedBox.shrink();
-      return Container(
-        margin: const EdgeInsets.only(top: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-        decoration: BoxDecoration(
-          color: C.accentRed.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: C.accentRed.withValues(alpha: 0.30)),
-        ),
-        child: Row(children: [
-          const Icon(Icons.error_outline_rounded,
-              color: C.accentRed, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(err,
-                style: const TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: C.accentRed)),
+      if (!needsManualName) {
+        return Container(
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            color: C.accentRed.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: C.accentRed.withValues(alpha: 0.30)),
           ),
-        ]),
-      );
+          child: Row(children: [
+            const Icon(Icons.error_outline_rounded,
+                color: C.accentRed, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(err,
+                  style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: C.accentRed)),
+            ),
+          ]),
+        );
+      }
+      return Column(children: [
+        Container(
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: C.accentGold.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: C.accentGold.withValues(alpha: 0.38)),
+          ),
+          child: Row(children: [
+            const Icon(Icons.info_outline_rounded,
+                color: C.accentGold, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(err,
+                    style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: C.accentGold)),
+                const SizedBox(height: 2),
+                Text('សូមវាយឈ្មោះអ្នកទទួល ដើម្បីបន្តផ្ទេរប្រាក់',
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.4,
+                        color: context.muted)),
+              ]),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        NeuField(
+          controller: recipientName,
+          label: 'ឈ្មោះអ្នកទទួល',
+          prefixIcon: const Padding(
+            padding: EdgeInsets.only(left: 12, right: 10),
+            child: GoldBadge.icon(Icons.person_outline_rounded),
+          ),
+          maxLength: 60,
+        ),
+      ]);
     }
     final name = (info['name'] ?? '').toString();
     final code = (info['bank_code'] ?? railCode).toString();
