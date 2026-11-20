@@ -1003,4 +1003,6 @@ const Map<String, String> en = {
       'Your documents were not approved. Please review the reasons below and re-upload them.',
   '៣០ ថ្ងៃ': '30 days',
   '៧ ថ្ងៃ': '7 days',
+  'បញ្ជាក់': 'Confirm',
+  'ចាកចេញពីគណនីនេះ': 'Log out of this account',
 };

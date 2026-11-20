@@ -373,78 +373,102 @@ class ThemeCustomizationScreen extends StatelessWidget {
 // ============================================================
 //  LANGUAGE SCREEN
 // ============================================================
-class LanguageScreen extends StatelessWidget {
+class LanguageScreen extends StatefulWidget {
   const LanguageScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-        listenable: premium,
-        builder: (_, __) => Scaffold(
-          appBar: AppBar(title: const Text('ភាសា')),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              Text('ជ្រើសរើសភាសារបស់អ្នក',
-                  style: TextStyle(fontSize: 13, color: context.muted)),
-              const SizedBox(height: 18),
-              for (final code in LocaleService.languageNames.keys)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: NeuBox(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    onTap: () async {
-                      await premium.setLanguage(code);
-                    },
-                    child: Row(children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: context.bg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: context.border),
-                        ),
-                        child: Center(
-                          child: Text(
-                              LocaleService.languageFlags[code] ?? '',
-                              style: const TextStyle(fontSize: 22)),
-                        ),
+  State<LanguageScreen> createState() => _LanguageScreenState();
+}
+
+class _LanguageScreenState extends State<LanguageScreen> {
+  late String _selected = premium.language;
+
+  Future<void> _confirm() async {
+    if (_selected != premium.language) {
+      await premium.setLanguage(_selected);
+    }
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('ភាសា')),
+        body: SafeArea(
+          child: Column(children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                children: [
+                  Text('ជ្រើសរើសភាសារបស់អ្នក',
+                      style: TextStyle(fontSize: 13, color: context.muted)),
+                  const SizedBox(height: 18),
+                  for (final code in LocaleService.languageNames.keys)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: NeuBox(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 14),
+                        onTap: () => setState(() => _selected = code),
+                        child: Row(children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: context.bg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: context.border),
+                            ),
+                            child: Center(
+                              child: Text(
+                                  LocaleService.languageFlags[code] ?? '',
+                                  style: const TextStyle(fontSize: 22)),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(LocaleService.languageNames[code]!,
+                                    style: TextStyle(
+                                        fontSize: 15.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: context.ink)),
+                                const SizedBox(height: 2),
+                                Text(
+                                    code == 'km'
+                                        ? 'Khmer'
+                                        : 'ភាសាអង់គ្លេស',
+                                    style: TextStyle(
+                                        fontSize: 11.5,
+                                        color: context.muted)),
+                              ],
+                            ),
+                          ),
+                          if (_selected == code)
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                  gradient: AuraGrad.button,
+                                  shape: BoxShape.circle),
+                              child: const Icon(Icons.check_rounded,
+                                  color: Colors.white, size: 16),
+                            ),
+                        ]),
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(LocaleService.languageNames[code]!,
-                                style: TextStyle(
-                                    fontSize: 15.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: context.ink)),
-                            const SizedBox(height: 2),
-                            Text(
-                                code == 'km'
-                                    ? 'Khmer'
-                                    : 'ភាសាអង់គ្លេស',
-                                style: TextStyle(
-                                    fontSize: 11.5, color: context.muted)),
-                          ],
-                        ),
-                      ),
-                      if (premium.language == code)
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                              gradient: AuraGrad.button,
-                              shape: BoxShape.circle),
-                          child: const Icon(Icons.check_rounded,
-                              color: Colors.white, size: 16),
-                        ),
-                    ]),
-                  ),
-                ),
-            ],
-          ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: NeuButton(
+                label: 'បញ្ជាក់',
+                icon: Icons.check_rounded,
+                onPressed: _confirm,
+              ),
+            ),
+          ]),
         ),
       );
 }

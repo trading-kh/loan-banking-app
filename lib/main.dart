@@ -8661,36 +8661,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (saved == true) toast(context, 'បានធ្វើបច្ចុប្បន្នភាពព័ត៌មាន');
   }
 
-  Future<void> _logout() async {
-    final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-            backgroundColor: ctx.card,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18)),
-            title: Text('ចាកចេញ?', style: TextStyle(color: ctx.ink)),
-            content: Text('អ្នកនឹងត្រូវចូលឡើងវិញនៅពេលក្រោយ',
-                style: TextStyle(color: ctx.muted)),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: Text('បោះបង់',
-                      style: TextStyle(color: ctx.muted))),
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('ចាកចេញ',
-                      style: TextStyle(
-                          color: C.accentRed,
-                          fontWeight: FontWeight.w700))),
-            ]));
-    if (ok != true || !mounted) return;
-    await bank.logout();
-    tabIndex.value = 0;
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const MainShell()), (r) => false);
-  }
-
   Widget _profileHero(BuildContext context) => Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -8948,11 +8918,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
-            if (!bank.guest)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 18),
-                child: _LogoutIcon(onTap: _logout),
-              ),
           ]),
         ),
       );
@@ -13797,62 +13762,6 @@ class _DrawerIconButton extends StatelessWidget {
       );
 }
 
-class _LogoutIcon extends StatefulWidget {
-  final VoidCallback onTap;
-  const _LogoutIcon({required this.onTap});
-
-  @override
-  State<_LogoutIcon> createState() => _LogoutIconState();
-}
-
-class _LogoutIconState extends State<_LogoutIcon> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-        button: true,
-        label: 'ចាកចេញ',
-        child: Tooltip(
-          message: 'ចាកចេញ',
-          child: GestureDetector(
-            onTapDown: (_) => setState(() => _pressed = true),
-            onTapUp: (_) {
-              setState(() => _pressed = false);
-              widget.onTap();
-            },
-            onTapCancel: () => setState(() => _pressed = false),
-            child: AnimatedScale(
-              scale: _pressed ? 0.9 : 1,
-              duration: const Duration(milliseconds: 120),
-              child: Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: [
-                    C.accentRed.withValues(alpha: 0.16),
-                    C.accentRed.withValues(alpha: 0.05),
-                  ]),
-                  border: Border.all(
-                      color: C.accentRed.withValues(alpha: 0.45),
-                      width: 1.2),
-                  boxShadow: [
-                    BoxShadow(
-                        color: C.accentRed.withValues(alpha: 0.18),
-                        blurRadius: 16,
-                        spreadRadius: -4,
-                        offset: const Offset(0, 6)),
-                  ],
-                ),
-                child: const Icon(Icons.logout_rounded,
-                    color: C.accentRed, size: 24),
-              ),
-            ),
-          ),
-        ),
-      );
-}
-
 class _MenuHero extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -14440,6 +14349,37 @@ class TermsPoliciesScreen extends StatelessWidget {
 // ---------------------------------------------------------------------------
 //  SETTING AND PRIVACY
 // ---------------------------------------------------------------------------
+/// ចាកចេញ — សួរបញ្ជាក់ រួចសម្អាត session ហើយត្រឡប់ទៅផ្ទាំងដើម
+Future<void> confirmLogout(BuildContext context) async {
+  final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+          backgroundColor: ctx.card,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18)),
+          title: Text('ចាកចេញ?', style: TextStyle(color: ctx.ink)),
+          content: Text('អ្នកនឹងត្រូវចូលឡើងវិញនៅពេលក្រោយ',
+              style: TextStyle(color: ctx.muted)),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('បោះបង់',
+                    style: TextStyle(color: ctx.muted))),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('ចាកចេញ',
+                    style: TextStyle(
+                        color: C.accentRed,
+                        fontWeight: FontWeight.w700))),
+          ]));
+  if (ok != true || !context.mounted) return;
+  await bank.logout();
+  tabIndex.value = 0;
+  if (!context.mounted) return;
+  Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const MainShell()), (r) => false);
+}
+
 class SettingPrivacyScreen extends StatelessWidget {
   const SettingPrivacyScreen({super.key});
 
@@ -14494,6 +14434,14 @@ class SettingPrivacyScreen extends StatelessWidget {
                       'ភាសាខ្មែរ',
               onTap: () => push(context, const LanguageScreen()),
             ),
+            if (!bank.guest)
+              _ToolTile(
+                icon: Icons.logout_rounded,
+                color: C.accentRed,
+                title: 'ចាកចេញ',
+                subtitle: 'ចាកចេញពីគណនីនេះ',
+                onTap: () => confirmLogout(context),
+              ),
           ],
         ),
       ));
