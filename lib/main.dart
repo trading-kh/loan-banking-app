@@ -8031,13 +8031,15 @@ class _TransferScreenState extends State<TransferScreen> {
     final selectedCard = bank.cards.firstWhere(
         (c) => c.id == (cardId ?? bank.cards.first.id),
         orElse: () => bank.cards.first);
-    final bankName = widget.heading;
+    final targetCode =
+        (recipient?['bank_code'] ?? widget.bankCode ?? 'OTHER').toString();
+    final bankName = (recipient?['bank_name'] ?? widget.heading).toString();
 
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
         title: Row(children: [
-          BankLogo(code: widget.bankCode ?? 'OTHER', size: 34),
+          BankLogo(code: targetCode, size: 34),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
