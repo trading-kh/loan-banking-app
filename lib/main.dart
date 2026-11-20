@@ -7762,36 +7762,26 @@ class TransferScreen extends StatefulWidget {
 
 class _TransferScreenState extends State<TransferScreen> {
   final account = TextEditingController();
-  final recipientName = TextEditingController();
   final amount = TextEditingController();
   final note = TextEditingController();
 
   late String railCode = widget.bankCode ?? 'ABA';
   int? cardId;
 
+  /// ស្វែងរកតាមលេខគណនីបានតែ Aura Bank (លេខទូរសព្ទ = លេខគណនី)
+  bool get isAura => railCode == 'AURA';
+
   Map<String, dynamic>? recipient;
   String? resolveError;
-  String? resolveCode;
   bool resolving = false;
   bool sending = false;
   bool qrBusy = false;
   Timer? _debounce;
 
-  /// ធនាគារខាងក្រៅមិនមានប្រព័ន្ធស្វែងរកឈ្មោះ → អ្នកផ្ញើត្រូវវាយឈ្មោះដោយខ្លួនឯង
-  bool get needsManualName =>
-      recipient == null && resolveCode == 'ACCOUNT_NOT_FOUND' && railCode != 'AURA';
-
   // key ស្ទួនសម្រាប់សំណើដូចគ្នា (បណ្ដាញដាច់ → retry មិនកាត់លុយពីរដង)
   String? _retrySig, _retryKey;
 
   final _flow = _TransferFlowHandle();
-
-  BankRail? get rail {
-    for (final b in bank.rails) {
-      if (b.code == railCode) return b;
-    }
-    return null;
-  }
 
   @override
   void initState() {
@@ -7803,15 +7793,15 @@ class _TransferScreenState extends State<TransferScreen> {
   void dispose() {
     _debounce?.cancel();
     _flow.dispose();
-    account.dispose(); recipientName.dispose();
+    account.dispose();
     amount.dispose(); note.dispose();
     super.dispose();
   }
 
   void _clearForm() {
-    account.clear(); recipientName.clear();
+    account.clear();
     amount.clear(); note.clear();
-    recipient = null; resolveError = null; resolveCode = null;
+    recipient = null; resolveError = null;
   }
 
   void _onAccountChanged(String v) {
@@ -7820,8 +7810,6 @@ class _TransferScreenState extends State<TransferScreen> {
     setState(() {
       recipient = null;
       resolveError = null;
-      resolveCode = null;
-      recipientName.clear();
     });
     if (digits.length < 6) return;
     _debounce = Timer(const Duration(milliseconds: 550), _resolveAccount);
@@ -7830,7 +7818,7 @@ class _TransferScreenState extends State<TransferScreen> {
   Future<void> _resolveAccount() async {
     final digits = account.text.replaceAll(RegExp(r'\D'), '');
     if (digits.length < 6) return;
-    setState(() { resolving = true; resolveError = null; resolveCode = null; });
+    setState(() { resolving = true; resolveError = null; });
     try {
       final r = await bank.lookupRailAccount(bankCode: railCode, account: digits);
       if (!mounted) return;
@@ -7841,7 +7829,6 @@ class _TransferScreenState extends State<TransferScreen> {
       setState(() {
         recipient = null;
         resolveError = e.message;
-        resolveCode = e.code;
       });
     } catch (_) {
       if (!mounted) return;
@@ -7854,11 +7841,6 @@ class _TransferScreenState extends State<TransferScreen> {
     }
   }
 
-  /// ស្កេន QR ផ្ទាល់ — បើកកាមេរ៉ា (ដូច tab ទទួលប្រាក់) រួចបង្ហាញព័ត៌មានអ្នកទទួល
-  void _scanQr() {
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const QrScreen(startScan: true)));
-  }
 
   /// Upload រូបភាព QR ពី gallery → ឌិកូដ → ទំព័រទូទាត់ (ដូចស្កេន)
   Future<void> _uploadQr() async {
@@ -7892,70 +7874,6 @@ class _TransferScreenState extends State<TransferScreen> {
         .push(MaterialPageRoute(builder: (_) => QrPayScreen(rawQr: value)));
   }
 
-  Widget _qrActionButton({
-    required IconData icon,
-    required String label,
-    required String sub,
-    required VoidCallback? onTap,
-    bool filled = false,
-    bool busy = false,
-  }) {
-    final fg = filled ? C.brandStart : Colors.white;
-    return Material(
-      color: filled ? Colors.white : Colors.white.withValues(alpha: 0.10),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-                color: Colors.white.withValues(alpha: filled ? 0 : 0.26)),
-          ),
-          child: Row(children: [
-            if (busy)
-              const SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: Padding(
-                    padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2.2, color: C.brandStart),
-                  ))
-            else
-              GoldBadge.icon(icon, size: 34),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: fg)),
-                    const SizedBox(height: 2),
-                    Text(sub,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 10.5,
-                            color: filled
-                                ? C.brandStart.withValues(alpha: 0.62)
-                                : Colors.white.withValues(alpha: 0.70))),
-                  ]),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
-
   Widget _qrActions(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -7976,49 +7894,58 @@ class _TransferScreenState extends State<TransferScreen> {
         Row(children: [
           const GoldBadge.icon(Icons.qr_code_2_rounded, size: 40),
           const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('អ្នកទទួលប្រាក់',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 2),
-                  Text('ស្កេន ឬ Upload QR → ឃើញឈ្មោះអ្នកទទួលភ្លាមៗ',
-                      style: TextStyle(
-                          fontSize: 11.5,
-                          color: Colors.white.withValues(alpha: 0.72))),
-                ]),
+          const Expanded(
+            child: Text('អ្នកទទួលប្រាក់',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800)),
           ),
         ]),
         const SizedBox(height: 14),
-        Row(children: [
-          Expanded(
-            child: _qrActionButton(
-              icon: Icons.qr_code_scanner_rounded,
-              label: 'ស្កេន QR',
-              sub: 'បើកកាមេរ៉ា',
-              onTap: _scanQr,
-              filled: true,
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: qrBusy ? null : _uploadQr,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: C.accentGold.withValues(alpha: 0.65))),
+              child: Row(children: [
+                if (qrBusy)
+                  const SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: Padding(
+                        padding: EdgeInsets.all(8),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.2, color: C.brandStart),
+                      ))
+                else
+                  const GoldBadge.icon(Icons.image_outlined, size: 34),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(qrBusy ? 'កំពុងអាន QR...' : 'Upload QR',
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: C.brandStart)),
+                ),
+                Icon(Icons.upload_rounded,
+                    size: 20, color: C.brandStart.withValues(alpha: 0.55)),
+              ]),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _qrActionButton(
-              icon: Icons.image_outlined,
-              label: 'Upload QR',
-              sub: 'ជ្រើសរូបភាព',
-              onTap: qrBusy ? null : _uploadQr,
-              busy: qrBusy,
-            ),
-          ),
-        ]),
+        ),
       ]),
     );
   }
-
   Future<void> submit() async {
     if (sending) return;
     final a = parseAmt(amount.text);
@@ -8038,47 +7965,27 @@ class _TransferScreenState extends State<TransferScreen> {
     if (recipient == null) await _resolveAccount();
     if (!mounted) return;
     final info = recipient;
-    String rName;
-    var toAura = false;
-    var recipientId = '';
-    if (info != null) {
-      rName = (info['name'] ?? '').toString();
-      toAura = info['aura'] == true;
-      recipientId = (info['recipient_id'] ?? '').toString();
-    } else if (needsManualName) {
-      rName = recipientName.text.trim();
-      if (rName.length < 2) {
-        toast(context, 'សូមបញ្ចូលឈ្មោះអ្នកទទួល', error: true);
-        return;
-      }
-    } else {
+    if (info == null) {
       toast(context, resolveError ?? 'រកមិនឃើញគណនីអ្នកទទួល', error: true);
       return;
     }
+    final rName = (info['name'] ?? '').toString();
+    final recipientId = (info['recipient_id'] ?? '').toString();
 
     final pin = await bank.pinForTransfer(context);
     if (pin == null || !mounted) return;
 
     final nt = note.text.trim();
-    final sig = 'rail|$railCode|$digits|$rName|$cid|$a|$nt';
+    final sig = 'aura|$digits|$cid|$a|$nt';
     final key = (_retrySig == sig && _retryKey != null)
         ? _retryKey! : ApiService.newIdempotencyKey();
 
     setState(() => sending = true);
-    final flowBank = toAura ? 'AURA' : railCode;
-    _flow.open(context, bankCode: flowBank,
-        recipientName: rName, amount: a);
+    _flow.open(context, bankCode: 'AURA', recipientName: rName, amount: a);
     try {
-      final r = toAura
-          ? await bank.transferP2P(recipientId: recipientId, amount: a,
-              cardId: cid, pin: pin, note: nt.isEmpty ? null : nt,
-              idempotencyKey: key)
-          : await bank.transferToRail(
-              rail: rail ?? BankRail(code: railCode, name: railCode),
-              recipientName: rName,
-              recipientAccount: digits,
-              amount: a, cardId: cid, pin: pin,
-              note: nt.isEmpty ? null : nt, idempotencyKey: key);
+      final r = await bank.transferP2P(recipientId: recipientId, amount: a,
+          cardId: cid, pin: pin, note: nt.isEmpty ? null : nt,
+          idempotencyKey: key);
       _retrySig = null; _retryKey = null;
       final ref = (r['transfer_ref'] ?? '').toString();
       var flowStatus = 'success';
@@ -8096,7 +8003,7 @@ class _TransferScreenState extends State<TransferScreen> {
           title: (tx is Map ? tx['title'] : null)?.toString() ?? 'ផ្ទេរប្រាក់',
           amount: a, recipient: rName.isEmpty ? null : rName,
           ref: ref.isEmpty ? null : ref,
-          flowBankCode: flowBank,
+          flowBankCode: 'AURA',
           flowRecipient: rName.isEmpty ? null : rName,
           flowStatus: flowStatus,
           magicReveal: true)));
@@ -8145,72 +8052,27 @@ class _TransferScreenState extends State<TransferScreen> {
     if (info == null) {
       final err = resolveError;
       if (err == null) return const SizedBox.shrink();
-      if (!needsManualName) {
-        return Container(
-          margin: const EdgeInsets.only(top: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          decoration: BoxDecoration(
-            color: C.accentRed.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: C.accentRed.withValues(alpha: 0.30)),
-          ),
-          child: Row(children: [
-            const Icon(Icons.error_outline_rounded,
-                color: C.accentRed, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(err,
-                  style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: C.accentRed)),
-            ),
-          ]),
-        );
-      }
-      return Column(children: [
-        Container(
-          margin: const EdgeInsets.only(top: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: C.accentGold.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: C.accentGold.withValues(alpha: 0.38)),
-          ),
-          child: Row(children: [
-            const Icon(Icons.info_outline_rounded,
-                color: C.accentGold, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(err,
-                    style: const TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: C.accentGold)),
-                const SizedBox(height: 2),
-                Text('សូមវាយឈ្មោះអ្នកទទួល ដើម្បីបន្តផ្ទេរប្រាក់',
-                    style: TextStyle(
-                        fontSize: 11.5,
-                        height: 1.4,
-                        color: context.muted)),
-              ]),
-            ),
-          ]),
+      return Container(
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: C.accentRed.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: C.accentRed.withValues(alpha: 0.30)),
         ),
-        const SizedBox(height: 10),
-        NeuField(
-          controller: recipientName,
-          label: 'ឈ្មោះអ្នកទទួល',
-          prefixIcon: const Padding(
-            padding: EdgeInsets.only(left: 12, right: 10),
-            child: GoldBadge.icon(Icons.person_outline_rounded),
+        child: Row(children: [
+          const Icon(Icons.error_outline_rounded,
+              color: C.accentRed, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(err,
+                style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: C.accentRed)),
           ),
-          maxLength: 60,
-        ),
-      ]);
+        ]),
+      );
     }
     final name = (info['name'] ?? '').toString();
     final code = (info['bank_code'] ?? railCode).toString();
@@ -8373,26 +8235,8 @@ class _TransferScreenState extends State<TransferScreen> {
 
           const SizedBox(height: 22),
 
-          // QR អ្នកទទួល — ស្កេន ឬ Upload (ដូចទំព័រស្កេន QR)
-          _qrActions(context),
-
-          const SizedBox(height: 20),
-
-          // ឬដាក់លេខគណនីផ្ទាល់
-          Row(children: [
-            Expanded(child: Divider(color: context.border, height: 1)),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text('ឬ ដាក់លេខគណនីផ្ទាល់',
-                  style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: context.muted)),
-            ),
-            Expanded(child: Divider(color: context.border, height: 1)),
-          ]),
-          const SizedBox(height: 16),
-
+          if (isAura) ...[
+          // Aura → ស្វែងរកដោយលេខគណនី (លេខទូរសព្ទ)
           // គណនីអ្នកទទួល
           Text('គណនីអ្នកទទួល',
               style: TextStyle(
@@ -8502,6 +8346,9 @@ class _TransferScreenState extends State<TransferScreen> {
               ),
             ),
           ),
+          ] else
+            // ធនាគារដទៃ → Upload QR តែមួយមុខ (ទំព័រទូទាត់បង្ហាញព័ត៌មានអ្នកទទួល)
+            _qrActions(context),
         ],
       ),
     );
