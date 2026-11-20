@@ -11340,6 +11340,10 @@ class _OtpSheetState extends State<_OtpSheet>
       setState(() => _error = 'OTP ផុតកំណត់ — សូមផ្ញើឡើងវិញ');
       return;
     }
+    if (_requestId <= 0) {
+      setState(() => _error = 'សំណើ OTP មិនពេញលេញ — សូមផ្ញើឡើងវិញ');
+      return;
+    }
     setState(() { _busy = true; _error = null; });
     try {
       final r = await widget.confirm(_requestId, _code);
