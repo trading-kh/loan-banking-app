@@ -5545,7 +5545,7 @@ class _MainShellState extends State<MainShell> {
 
   static const List<Widget> _pages = [
     HomeScreen(),
-    TransferMenuScreen(),
+    BankSelectionScreen(),
     AnalyticsScreen(),
     TrackingScreen(),
   ];
@@ -7513,120 +7513,6 @@ class HomeScreen extends StatelessWidget {
 }
 
 // ============================================================================
-//  TRANSFER MENU (UI ថ្មី - ជម្រើសផ្ទេរប្រាក់)
-// ============================================================================
-class TransferMenuScreen extends StatelessWidget {
-  const TransferMenuScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: C.bgDark,
-      body: Column(
-        children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      GestureDetector(
-                        onTap: () => tabIndex.value = 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
-                        ),
-                      ),
-                      const Row(
-                        children: [
-                          Text('ផ្ទេរប្រាក់', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                          SizedBox(width: 6),
-                          Icon(Icons.info_outline, color: Colors.white70, size: 18),
-                        ],
-                      ),
-                      const Icon(Icons.pets, color: C.accentGold, size: 28),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      const Icon(Icons.sync_alt, color: Colors.white24, size: 100),
-                      Positioned(right: 80, top: 10, child: Icon(Icons.monetization_on, color: C.accentGold.withValues(alpha: 0.8), size: 30)),
-                      Positioned(left: 80, bottom: 10, child: Icon(Icons.monetization_on, color: C.accentGold.withValues(alpha: 0.8), size: 20)),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: context.bg,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-              ),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-                children: [
-                  _buildTransferItem(context, icon: Icons.account_balance_wallet, iconColor: const Color(0xFF1E3A8A), title: 'ធនាគារក្នុងស្រុក', subtitle: 'ជ្រើសរើសធនាគារដើម្បីផ្ទេរប្រាក់', showChevron: true, onTap: () => push(context, const BankSelectionScreen())),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTransferItem(BuildContext context, {required IconData icon, required Color iconColor, required String title, required String subtitle, bool showChevron = false, Widget? trailing, required VoidCallback onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: context.card,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.04), blurRadius: 10, offset: const Offset(0, 4))],
-          ),
-          child: Row(
-            children: [
-              Container(width: 54, height: 54, decoration: BoxDecoration(color: iconColor, shape: BoxShape.circle), child: Icon(icon, color: Colors.white, size: 26)),
-              const SizedBox(width: 16),
-              Container(width: 1, height: 40, color: context.border),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: context.ink)),
-                    const SizedBox(height: 4),
-                    Text(subtitle, style: TextStyle(fontSize: 12, color: context.muted), maxLines: 2, overflow: TextOverflow.ellipsis),
-                  ],
-                ),
-              ),
-              if (trailing != null) ...[trailing, const SizedBox(width: 8)],
-              if (showChevron || trailing != null) const Icon(Icons.arrow_forward_ios, color: C.accentGold, size: 14),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
 //  BANK SELECTION SCREEN (ជ្រើសរើសធនាគារ)
 // ============================================================================
 class _BankEntry {
@@ -7670,7 +7556,7 @@ class BankSelectionScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       GestureDetector(
-                        onTap: () => Navigator.pop(context),
+                        onTap: () => tabIndex.value = 0,
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
