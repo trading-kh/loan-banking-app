@@ -36,7 +36,6 @@ import 'services/pdf_service.dart';
 import 'extra_features.dart';
 import 'premium_features.dart';
 import 'onboarding.dart';
-import 'ui_extras.dart';
 import 'loan_module.dart';
 import 'screens/account_screen.dart';
 import 'screens/receive_money_screen.dart';
@@ -7520,9 +7519,13 @@ class _BankEntry {
   const _BankEntry(this.code, this.name, this.nameEn);
 }
 
-class BankSelectionScreen extends StatelessWidget {
+class BankSelectionScreen extends StatefulWidget {
   const BankSelectionScreen({super.key});
+  @override
+  State<BankSelectionScreen> createState() => _BankSelectionScreenState();
+}
 
+class _BankSelectionScreenState extends State<BankSelectionScreen> {
   static const List<_BankEntry> _banks = [
     _BankEntry('ABA', 'ធនាគារ អេប៊ីអេ', 'ABA Bank'),
     _BankEntry('ACLEDA', 'ធនាគារ អេស៊ីលីដា', 'ACLEDA Bank'),
@@ -7540,106 +7543,122 @@ class BankSelectionScreen extends StatelessWidget {
     _BankEntry('LYF', 'កាបូប LYF', 'LYF Wallet'),
   ];
 
+  final _search = TextEditingController();
+  String _q = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final q = _q.trim().toLowerCase();
+    final list = q.isEmpty
+        ? _banks
+        : _banks
+            .where((b) =>
+                b.name.toLowerCase().contains(q) ||
+                b.nameEn.toLowerCase().contains(q))
+            .toList();
     return Scaffold(
-      backgroundColor: C.bgDark,
-      body: Column(
-        children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      GestureDetector(
-                        onTap: () => tabIndex.value = 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
-                        ),
-                      ),
-                      const Text('ជ្រើសរើសធនាគារ', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                      const SizedBox(width: 38),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: context.bg,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-              ),
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: _banks.length,
-                itemBuilder: (context, index) {
-                  final bank = _banks[index];
-                  return _buildBankItem(context, bank);
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('ជ្រើសរើសធនាគារ')),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: NeuField(
+              controller: _search,
+              label: 'ស្វែងរកធនាគារ...',
+              icon: Icons.search,
+              onChanged: (v) => setState(() => _q = v)),
+        ),
+        Expanded(
+          child: list.isEmpty
+              ? Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.search_off_rounded,
+                      size: 44, color: context.muted),
+                  const SizedBox(height: 10),
+                  Text('រកមិនឃើញធនាគារ',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: context.muted)),
+                ]))
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  itemCount: list.length,
+                  itemBuilder: (_, i) => _bankTile(context, list[i]),
+                ),
+        ),
+      ]),
     );
   }
 
-  Widget _buildBankItem(BuildContext context, _BankEntry bank) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: GestureDetector(
-        onTap: () {
-          push(context, TransferScreen(
-            bankCode: bank.code,
-            heading: bank.name,
-          ));
-        },
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: context.card,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: context.border),
-          ),
-          child: Row(
-            children: [
-              BankLogo(code: bank.code, size: 56),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      bank.name,
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: context.ink),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      bank.nameEn,
-                      style: TextStyle(fontSize: 12, color: context.muted),
-                    ),
-                  ],
-                ),
+  Widget _bankTile(BuildContext context, _BankEntry bank) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Material(
+          color: context.card,
+          borderRadius: BorderRadius.circular(18),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => push(context,
+                TransferScreen(bankCode: bank.code, heading: bank.name)),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: context.border),
               ),
-              const Icon(Icons.arrow_forward_ios, color: C.accentGold, size: 14),
-            ],
+              child: Row(children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: context.bg,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: BankLogo(code: bank.code, size: 38),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(bank.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                                color: context.ink)),
+                        const SizedBox(height: 3),
+                        Text(bank.nameEn,
+                            style: TextStyle(
+                                fontSize: 11.5, color: context.muted)),
+                      ]),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                        colors: [C.brandStart, C.brandEnd],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: const Icon(Icons.arrow_forward_rounded,
+                      color: Colors.white, size: 18),
+                ),
+              ]),
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }
 
 /// rails ធនាគារ/MFI ដែល Backend គាំទ្រសម្រាប់ការផ្ទេរចេញក្រៅ
@@ -7927,306 +7946,233 @@ class _TransferScreenState extends State<TransferScreen> {
   Widget build(BuildContext context) {
     if (bank.cards.isEmpty) {
       return Scaffold(
-        backgroundColor: C.bgDark,
-        body: const Center(child: Text('គ្មានគណនី', style: TextStyle(color: Colors.white))),
+        appBar: AppBar(),
+        body: Center(
+            child: Text('គ្មានគណនី',
+                style: TextStyle(color: context.muted, fontSize: 13.5))),
       );
     }
 
-    final selectedCard = bank.cards.firstWhere((c) => c.id == (cardId ?? bank.cards.first.id),
+    final selectedCard = bank.cards.firstWhere(
+        (c) => c.id == (cardId ?? bank.cards.first.id),
         orElse: () => bank.cards.first);
     final bankName = widget.heading;
 
     return Scaffold(
-      backgroundColor: C.bgDark,
-      body: Column(
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: Row(children: [
+          BankLogo(code: widget.bankCode ?? 'OTHER', size: 34),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('ផ្ទេរប្រាក់',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w800)),
+                  Text('ទៅ $bankName',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: context.muted)),
+                ]),
+          ),
+          const SizedBox(width: 16),
+        ]),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         children: [
-          // Header - Beautiful Gradient Design
+          // គណនីដ្ឋាន
           Container(
-            width: double.infinity,
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  const Color(0xFF667EEA),
-                  const Color(0xFF764BA2),
-                  C.accent.withValues(alpha: 0.8),
-                ],
-              ),
+              color: context.card,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: context.border),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF667EEA).withValues(alpha: 0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
+                    color: Colors.black
+                        .withValues(alpha: context.isDark ? 0.25 : 0.05),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6)),
               ],
             ),
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                child: Column(
-                  children: [
-                    // Top Row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        GestureDetector(
-                          onTap: () => Navigator.pop(context),
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-                            ),
-                            child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 28,
-                                height: 28,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.1),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(Icons.account_balance, color: Color(0xFF667EEA), size: 16),
-                              ),
-                              const SizedBox(width: 8),
-                              const Text('ផ្ទេរប្រាក់', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 44),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    // Bank Name
-                    Text(
-                      bankName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                            colors: [C.brandStart, C.brandEnd],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight),
+                        borderRadius: BorderRadius.circular(12),
                       ),
+                      child: const Icon(Icons.account_balance_wallet_rounded,
+                          color: Colors.white, size: 22),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'ផ្ទេរទៅគណនី $bankName ណាមួយ',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Content - Modern Form Design
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
-              children: [
-                // Source Account Card
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        context.card,
-                        context.card.withValues(alpha: 0.8),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: context.border, width: 1.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: context.isDark ? 0.3 : 0.08),
-                        blurRadius: 16,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF667EEA).withValues(alpha: 0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(Icons.savings_outlined, color: Colors.white, size: 22),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('គណនីរបស់អ្នក', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.muted)),
-                                const SizedBox(height: 4),
-                                Text('Mobile Savings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: context.ink)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: context.bg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: context.border),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'សមតុល្យបច្ចុប្បន្ន',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: context.muted),
-                            ),
-                            Text(
-                              '\$${selectedCard.balance.toStringAsFixed(2)} USD',
-                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: C.accent),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Recipient Account
-                Text('គណនីអ្នកទទួល', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.ink)),
-                const SizedBox(height: 10),
-                NeuField(
-                  controller: account,
-                  label: 'ដាក់លេខគណនីទទួល',
-                  icon: Icons.person_outline,
-                  keyboardType: TextInputType.number,
-                ),
-
-                const SizedBox(height: 20),
-
-                // Amount
-                Text('ចំនួនទឹកប្រាក់', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.ink)),
-                const SizedBox(height: 10),
-                NeuField(
-                  controller: amount,
-                  label: 'ចំនួនប្រាក់ (\$)',
-                  prefixIcon: Container(
-                    margin: const EdgeInsets.only(left: 12, right: 8),
-                    padding: const EdgeInsets.all(8),
+                            Text('គណនីរបស់អ្នក',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: context.muted)),
+                            const SizedBox(height: 3),
+                            Text(selectedCard.name,
+                                style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: context.ink)),
+                          ]),
+                    ),
+                    const Icon(Icons.verified_rounded,
+                        color: C.accentGreen, size: 20),
+                  ]),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text('\$', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Note
-                Text('កំណត់ចំណាំ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.ink)),
-                const SizedBox(height: 10),
-                NeuField(
-                  controller: note,
-                  label: 'សម្គាល់ (មិនដាក់ក៏បាន)',
-                  icon: Icons.notes_outlined,
-                  maxLength: 60,
-                ),
-
-                const SizedBox(height: 32),
-
-                // Transfer Button - Beautiful Gradient
-                Container(
-                  width: double.infinity,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF667EEA).withValues(alpha: 0.4),
-                        blurRadius: 16,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: ElevatedButton(
-                    onPressed: sending ? null : submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.white,
-                      shadowColor: Colors.transparent,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 0,
+                      color: context.bg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: context.border),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(sending ? Icons.hourglass_empty : Icons.send_rounded, size: 22),
-                        const SizedBox(width: 10),
-                        Text(
-                          sending ? 'កំពុងផ្ទេរ...' : 'ផ្ទេរឥឡូវនេះ',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: 0.5),
-                        ),
-                      ],
-                    ),
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('សមតុល្យបច្ចុប្បន្ន',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: context.muted)),
+                          Text(
+                              '\$${selectedCard.balance.toStringAsFixed(2)} USD',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: C.accent)),
+                        ]),
                   ),
-                ),
+                ]),
+          ),
+
+          const SizedBox(height: 22),
+
+          // គណនីអ្នកទទួល
+          Text('គណនីអ្នកទទួល',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: context.ink)),
+          const SizedBox(height: 10),
+          NeuField(
+            controller: account,
+            label: 'ដាក់លេខគណនីទទួល',
+            icon: Icons.account_balance_wallet_outlined,
+            keyboardType: TextInputType.number,
+          ),
+
+          const SizedBox(height: 20),
+
+          // ចំនួនទឹកប្រាក់
+          Text('ចំនួនទឹកប្រាក់',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: context.ink)),
+          const SizedBox(height: 10),
+          NeuField(
+            controller: amount,
+            label: 'ចំនួនប្រាក់ (\$)',
+            prefixIcon: Container(
+              margin: const EdgeInsets.only(left: 12, right: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                    colors: [C.brandStart, C.brandEnd],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text('\$',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+
+          const SizedBox(height: 20),
+
+          // កំណត់ចំណាំ
+          Text('កំណត់ចំណាំ',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: context.ink)),
+          const SizedBox(height: 10),
+          NeuField(
+            controller: note,
+            label: 'សម្គាល់ (មិនដាក់ក៏បាន)',
+            icon: Icons.notes_outlined,
+            maxLength: 60,
+          ),
+
+          const SizedBox(height: 28),
+
+          // ប៊ូតុងផ្ទេរ
+          Container(
+            width: double.infinity,
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                  colors: [C.brandStart, C.brandEnd],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                    color: C.brandStart.withValues(alpha: 0.35),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8)),
               ],
+            ),
+            child: ElevatedButton(
+              onPressed: sending ? null : submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                shadowColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(sending ? Icons.hourglass_empty : Icons.send_rounded,
+                      size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    sending ? 'កំពុងផ្ទេរ...' : 'ផ្ទេរឥឡូវនេះ',
+                    style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
