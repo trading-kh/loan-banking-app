@@ -315,6 +315,32 @@ class ApiService {
         idempotencyKey: idempotencyKey,
       ) as Map);
 
+  /// ស្នើ OTP សម្រាប់ផ្ទេរក្នុងកម្មវិធី (Aura → Aura) — OTP ផ្ញើតាម Notification/FCM
+  static Future<Map<String, dynamic>> startP2pOtp({
+    required String recipientId,
+    required int cardId,
+    required double amount,
+    String? note,
+  }) async =>
+      Map<String, dynamic>.from(await _post('/transfers/otp/start', {
+        'recipient_id': recipientId,
+        'card_id': cardId,
+        'amount': amount,
+        if (note != null && note.isNotEmpty) 'note': note,
+      }) as Map);
+
+  /// ផ្ទៀងផ្ទាត់ OTP → Server ផ្ទេរភ្លាម (មិនរង់ចាំការអនុម័តពី Admin)
+  static Future<Map<String, dynamic>> confirmP2pOtp({
+    required int requestId,
+    required String otp,
+    required String idempotencyKey,
+  }) async =>
+      Map<String, dynamic>.from(await _post(
+        '/transfers/otp/confirm',
+        {'request_id': requestId, 'otp': otp},
+        idempotencyKey: idempotencyKey,
+      ) as Map);
+
   /// ផ្ទេរចេញក្រៅ (ធនាគារ/MFIs/វ៉លឡេត)។ Server កាត់លុយ + fee ហើយកត់ត្រាតែម្ខាង។
   static Future<Map<String, dynamic>> transferExternal({
     required String bankCode,

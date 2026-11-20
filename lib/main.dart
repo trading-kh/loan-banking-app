@@ -7778,9 +7778,6 @@ class _TransferScreenState extends State<TransferScreen> {
   bool qrBusy = false;
   Timer? _debounce;
 
-  // key ស្ទួនសម្រាប់សំណើដូចគ្នា (បណ្ដាញដាច់ → retry មិនកាត់លុយពីរដង)
-  String? _retrySig, _retryKey;
-
   final _flow = _TransferFlowHandle();
 
   @override
@@ -7971,57 +7968,70 @@ class _TransferScreenState extends State<TransferScreen> {
     }
     final rName = (info['name'] ?? '').toString();
     final recipientId = (info['recipient_id'] ?? '').toString();
-
-    final pin = await bank.pinForTransfer(context);
-    if (pin == null || !mounted) return;
-
     final nt = note.text.trim();
-    final sig = 'aura|$digits|$cid|$a|$nt';
-    final key = (_retrySig == sig && _retryKey != null)
-        ? _retryKey! : ApiService.newIdempotencyKey();
+    final idem = ApiService.newIdempotencyKey();
+
+    // ផ្ទេរក្នុងកម្មវិធី = បញ្ជាក់ OTP ប៉ុណ្ណោះ → ផ្ទេរភ្លាម មិនរង់ចាំ Admin
+    Future<Map<String, dynamic>> start() => ApiService.startP2pOtp(
+        recipientId: recipientId, cardId: cid, amount: a,
+        note: nt.isEmpty ? null : nt);
 
     setState(() => sending = true);
-    _flow.open(context, bankCode: 'AURA', recipientName: rName, amount: a);
+    Map<String, dynamic> first;
     try {
-      final r = await bank.transferP2P(recipientId: recipientId, amount: a,
-          cardId: cid, pin: pin, note: nt.isEmpty ? null : nt,
-          idempotencyKey: key);
-      _retrySig = null; _retryKey = null;
-      final ref = (r['transfer_ref'] ?? '').toString();
-      var flowStatus = 'success';
-      if (r['pending'] == true && ref.isNotEmpty) {
-        final res = await _flow.awaitApproval(ref: ref);
-        flowStatus = res?.status ?? 'holding';
-        await bank.loadAll();
-      } else {
-        await _flow.complete();
-      }
-      if (!mounted) return;
-      _clearForm();
-      final tx = r['transaction'];
-      Navigator.of(context).push(flowReceiptRoute(ReceiptScreen(
-          title: (tx is Map ? tx['title'] : null)?.toString() ?? 'ផ្ទេរប្រាក់',
-          amount: a, recipient: rName.isEmpty ? null : rName,
-          ref: ref.isEmpty ? null : ref,
-          flowBankCode: 'AURA',
-          flowRecipient: rName.isEmpty ? null : rName,
-          flowStatus: flowStatus,
-          magicReveal: true)));
+      first = await start();
     } on ApiException catch (e) {
-      _flow.close();
-      if (e.code == 'TIMEOUT' || e.code == 'NETWORK') {
-        _retrySig = sig; _retryKey = key;
-      }
       if (mounted) {
-        toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
-            error: true);
+        setState(() => sending = false);
+        toast(context, e.message, error: true);
       }
+      return;
     } catch (_) {
-      _flow.close();
-      if (mounted) toast(context, 'Network error', error: true);
-    } finally {
-      if (mounted) setState(() => sending = false);
+      if (mounted) {
+        setState(() => sending = false);
+        toast(context, 'Network error', error: true);
+      }
+      return;
     }
+    if (!mounted) return;
+    setState(() => sending = false);
+
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context, isScrollControlled: true, showDragHandle: true,
+      backgroundColor: context.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => _OtpSheet(
+        initial: first,
+        bankCode: 'AURA',
+        bankName: 'Aura Bank',
+        recipient: rName,
+        account: digits,
+        amount: a,
+        resend: start,
+        confirm: (requestId, otp) => ApiService.confirmP2pOtp(
+            requestId: requestId, otp: otp, idempotencyKey: idem),
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    final ref = (result['transfer_ref'] ?? '').toString();
+    setState(() => sending = true);
+    _flow.open(context, bankCode: 'AURA', recipientName: rName, amount: a);
+    await bank.loadAll();
+    await _flow.complete();
+    if (!mounted) return;
+    setState(() => sending = false);
+    _clearForm();
+    final tx = result['transaction'];
+    Navigator.of(context).push(flowReceiptRoute(ReceiptScreen(
+        title: (tx is Map ? tx['title'] : null)?.toString() ?? 'ផ្ទេរប្រាក់',
+        amount: a, recipient: rName.isEmpty ? null : rName,
+        ref: ref.isEmpty ? null : ref,
+        flowBankCode: 'AURA',
+        flowRecipient: rName.isEmpty ? null : rName,
+        flowStatus: 'success',
+        magicReveal: true)));
   }
 
   Widget _recipientPreview(BuildContext context) {
@@ -10440,44 +10450,61 @@ class _QrPayScreenState extends State<QrPayScreen>
     }
   }
 
+  /// Aura → Aura តាម QR — បញ្ជាក់ OTP ហើយផ្ទេរភ្លាម
   Future<void> _payAura(double amt) async {
-    final pin = await bank.pinForTransfer(context);
-    if (pin == null || !mounted) return;
+    final idem = ApiService.newIdempotencyKey();
+    Future<Map<String, dynamic>> start() => ApiService.startP2pOtp(
+        recipientId: _recipientId, cardId: _cardId, amount: amt);
+
     setState(() => _submitting = true);
-    final cid = _cardId;
-    _flow.open(context, bankCode: 'AURA', recipientName: _name, amount: amt);
+    Map<String, dynamic> first;
     try {
-      final r = await bank.transferP2P(
-          recipientId: _recipientId, amount: amt, cardId: cid, pin: pin,
-          idempotencyKey: ApiService.newIdempotencyKey());
-      final ref = (r['transfer_ref'] ?? '').toString();
-      var flowStatus = 'success';
-      if (r['pending'] == true && ref.isNotEmpty) {
-        final res = await _flow.awaitApproval(ref: ref);
-        flowStatus = res?.status ?? 'holding';
-        await bank.loadAll();
-      } else {
-        await _flow.complete();
-      }
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(flowReceiptRoute(ReceiptScreen(
-          title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
-          ref: ref.isEmpty ? null : ref,
-          flowBankCode: 'AURA', flowRecipient: _name,
-          flowStatus: flowStatus,
-          magicReveal: true)));
+      first = await start();
     } on ApiException catch (e) {
-      _flow.close();
       if (!mounted) return;
       setState(() => _submitting = false);
-      toast(context, e.message == 'Wrong PIN' ? 'PIN មិនត្រឹមត្រូវ' : e.message,
-          error: true);
+      toast(context, e.message, error: true);
+      return;
     } catch (_) {
-      _flow.close();
       if (!mounted) return;
       setState(() => _submitting = false);
       toast(context, 'Network error', error: true);
+      return;
     }
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context, isScrollControlled: true, showDragHandle: true,
+      backgroundColor: context.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => _OtpSheet(
+        initial: first,
+        bankCode: 'AURA',
+        bankName: 'Aura Bank',
+        recipient: _name,
+        account: _acc.text.trim(),
+        amount: amt,
+        resend: start,
+        confirm: (requestId, otp) => ApiService.confirmP2pOtp(
+            requestId: requestId, otp: otp, idempotencyKey: idem),
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    final ref = (result['transfer_ref'] ?? '').toString();
+    setState(() => _submitting = true);
+    _flow.open(context, bankCode: 'AURA', recipientName: _name, amount: amt);
+    await bank.loadAll();
+    await _flow.complete();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(flowReceiptRoute(ReceiptScreen(
+        title: 'ផ្ទេរប្រាក់', recipient: _name, amount: amt,
+        ref: ref.isEmpty ? null : ref,
+        flowBankCode: 'AURA', flowRecipient: _name,
+        flowStatus: 'success',
+        magicReveal: true)));
   }
 
   Future<void> _payExternal(double amt, String acc) async {
