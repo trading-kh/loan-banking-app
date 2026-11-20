@@ -7774,6 +7774,7 @@ class _TransferScreenState extends State<TransferScreen> {
   String? resolveCode;
   bool resolving = false;
   bool sending = false;
+  bool qrBusy = false;
   Timer? _debounce;
 
   /// ធនាគារខាងក្រៅមិនមានប្រព័ន្ធស្វែងរកឈ្មោះ → អ្នកផ្ញើត្រូវវាយឈ្មោះដោយខ្លួនឯង
@@ -7851,6 +7852,171 @@ class _TransferScreenState extends State<TransferScreen> {
     } finally {
       if (mounted) setState(() => resolving = false);
     }
+  }
+
+  /// ស្កេន QR ផ្ទាល់ — បើកកាមេរ៉ា (ដូច tab ទទួលប្រាក់) រួចបង្ហាញព័ត៌មានអ្នកទទួល
+  void _scanQr() {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const QrScreen(startScan: true)));
+  }
+
+  /// Upload រូបភាព QR ពី gallery → ឌិកូដ → ទំព័រទូទាត់ (ដូចស្កេន)
+  Future<void> _uploadQr() async {
+    if (qrBusy) return;
+    if (kIsWeb) {
+      toast(context, 'ការ Upload QR មានតែលើកម្មវិធីទូរស័ព្ទ', error: true);
+      return;
+    }
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (picked == null || !mounted) return;
+    setState(() => qrBusy = true);
+    String? raw;
+    final ctrl = MobileScannerController();
+    try {
+      final cap = await ctrl.analyzeImage(picked.path);
+      if (cap != null && cap.barcodes.isNotEmpty) {
+        raw = cap.barcodes.first.rawValue;
+      }
+    } catch (_) {
+      raw = null;
+    }
+    await ctrl.dispose();
+    if (!mounted) return;
+    setState(() => qrBusy = false);
+    final value = (raw ?? '').trim();
+    if (value.isEmpty) {
+      toast(context, 'រកមិនឃើញ QR Code ក្នុងរូបភាពនេះ', error: true);
+      return;
+    }
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => QrPayScreen(rawQr: value)));
+  }
+
+  Widget _qrActionButton({
+    required IconData icon,
+    required String label,
+    required String sub,
+    required VoidCallback? onTap,
+    bool filled = false,
+    bool busy = false,
+  }) {
+    final fg = filled ? C.brandStart : Colors.white;
+    return Material(
+      color: filled ? Colors.white : Colors.white.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: Colors.white.withValues(alpha: filled ? 0 : 0.26)),
+          ),
+          child: Row(children: [
+            if (busy)
+              const SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.2, color: C.brandStart),
+                  ))
+            else
+              GoldBadge.icon(icon, size: 34),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: fg)),
+                    const SizedBox(height: 2),
+                    Text(sub,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 10.5,
+                            color: filled
+                                ? C.brandStart.withValues(alpha: 0.62)
+                                : Colors.white.withValues(alpha: 0.70))),
+                  ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _qrActions(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+            colors: [C.brandStart, C.brandEnd],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+              color: C.brandStart.withValues(alpha: 0.30),
+              blurRadius: 20,
+              offset: const Offset(0, 10)),
+        ],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const GoldBadge.icon(Icons.qr_code_2_rounded, size: 40),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('អ្នកទទួលប្រាក់',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('ស្កេន ឬ Upload QR → ឃើញឈ្មោះអ្នកទទួលភ្លាមៗ',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.white.withValues(alpha: 0.72))),
+                ]),
+          ),
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(
+            child: _qrActionButton(
+              icon: Icons.qr_code_scanner_rounded,
+              label: 'ស្កេន QR',
+              sub: 'បើកកាមេរ៉ា',
+              onTap: _scanQr,
+              filled: true,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _qrActionButton(
+              icon: Icons.image_outlined,
+              label: 'Upload QR',
+              sub: 'ជ្រើសរូបភាព',
+              onTap: qrBusy ? null : _uploadQr,
+              busy: qrBusy,
+            ),
+          ),
+        ]),
+      ]),
+    );
   }
 
   Future<void> submit() async {
@@ -8206,6 +8372,26 @@ class _TransferScreenState extends State<TransferScreen> {
           ),
 
           const SizedBox(height: 22),
+
+          // QR អ្នកទទួល — ស្កេន ឬ Upload (ដូចទំព័រស្កេន QR)
+          _qrActions(context),
+
+          const SizedBox(height: 20),
+
+          // ឬដាក់លេខគណនីផ្ទាល់
+          Row(children: [
+            Expanded(child: Divider(color: context.border, height: 1)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text('ឬ ដាក់លេខគណនីផ្ទាល់',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: context.muted)),
+            ),
+            Expanded(child: Divider(color: context.border, height: 1)),
+          ]),
+          const SizedBox(height: 16),
 
           // គណនីអ្នកទទួល
           Text('គណនីអ្នកទទួល',
