@@ -1462,6 +1462,10 @@ class AppState extends ChangeNotifier {
     return r;
   }
 
+  Future<Map<String, dynamic>> lookupRailAccount({
+          required String bankCode, required String account}) =>
+      ApiService.lookupExternalAccount(bankCode: bankCode, account: account);
+
   Future<void> addGoal(String name, double target) async {
     await ApiService.createGoal(name: name, target: target);
     await loadAll();
@@ -7756,20 +7760,18 @@ class TransferScreen extends StatefulWidget {
 }
 
 class _TransferScreenState extends State<TransferScreen> {
-  final contact = TextEditingController();
-  final name = TextEditingController();
   final account = TextEditingController();
   final amount = TextEditingController();
   final note = TextEditingController();
 
-  late bool p2pMode = widget.bankCode == null;
   late String railCode = widget.bankCode ?? 'ABA';
   int? cardId;
 
-  Map<String, dynamic>? found;
-  String? lookupError;
-  bool looking = false;
+  Map<String, dynamic>? recipient;
+  String? resolveError;
+  bool resolving = false;
   bool sending = false;
+  Timer? _debounce;
 
   // key ស្ទួនសម្រាប់សំណើដូចគ្នា (បណ្ដាញដាច់ → retry មិនកាត់លុយពីរដង)
   String? _retrySig, _retryKey;
@@ -7786,68 +7788,52 @@ class _TransferScreenState extends State<TransferScreen> {
   @override
   void initState() {
     super.initState();
-    if (p2pMode) {
-      bank.ensureRecipients();
-    } else {
-      bank.ensureRails();
-    }
+    bank.ensureRails();
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _flow.dispose();
-    contact.dispose(); name.dispose(); account.dispose();
-    amount.dispose(); note.dispose();
+    account.dispose(); amount.dispose(); note.dispose();
     super.dispose();
   }
 
   void _clearForm() {
-    if (p2pMode) {
-      contact.clear();
-      found = null;
-    } else {
-      name.clear(); account.clear();
-    }
+    account.clear();
     amount.clear(); note.clear();
+    recipient = null; resolveError = null;
   }
 
-  Future<void> _lookup() async {
-    final q = contact.text.trim();
-    if (q.length < 5) {
-      setState(() => lookupError = 'សូមបញ្ចូលលេខទូរស័ព្ទ ឬអ៊ីមែលឲ្យពេញលេញ');
-      return;
-    }
-    setState(() { looking = true; lookupError = null; });
+  void _onAccountChanged(String v) {
+    _debounce?.cancel();
+    final digits = v.replaceAll(RegExp(r'\D'), '');
+    setState(() { recipient = null; resolveError = null; });
+    if (digits.length < 6) return;
+    _debounce = Timer(const Duration(milliseconds: 550), _resolveAccount);
+  }
+
+  Future<void> _resolveAccount() async {
+    final digits = account.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 6) return;
+    setState(() { resolving = true; resolveError = null; });
     try {
-      final r = await bank.lookupRecipient(q);
+      final r = await bank.lookupRailAccount(bankCode: railCode, account: digits);
       if (!mounted) return;
-      setState(() => found = r);
+      if (account.text.replaceAll(RegExp(r'\D'), '') != digits) return;
+      setState(() => recipient = r);
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() { found = null; lookupError = e.message; });
+      setState(() { recipient = null; resolveError = e.message; });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        recipient = null;
+        resolveError = 'មិនអាចភ្ជាប់ទៅ server បានទេ';
+      });
     } finally {
-      if (mounted) setState(() => looking = false);
+      if (mounted) setState(() => resolving = false);
     }
-  }
-
-  Future<void> _pickRecipient() async {
-    final r = await showModalBottomSheet<RecipientContact>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _RecipientPickerSheet(),
-    );
-    if (r == null || !mounted) return;
-    contact.clear();
-    setState(() {
-      lookupError = null;
-      found = {
-        'recipient_id': r.id,
-        'name': r.name,
-        'masked_account': r.maskedAccount,
-        'avatar_thumb': r.thumb == null ? null : base64Encode(r.thumb!),
-      };
-    });
   }
 
   Future<void> submit() async {
@@ -7861,44 +7847,43 @@ class _TransferScreenState extends State<TransferScreen> {
       toast(context, 'សូមបញ្ចូលចំនួនទឹកប្រាក់', error: true); return;
     }
 
-    String? recipientId;
-    if (p2pMode) {
-      if (found == null) await _lookup();
-      if (found == null || !mounted) return;
-      recipientId = found!['recipient_id'].toString();
-    } else {
-      if (account.text.trim().isEmpty) {
-        toast(context, 'សូមបំពេញលេខគណនីអ្នកទទួល', error: true);
-        return;
-      }
+    final digits = account.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 6) {
+      toast(context, 'សូមបញ្ចូលលេខគណនីអ្នកទទួល', error: true); return;
     }
+
+    if (recipient == null) await _resolveAccount();
+    if (!mounted) return;
+    final info = recipient;
+    if (info == null) {
+      toast(context, resolveError ?? 'រកមិនឃើញគណនីអ្នកទទួល', error: true);
+      return;
+    }
+    final rName = (info['name'] ?? '').toString();
+    final toAura = info['aura'] == true;
+    final recipientId = (info['recipient_id'] ?? '').toString();
 
     final pin = await bank.pinForTransfer(context);
     if (pin == null || !mounted) return;
 
     final nt = note.text.trim();
-    final sig = p2pMode
-        ? 'p2p|$recipientId|$cid|$a|$nt'
-        : 'rail|$railCode|${account.text.trim()}|${name.text.trim()}|$cid|$a|$nt';
+    final sig = 'rail|$railCode|$digits|$rName|$cid|$a|$nt';
     final key = (_retrySig == sig && _retryKey != null)
         ? _retryKey! : ApiService.newIdempotencyKey();
 
     setState(() => sending = true);
-    final flowBank = p2pMode ? 'AURA' : railCode;
-    final flowName = p2pMode
-        ? ((found?['name']) ?? '').toString()
-        : name.text.trim();
+    final flowBank = toAura ? 'AURA' : railCode;
     _flow.open(context, bankCode: flowBank,
-        recipientName: flowName, amount: a);
+        recipientName: rName, amount: a);
     try {
-      final r = p2pMode
-          ? await bank.transferP2P(recipientId: recipientId!, amount: a,
+      final r = toAura
+          ? await bank.transferP2P(recipientId: recipientId, amount: a,
               cardId: cid, pin: pin, note: nt.isEmpty ? null : nt,
               idempotencyKey: key)
           : await bank.transferToRail(
               rail: rail ?? BankRail(code: railCode, name: railCode),
-              recipientName: name.text.trim(),
-              recipientAccount: account.text.trim(),
+              recipientName: rName,
+              recipientAccount: digits,
               amount: a, cardId: cid, pin: pin,
               note: nt.isEmpty ? null : nt, idempotencyKey: key);
       _retrySig = null; _retryKey = null;
@@ -7912,9 +7897,6 @@ class _TransferScreenState extends State<TransferScreen> {
         await _flow.complete();
       }
       if (!mounted) return;
-      final rName = p2pMode
-          ? ((found?['name']) ?? 'អ្នកទទួល').toString()
-          : name.text.trim();
       _clearForm();
       final tx = r['transaction'];
       Navigator.of(context).push(flowReceiptRoute(ReceiptScreen(
@@ -7940,6 +7922,99 @@ class _TransferScreenState extends State<TransferScreen> {
     } finally {
       if (mounted) setState(() => sending = false);
     }
+  }
+
+  Widget _recipientPreview(BuildContext context) {
+    if (resolving) {
+      return Container(
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: context.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: context.border),
+        ),
+        child: Row(children: [
+          const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 12),
+          Text('កំពុងស្វែងរកអ្នកទទួល...',
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: context.muted)),
+        ]),
+      );
+    }
+    final info = recipient;
+    if (info == null) {
+      final err = resolveError;
+      if (err == null) return const SizedBox.shrink();
+      return Container(
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: C.accentRed.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: C.accentRed.withValues(alpha: 0.30)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.error_outline_rounded,
+              color: C.accentRed, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(err,
+                style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: C.accentRed)),
+          ),
+        ]),
+      );
+    }
+    final name = (info['name'] ?? '').toString();
+    final code = (info['bank_code'] ?? railCode).toString();
+    final bankName = (info['bank_name'] ?? widget.heading).toString();
+    final masked = (info['masked_account'] ?? account.text).toString();
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+            colors: [
+              C.accentGreen.withValues(alpha: 0.14),
+              C.accent.withValues(alpha: 0.06),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: C.accentGreen.withValues(alpha: 0.34)),
+      ),
+      child: Row(children: [
+        BankLogo(code: code, size: 42),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: context.ink)),
+            const SizedBox(height: 3),
+            Text('$bankName · $masked',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, color: context.muted)),
+          ]),
+        ),
+        const Icon(Icons.verified_rounded, color: C.accentGreen, size: 22),
+      ]),
+    );
   }
 
   @override
@@ -8073,6 +8148,13 @@ class _TransferScreenState extends State<TransferScreen> {
               child: GoldBadge.icon(Icons.account_balance_wallet_outlined),
             ),
             keyboardType: TextInputType.number,
+            onChanged: _onAccountChanged,
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _recipientPreview(context),
           ),
 
           const SizedBox(height: 20),
@@ -8162,141 +8244,6 @@ class _TransferScreenState extends State<TransferScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// ប្រអប់ជ្រើសអ្នកទទួល — បញ្ជីឈ្មោះអ្នកប្រើទាំងអស់ + ស្វែងរក
-class _RecipientPickerSheet extends StatefulWidget {
-  const _RecipientPickerSheet();
-  @override
-  State<_RecipientPickerSheet> createState() => _RecipientPickerSheetState();
-}
-
-class _RecipientPickerSheetState extends State<_RecipientPickerSheet> {
-  final search = TextEditingController();
-  bool loading = true;
-  String query = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _refresh();
-  }
-
-  @override
-  void dispose() {
-    search.dispose();
-    super.dispose();
-  }
-
-  Future<void> _refresh() async {
-    if (!loading) setState(() => loading = true);
-    await bank.ensureRecipients(force: true);
-    if (mounted) setState(() => loading = false);
-  }
-
-  @override
-  Widget build(BuildContext context) => sb(() {
-        final q = query.trim().toLowerCase();
-        final all = bank.recipients;
-        final list = q.isEmpty
-            ? all
-            : all.where((r) => r.name.toLowerCase().contains(q)).toList();
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.82,
-          decoration: BoxDecoration(
-              color: context.card,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(24))),
-          child: Column(children: [
-            const SizedBox(height: 10),
-            Container(
-                width: 44, height: 5,
-                decoration: BoxDecoration(color: context.border,
-                    borderRadius: BorderRadius.circular(3))),
-            Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 8, 0),
-                child: Row(children: [
-                  Expanded(
-                      child: Text('ជ្រើសរើសអ្នកទទួល',
-                          style: TextStyle(fontSize: 17,
-                              fontWeight: FontWeight.w800, color: context.ink))),
-                  IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context)),
-                ])),
-            Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
-                child: NeuField(
-                    controller: search,
-                    label: 'ស្វែងរកតាមឈ្មោះ',
-                    icon: Icons.search,
-                    onChanged: (v) => setState(() => query = v))),
-            if (loading) const LinearProgressIndicator(minHeight: 2),
-            Expanded(child: _body(context, list, q)),
-            const SizedBox(height: 8),
-          ]),
-        );
-      });
-
-  Widget _body(BuildContext context, List<RecipientContact> list, String q) {
-    if (loading && list.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (list.isEmpty) {
-      return ListView(children: [
-        Padding(
-            padding: const EdgeInsets.fromLTRB(24, 40, 24, 8),
-            child: Text(
-                q.isEmpty ? 'មិនទាន់មានអ្នកប្រើផ្សេងទៀត' : 'រកមិនឃើញអ្នកទទួល',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: context.muted, fontSize: 13.5))),
-        if (q.isEmpty)
-          TextButton(onPressed: _refresh, child: const Text('ព្យាយាមម្ដងទៀត')),
-      ]);
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-      itemCount: list.length,
-      separatorBuilder: (_, __) =>
-          Divider(height: 1, color: context.border, indent: 58),
-      itemBuilder: (context, i) {
-        final r = list[i];
-        return InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => Navigator.pop(context, r),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 4),
-            child: Row(children: [
-              RecipientThumb(bytes: r.thumb, name: r.name),
-              const SizedBox(width: 14),
-              Expanded(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Text(r.name,
-                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: context.ink,
-                            fontWeight: FontWeight.w700, fontSize: 14.5)),
-                    const SizedBox(height: 2),
-                    Text(r.maskedAccount,
-                        style: TextStyle(color: context.muted, fontSize: 12)),
-                  ])),
-              if (r.recent)
-                Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                        color: C.accentGreen.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(20)),
-                    child: const Text('ថ្មីៗ',
-                        style: TextStyle(color: C.accentGreen,
-                            fontSize: 10.5, fontWeight: FontWeight.w700))),
-            ]),
-          ),
-        );
-      },
     );
   }
 }

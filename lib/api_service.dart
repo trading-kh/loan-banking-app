@@ -344,6 +344,15 @@ class ApiService {
   static Future<List<dynamic>> getBanks() async =>
       await _get('/banks') as List<dynamic>;
 
+  /// ពិនិត្យគណនីអ្នកទទួលមុនផ្ទេរ — Server ត្រឡប់ឈ្មោះអ្នកកាន់គណនី
+  static Future<Map<String, dynamic>> lookupExternalAccount({
+    required String bankCode,
+    required String account,
+  }) async =>
+      Map<String, dynamic>.from(await _get(
+              '/transfers/external/lookup?bank_code=${Uri.encodeQueryComponent(bankCode)}&account=${Uri.encodeQueryComponent(account)}')
+          as Map);
+
   static Future<List<dynamic>> getExternalTransfers() async =>
       await _get('/transfers/external') as List<dynamic>;
 
